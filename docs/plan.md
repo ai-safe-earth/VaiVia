@@ -113,9 +113,15 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] **Live verification** — `uv run python -m scripts.check_intents_live`: 15/15 against the real API (8 natural phrasings → correct intents and fields; 7 injection/out-of-scope payloads → all `clarify`). Costs money, so it is a script, not CI.
 - [ ] Swap `InMemoryStore` for the written `PostgresStore` (asyncpg) once the Supabase project exists.
 
-### Phase 5 — Frontend
-- Next.js: Supabase sign-in, streaming chat UI, MapLibre GL map rendering trail GeoJSON from result cards, conversation list.
-- Talks only to the gateway; environment-driven base URL.
+### Phase 5 — Frontend ✅
+- [x] Next.js 15 + React 19 app (`frontend/`): chat-first two-pane layout, streaming replies, trail result cards, MapLibre map drawing the selected trail's real geometry.
+- [x] `lib/sse.ts` — incremental SSE parser that survives frames split across arbitrary network chunks (mid-JSON, between `event:` and `data:`, on the separator itself); 13 tests including a character-by-character stream.
+- [x] `lib/api.ts` — the app's only network surface: gateway URL from env, Supabase bearer attached, 401/429 mapped to usable messages, malformed frames skipped rather than tearing down the stream.
+- [x] `lib/format.ts` — the single place metres/minutes become human units.
+- [x] Map: OSM raster tiles (no API key, correct attribution), casing under the route line for legibility, auto-fit bounds; `dynamic(ssr: false)` since MapLibre touches `window` at import.
+- [x] Verified: 25 tests pass, `next build` compiles and type-checks clean, production server serves the rendered app, and no secret appears in the bundle.
+- [ ] Sign-in page + conversation list: deferred until the Supabase project exists (the app runs and warns in-page without it).
+- [ ] Playwright end-to-end smoke — needs the full stack (Neo4j + backend + gateway) running.
 
 ### Phase 6 — Beta hardening
 - Embeddings job (`backend/scripts/embed_trails.py`) + vector search behind the 503-until-populated rule.
