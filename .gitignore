@@ -28,8 +28,9 @@ build/
 *.osm.pbf
 *.geojson
 
-# Trailforks cache (auto-generated, not committed)
-fixtures/trailforks_cache/
+# Ingestion caches (auto-generated, not committed)
+backend/fixtures/trailforks_cache/
+backend/fixtures/overpass_cache/
 
 # Neo4j local data (if running outside Docker)
 neo4j/data/

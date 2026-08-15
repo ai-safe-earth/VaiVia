@@ -1,0 +1,56 @@
+[
+  {
+    "trail_id": "tf_001",
+    "name": "Lago Loop",
+    "activity": "mtb",
+    "difficulty": "Intermediate",
+    "total_distance_km": 12.4,
+    "elevation_gain_m": 420,
+    "elevation_loss_m": 420,
+    "description": "A scenic intermediate loop around the lake with some technical singletrack.",
+    "landscape_description": "Lakeside gravel opening into chestnut forest; short rocky balcony sections with open views over Lake Como.",
+    "difficulty_notes": "Two short technical rock gardens after the second bridge; walkable. Fine for confident kids on the first 4 km.",
+    "best_seasons": ["spring", "summer", "autumn"],
+    "seasonal_hazards": ["mud_after_rain"],
+    "geometry": {
+      "type": "LineString",
+      "coordinates": [[9.380, 45.910], [9.385, 45.913], [9.390, 45.917], [9.393, 45.921], [9.396, 45.925], [9.392, 45.928], [9.386, 45.926], [9.381, 45.921], [9.379, 45.915], [9.380, 45.910]]
+    }
+  },
+  {
+    "trail_id": "tf_002",
+    "name": "Rifugio Traverse",
+    "activity": "mixed",
+    "difficulty": "Difficult",
+    "total_distance_km": 26.8,
+    "elevation_gain_m": 1650,
+    "elevation_loss_m": 1580,
+    "description": "A demanding traverse linking two valleys over a high saddle, with a mountain hut near the midpoint.",
+    "landscape_description": "Alpine meadows above the tree line, exposed ridgeline before the saddle, larch forest on the long descent.",
+    "difficulty_notes": "Exposed 300 m section at the saddle — dangerous with snow or ice; not suitable for children. Carry water: no refill between the hut and the valley.",
+    "best_seasons": ["summer", "autumn"],
+    "seasonal_hazards": ["snow", "ice"],
+    "geometry": {
+      "type": "LineString",
+      "coordinates": [[9.410, 45.930], [9.418, 45.936], [9.428, 45.941], [9.437, 45.948], [9.447, 45.955], [9.458, 45.960], [9.470, 45.964], [9.482, 45.967], [9.494, 45.968]]
+    }
+  },
+  {
+    "trail_id": "tf_003",
+    "name": "Famiglia al Lido",
+    "activity": "hike",
+    "difficulty": "Easy",
+    "total_distance_km": 4.2,
+    "elevation_gain_m": 60,
+    "elevation_loss_m": 60,
+    "description": "Flat lakeside stroll to the bathing area, with benches and picnic spots along the way.",
+    "landscape_description": "Shaded lakefront promenade and meadows; pebble beach at the turnaround point.",
+    "difficulty_notes": "Apt for kids, families, and strollers. Fully signposted; passable year-round.",
+    "best_seasons": ["spring", "summer", "autumn", "winter"],
+    "seasonal_hazards": [],
+    "geometry": {
+      "type": "LineString",
+      "coordinates": [[9.340, 45.860], [9.345, 45.862], [9.351, 45.864], [9.357, 45.866], [9.362, 45.868]]
+    }
+  }
+]

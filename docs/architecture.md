@@ -25,10 +25,20 @@ A curated, named trail loop sourced from Trailforks.
 |---|---|---|
 | `id` | `STRING` | Unique Trailforks ID |
 | `name` | `STRING` | Human-readable name |
-| `total_distance` | `FLOAT` | Total length in km |
+| `activity` | `STRING` | `mtb` \| `hike` \| `mixed` |
 | `difficulty` | `STRING` | `Easy`, `Intermediate`, `Difficult`, `Pro` |
+| `difficulty_level` | `INTEGER` | 1–4 numeric mirror of `difficulty`, for range filters |
+| `difficulty_notes` | `STRING` | Free text: critical points, family-aptness, hazards prose |
+| `description` | `STRING` | Trailforks description (embedding source) |
+| `landscape_description` | `STRING` | Landscape and path character (embedding source) |
+| `total_distance_m` | `FLOAT` | Total length in **metres** |
+| `elevation_gain_m` / `elevation_loss_m` | `FLOAT` | Total ascent / descent (null until backfill where source lacks it) |
+| `duration_hike_min` | `INTEGER` | DIN 33466 estimate; null if activity is mtb-only |
+| `duration_mtb_min` | `INTEGER` | Speed-by-difficulty + climb estimate; null if hike-only |
+| `best_seasons` | `LIST<STRING>` | e.g. `['spring','summer','autumn']` |
+| `seasonal_hazards` | `LIST<STRING>` | e.g. `['snow','ice','mud_after_rain']` |
 | `source` | `STRING` | Always `trailforks` for this label |
-| `description_embedding` | `LIST<FLOAT>` | Vector embedding of the trail description (Phase 3) |
+| `description_embedding` | `LIST<FLOAT>` | Embedding of description + landscape + difficulty notes (Phase 3) |
 
 ---
 
@@ -38,8 +48,10 @@ A physical piece of path or road, sourced from OSM. This is the atomic routing u
 
 | Property | Type | Description |
 |---|---|---|
-| `osm_way_id` | `STRING` | OSM way ID |
-| `length` | `FLOAT` | Length in metres |
+| `osm_way_id` | `STRING` | Deterministic split-piece id `"<wayId>#<n>"` (ways are split at intersections) |
+| `osm_parent_way_id` | `STRING` | The raw OSM way ID |
+| `length_m` | `FLOAT` | Length in metres |
+| `elevation_gain_m` / `elevation_loss_m` | `FLOAT` | Along the polyline in coordinate order (null until SRTM backfill) |
 | `surface` | `STRING` | `unpaved`, `gravel`, `asphalt`, `dirt`, etc. |
 | `highway_type` | `STRING` | OSM `highway` tag: `path`, `track`, `cycleway` |
 | `coordinates` | `LIST<POINT>` | Ordered list of WGS84 points (polyline) |
@@ -96,13 +108,16 @@ the single Trail→Segment relationship — the sources stay linked, never merge
 ---
 
 ```
-(:Intersection)-[:CONNECTS_TO {distance: FLOAT, elevation_change: FLOAT,
+(:Intersection)-[:CONNECTS_TO {distance_m: FLOAT,
+                               elevation_gain_m: FLOAT, elevation_loss_m: FLOAT,
                                osm_way_id: STRING, surface: STRING,
                                highway_type: STRING}]->(:Intersection)
 ```
 The routing graph: intersections are the vertices, and each edge carries the
-segment data needed for cost-based pathfinding. `distance` is in metres;
-`elevation_change` is signed (positive = uphill). This is the graph GDS
+segment data needed for cost-based pathfinding. Both directions are
+materialized (unless OSM `oneway`), and each direction carries its own
+`elevation_gain_m`/`elevation_loss_m` — A→B's climb is B→A's descent — so
+routing can cost real climbing effort. This is the graph GDS
 projects for Dijkstra — `(:Segment)` nodes are NOT part of the routing
 traversal; they exist for trail composition (`COMPOSED_OF`) and POI proximity
 (`PASSES_BY`).
@@ -165,8 +180,9 @@ Defined in [`graph/schema.cypher`](../graph/schema.cypher). Summary:
 | `POI.location` | Spatial point index | `distance()` queries |
 | `Segment.location` | Spatial point index | "trails near X" queries |
 | `Trail.description_embedding` | Vector index (1536-dim) | Semantic search (Phase 3) |
-| `Trail.difficulty` | B-tree index | Filter queries |
-| `POI.type` | B-tree index | Filter queries |
+| `Trail.difficulty_level`, `Trail.activity` | Range index | Filter queries |
+| `Trail.total_distance_m`, `Trail.duration_hike_min`, `Trail.duration_mtb_min`, `Trail.elevation_gain_m` | Range index | Distance/time/effort range filters |
+| `POI.type` | Range index | Filter queries |
 
 ---
 

@@ -74,11 +74,17 @@ Security model: browsers never reach FastAPI, Neo4j, or OpenAI. The gateway is t
 - [x] Supabase Postgres migration drafts (`infra/supabase/migrations/`).
 - [ ] Supabase project created + auth configured (manual, needs account).
 
-### Phase 1 — Graph core & ingestion (the moat)
-- `backend/graph/schema.cypher` (corrected model) + `backend/scripts/init_schema.py`.
-- `backend/ingestion/osm_ingest.py`: Overpass with timeout/backoff + local response cache; builds Intersection/CONNECTS_TO routing graph + Segment/POI nodes; MERGE-idempotent.
-- `backend/ingestion/trailforks_ingest.py --mock` + `fixtures/trailforks_mock.json`; `spatial_match.py` creates ordered `COMPOSED_OF {seq, match_confidence}` with surface/highway compatibility checks.
-- Tests: idempotency (double-run == single-run), matcher precision on synthetic fixtures, routing-graph connectivity.
+### Phase 1 — Graph core & ingestion (the moat) ✅
+Ontology extended and owner-validated before build: difficulty trio (label +
+level 1–4 + notes), per-activity durations (DIN 33466 hike / speed-by-level
+MTB), elevation gain/loss at trail, segment, and per-direction edge level,
+seasonality lists (`best_seasons`, `seasonal_hazards`), `landscape_description`
+feeding the Phase 3 embedding alongside description and difficulty notes.
+- [x] `backend/graph/schema.cypher` (corrected model) + `backend/scripts/init_schema.py` (applies schema, seeds region from `DEFAULT_BBOX`).
+- [x] `backend/ingestion/osm_ingest.py`: Overpass with backoff + on-disk cache (`overpass_client.py`); pure topology extractor (`osm_extract.py`) splits ways at intersections into deterministic `"<wayId>#<n>"` pieces and builds the Intersection/CONNECTS_TO routing graph (oneway-aware, both directions); MERGE-idempotent loaders.
+- [x] `backend/ingestion/trailforks_ingest.py --mock` + `fixtures/trailforks_mock.json` (full ontology); `spatial_match.py` creates ordered `COMPOSED_OF {seq, match_confidence}` with activity/highway compatibility checks (delete-and-recreate so re-runs never leave stale links).
+- [x] Tests (29, offline): topology split/oneway/determinism, matcher precision incl. the 15 m parallel-trail residual risk, DIN/MTB duration formulas, fixture normalization.
+- [ ] Live-DB smoke: run init_schema + both ingesters against compose Neo4j, assert re-run leaves counts unchanged (needs Docker running).
 
 ### Phase 2 — Backend query service
 - FastAPI app: `/search/trails`, `/routes`, `/trails/{id}/geojson`, `/healthz`; async Neo4j driver wrapper; query-template loader.
