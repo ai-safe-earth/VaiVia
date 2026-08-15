@@ -16,7 +16,9 @@ Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md`
 ## Architecture rules (from docs/plan.md — owner-ratified)
 
 - The Fastify **gateway is the only public service** and carries no business logic (auth, rate limits, origin control, quota pre-check, SSE proxy only). Backend and Neo4j are internal; backend trusts only the gateway.
-- **The LLM never sees or writes Cypher.** `/chat` uses OpenAI structured outputs to produce a validated pydantic intent, which selects a parameterized template from `backend/graph/queries.cypher`. Out-of-scope input → `Clarify` intent.
+- **The LLM never sees or writes Cypher.** `/chat` uses OpenAI structured outputs to produce a validated pydantic intent (`backend/chat/intents.py`), which Python — not the model — maps to a parameterized template in `backend/graph/queries.cypher`. Out-of-scope or adversarial input → `Clarify`, which runs no query. Never add a field to an intent that carries a query, template name, or database identifier; that would hand the boundary away.
+- OpenAI strict structured outputs reject `oneOf` and `discriminator`; use `to_strict_schema()` for any new schema sent to the model.
+- After changing prompts or intents, re-run `uv run python -m scripts.check_intents_live` (costs money, needs `OPENAI_API_KEY`) — the adversarial half must stay 7/7 `clarify`.
 - Chat history, usage ledger, and quotas live in Supabase Postgres (`infra/supabase/migrations/`); per-user daily LLM cost caps are enforced before every OpenAI call.
 - SSE streaming end-to-end for `/chat` (backend → gateway → frontend).
 

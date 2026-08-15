@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from api.middleware import GatewayTrustMiddleware, RequestContextMiddleware
 from api.models import HealthResponse
-from api.routes import routing, trails
+from api.routes import chat, routing, trails
 from core.config import get_settings
 from core.logging import configure_logging
 from graph.neo4j_client import Neo4jClient
@@ -31,6 +31,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.db = Neo4jClient()
         await app.state.db.connect()
         logger.info("backend started", extra={"neo4j_uri": settings.neo4j_uri})
+
+    if getattr(app.state, "llm", None) is None:
+        from chat.llm import OpenAIClient
+
+        app.state.llm = OpenAIClient()
+    if getattr(app.state, "store", None) is None:
+        # Postgres store is wired when DATABASE_URL is set; without it, history
+        # and the cost ledger live in memory (dev only — quotas reset on restart).
+        from chat.store import InMemoryStore
+
+        if not settings.database_url:
+            logger.warning("DATABASE_URL unset — chat history and quotas are in-memory")
+        app.state.store = InMemoryStore()
+
     try:
         yield
     finally:
@@ -52,6 +66,7 @@ app.add_middleware(RequestContextMiddleware)
 
 app.include_router(trails.router)
 app.include_router(routing.router)
+app.include_router(chat.router)
 
 
 @app.get("/healthz", response_model=HealthResponse, tags=["ops"])

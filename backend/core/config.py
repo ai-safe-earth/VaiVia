@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     snap_radius_m: float = 500.0
     max_route_distance_m: float = 100_000.0
 
+    # LLM
+    openai_api_key: str = ""
+    intent_model: str = "gpt-4o-mini"
+    answer_model: str = "gpt-4o-mini"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    daily_token_quota_per_user: int = 50_000
+
+    # Supabase Postgres (chat history, ledger, quotas)
+    database_url: str = ""
+
     @property
     def bbox(self) -> tuple[float, float, float, float]:
         """(min_lat, min_lon, max_lat, max_lon)."""

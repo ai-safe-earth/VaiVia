@@ -102,10 +102,16 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] 25 tests (real RSA-signed JWTs, stub upstream, SSE stream assertion): 401 paths, unknown-key and expired tokens, per-user limit isolation, 429 on limit and on exhausted quota with the backend never called, CORS allow/deny, request-id adoption, health.
 - [x] CI job (npm ci → lint → typecheck → test); clean `tsc --noEmit` and eslint.
 
-### Phase 4 — Chat orchestration (LLM)
-- `/chat` in backend, SSE streaming end-to-end: history load (Postgres) → OpenAI structured intent → template query → grounded answer composed from actual graph results (IDs + GeoJSON refs, no fabricated trails) → history + cost-ledger write.
-- Cost caps: per-user daily token budget enforced before each OpenAI call; 429-with-message when exhausted.
-- Prompt-injection posture: intent schema is the only LLM output consumed; no write-capable tools; adversarial test set ("delete all data", nonsense regions) must yield `Clarify`/refusal.
+### Phase 4 — Chat orchestration (LLM) ✅
+- [x] `POST /chat` streams SSE (`conversation`, `intent`, `results`, `token`…, `done`, `error`). Identity comes from the gateway's `X-User-Id`; the backend never parses JWTs.
+- [x] Intent contract (`backend/chat/intents.py`): `TrailSearchIntent | RouteIntent | ClarifyIntent`, pydantic-validated and dispatched to named templates **in Python**. The model never sees Cypher, never names a template, never supplies an identifier. Adversarial or out-of-scope input → `Clarify`, which runs no query at all.
+- [x] OpenAI strict structured outputs. Pydantic's tagged-union schema needed transforming: strict mode rejects `oneOf` and `discriminator`, so `to_strict_schema()` rewrites to `anyOf`, closes every object, and marks every property required.
+- [x] Grounded answers: the answer model only sees results the graph returned; `result_refs` pins every reply to real trail ids.
+- [x] Quota enforced before any model call (authoritative; the gateway also pre-checks). Usage written to the ledger after each turn.
+- [x] History persisted per conversation with an ownership check — one user cannot continue another's conversation.
+- [x] 33 offline tests (96 backend total): pipeline, dispatch, quota, history, ownership, injection containment.
+- [x] **Live verification** — `uv run python -m scripts.check_intents_live`: 15/15 against the real API (8 natural phrasings → correct intents and fields; 7 injection/out-of-scope payloads → all `clarify`). Costs money, so it is a script, not CI.
+- [ ] Swap `InMemoryStore` for the written `PostgresStore` (asyncpg) once the Supabase project exists.
 
 ### Phase 5 — Frontend
 - Next.js: Supabase sign-in, streaming chat UI, MapLibre GL map rendering trail GeoJSON from result cards, conversation list.
