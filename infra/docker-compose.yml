@@ -1,4 +1,6 @@
-# Development stack. Run from repo root: docker compose -f infra/docker-compose.yml up -d
+# Development stack. Run from repo root:
+#   docker compose --env-file .env -f infra/docker-compose.yml up -d
+# (--env-file is required: compose otherwise looks for .env next to this file)
 #
 # Dev exposes Neo4j on localhost only. In production, nothing but the gateway
 # (behind Caddy) publishes a port; backend and Neo4j live on the internal

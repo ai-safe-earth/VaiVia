@@ -9,7 +9,7 @@ Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md`
 ## Setup and commands
 
 - Backend deps: **uv** in `backend/` (`cd backend && uv sync`), not pip. Run tools via `uv run`.
-- Neo4j: `docker compose -f infra/docker-compose.yml up -d neo4j` (Community + APOC + GDS). Copy `.env.example` → `.env` first; `NEO4J_PASSWORD` is required (no default).
+- Neo4j: `docker compose --env-file .env -f infra/docker-compose.yml up -d neo4j` (run from repo root; `--env-file` is required because the compose file lives in `infra/`) (Community + APOC + GDS). Copy `.env.example` → `.env` first; `NEO4J_PASSWORD` is required (no default).
 - Ingestion for local dev/CI must stay offline: `--mock` (reads `backend/fixtures/trailforks_mock.json`), never the live Trailforks API.
 - Checks before PR (from `backend/`): `uv run ruff check .`, `uv run black --check .`, `uv run pytest tests/ -v`.
 
