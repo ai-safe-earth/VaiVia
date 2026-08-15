@@ -1,0 +1,52 @@
+# Environment
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OSM / data files (can be large)
+*.osm
+*.osm.pbf
+*.geojson
+
+# Trailforks cache (auto-generated, not committed)
+fixtures/trailforks_cache/
+
+# Neo4j local data (if running outside Docker)
+neo4j/data/
+neo4j/logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Windows
+desktop.ini
+
+# Logs
+*.log
+logs/

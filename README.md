@@ -73,8 +73,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full graph data model
 ```bash
 git clone https://github.com/your-org/get-out-door.git
 cd get-out-door
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 2. Configure environment
@@ -147,7 +146,7 @@ get-out-door/
 │   └── trailforks_mock.json
 │
 ├── .env.example
-├── requirements.txt
+├── pyproject.toml          # Dependencies + tool config (managed with uv)
 ├── docker-compose.yml      # Neo4j + API stack
 └── README.md
 ```
