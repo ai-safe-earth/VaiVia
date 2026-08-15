@@ -1,0 +1,37 @@
+{
+  "name": "get-out-door-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fastify API gateway: auth, rate limiting, origin control, SSE proxy to the backend",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/http-proxy": "^10.0.1",
+    "@fastify/rate-limit": "^10.2.1",
+    "fastify": "^5.2.0",
+    "fastify-plugin": "^5.0.1",
+    "jose": "^5.9.6",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "eslint": "^9.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^2.1.8"
+  }
+}

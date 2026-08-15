@@ -94,9 +94,13 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] 34 API/template tests (63 backend total), no Neo4j needed — fake graph client records template name + parameters. Guard tests assert no template mutates data, none traverses semantic edges in a path, and no traversal is unbounded.
 - [ ] GDS Dijkstra swap-in: `route_gds_dijkstra` + `graph_project_routing` templates are written but not wired to the endpoint until they can be verified against a live GDS instance.
 
-### Phase 3 — Gateway (security layer)
-- Fastify + TypeScript: `@fastify/jwt` with Supabase JWKS, `@fastify/rate-limit` (per-user + per-IP), strict CORS/origin allowlist, `@fastify/http-proxy` to backend (SSE-capable), request-ID propagation, quota pre-check against Postgres.
-- Contract tests: unauthenticated → 401, wrong origin → 403, over-limit → 429, happy path proxies.
+### Phase 3 — Gateway (security layer) ✅
+- [x] Fastify 5 + TypeScript (`gateway/`): Supabase JWT verification via remote JWKS (`jose`), `@fastify/rate-limit` keyed by verified user id with IP fallback, strict CORS allowlist, `@fastify/http-proxy` (SSE-capable) for `/trails`, `/routes`, `/chat` only — every other path 404s at the gateway.
+- [x] Request pipeline ordered so identification runs *before* rate limiting (limits key on the verified user; unauthenticated traffic is still IP-counted rather than escaping on an early 401), with enforcement at the route preHandler.
+- [x] LLM quota pre-check on `/chat` against Supabase `daily_quotas`; fails open on Postgres errors (logged) so a database blip degrades cost control, not availability.
+- [x] Proxy attaches `X-Gateway-Secret`, `X-Request-ID`, and verified `x-user-id`; the caller's bearer token is never forwarded.
+- [x] 25 tests (real RSA-signed JWTs, stub upstream, SSE stream assertion): 401 paths, unknown-key and expired tokens, per-user limit isolation, 429 on limit and on exhausted quota with the backend never called, CORS allow/deny, request-id adoption, health.
+- [x] CI job (npm ci → lint → typecheck → test); clean `tsc --noEmit` and eslint.
 
 ### Phase 4 — Chat orchestration (LLM)
 - `/chat` in backend, SSE streaming end-to-end: history load (Postgres) → OpenAI structured intent → template query → grounded answer composed from actual graph results (IDs + GeoJSON refs, no fabricated trails) → history + cost-ledger write.

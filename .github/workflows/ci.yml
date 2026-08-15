@@ -21,5 +21,22 @@ jobs:
         run: |
           if [ -d tests ]; then uv run pytest tests/ -v; else echo "no tests yet"; fi
 
-  # gateway and frontend jobs (eslint / tsc / vitest) are added when those
-  # services are scaffolded in Phases 3 and 5 — see docs/plan.md.
+  gateway:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  # frontend job (eslint / tsc / playwright) is added when it is scaffolded in
+  # Phase 5 — see docs/plan.md.
