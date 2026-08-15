@@ -30,6 +30,18 @@ class Settings(BaseSettings):
 
     log_level: str = "info"
 
+    api_host: str = "0.0.0.0"  # noqa: S104 — container-internal, never published
+    api_port: int = 8000
+
+    # The backend is not public: every request must carry this shared secret in
+    # the X-Gateway-Secret header, proving it came through the Fastify gateway.
+    # Empty disables the check — dev/test only, never in a deployed environment.
+    gateway_shared_secret: str = ""
+
+    # Routing guardrails
+    snap_radius_m: float = 500.0
+    max_route_distance_m: float = 100_000.0
+
     @property
     def bbox(self) -> tuple[float, float, float, float]:
         """(min_lat, min_lon, max_lat, max_lon)."""

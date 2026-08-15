@@ -29,7 +29,7 @@ Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md`
 - **Ingestion must be idempotent**: `MERGE` on `osm_way_id` / `osm_node_id` / Trailforks IDs.
 - Distance-along-trail queries must use `COMPOSED_OF.seq` — unordered `sum(s.length)` is wrong.
 - Semantic-search endpoints return `503` (not empty results) when the vector index is unpopulated.
-- Cypher lives in `.cypher` files under `backend/graph/`, not inline in Python.
+- Cypher lives in `.cypher` files under `backend/graph/`, not inline in Python. Query-service Cypher goes in `queries.cypher` as a named template (`// name: <x>`) and runs via `db.run_named("<x>", **params)` — parameters only, never string interpolation. Guard tests in `tests/test_query_loader.py` fail the build if a template mutates data, traverses semantic edges in a path expression, or leaves a traversal unbounded.
 
 ## Code conventions
 

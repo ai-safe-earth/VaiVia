@@ -30,8 +30,14 @@ class Neo4jClient:
             settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
         )
 
-    async def __aenter__(self) -> Self:
+    async def connect(self) -> None:
         await self._driver.verify_connectivity()
+
+    async def close(self) -> None:
+        await self._driver.close()
+
+    async def __aenter__(self) -> Self:
+        await self.connect()
         return self
 
     async def __aexit__(
@@ -40,9 +46,19 @@ class Neo4jClient:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        await self._driver.close()
+        await self.close()
 
-    async def run(self, query: str, **params: Any) -> list[dict[str, Any]]:
+    async def run_named(self, name: str, /, **params: Any) -> list[dict[str, Any]]:
+        """Run a template from graph/queries.cypher by name (parameters only).
+
+        `name` is positional-only so a Cypher parameter may also be called
+        $name (poi_by_name uses one).
+        """
+        from graph.query_loader import get_query
+
+        return await self.run(get_query(name), **params)
+
+    async def run(self, query: str, /, **params: Any) -> list[dict[str, Any]]:
         """Execute one parameterized query, return records as dicts."""
         result = await self._driver.execute_query(
             query, params, database_=self._database
@@ -50,7 +66,7 @@ class Neo4jClient:
         return [record.data() for record in result.records]
 
     async def run_batched(
-        self, query: str, rows: list[dict[str, Any]], batch_size: int = 1000
+        self, query: str, rows: list[dict[str, Any]], /, batch_size: int = 1000
     ) -> None:
         """Execute an UNWIND-style query over `rows` in batches.
 

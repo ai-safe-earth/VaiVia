@@ -86,10 +86,13 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] Tests (29, offline): topology split/oneway/determinism, matcher precision incl. the 15 m parallel-trail residual risk, DIN/MTB duration formulas, fixture normalization.
 - [ ] Live-DB smoke: run init_schema + both ingesters against compose Neo4j, assert re-run leaves counts unchanged (needs Docker running).
 
-### Phase 2 — Backend query service
-- FastAPI app: `/search/trails`, `/routes`, `/trails/{id}/geojson`, `/healthz`; async Neo4j driver wrapper; query-template loader.
-- GDS routing endpoint with bounded projection + spatial pre-filter.
-- Gateway-trust middleware (shared-secret header); structured JSON logging with request IDs.
+### Phase 2 — Backend query service ✅
+- [x] FastAPI app (`backend/api/`): `POST /trails/search`, `GET /trails/{id}`, `GET /trails/{id}/geojson`, `POST /routes`, `GET /healthz`.
+- [x] Named-template library `backend/graph/queries.cypher` + `query_loader.py`; `Neo4jClient.run_named()` runs templates by name with parameters only. `TrailSearchRequest` is shaped to match Phase 4's `TrailSearchIntent` 1:1.
+- [x] Routing: POI resolution → nearest-intersection snap (point index, bounded radius) → bounded `shortestPath` over `CONNECTS_TO` only; distance capped by settings.
+- [x] Gateway-trust middleware (`X-Gateway-Secret`, `/healthz` public) + request-id propagation + structured JSON logging.
+- [x] 34 API/template tests (63 backend total), no Neo4j needed — fake graph client records template name + parameters. Guard tests assert no template mutates data, none traverses semantic edges in a path, and no traversal is unbounded.
+- [ ] GDS Dijkstra swap-in: `route_gds_dijkstra` + `graph_project_routing` templates are written but not wired to the endpoint until they can be verified against a live GDS instance.
 
 ### Phase 3 — Gateway (security layer)
 - Fastify + TypeScript: `@fastify/jwt` with Supabase JWKS, `@fastify/rate-limit` (per-user + per-IP), strict CORS/origin allowlist, `@fastify/http-proxy` to backend (SSE-capable), request-ID propagation, quota pre-check against Postgres.
