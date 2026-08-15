@@ -10,9 +10,9 @@ This document is a candid record of known failure modes, edge cases, and the pra
 
 **What breaks if you ignore it:** Attempting to merge nodes by coordinate equality will result in near-zero matches. Attempting to merge by exact geometry overlap will produce incorrect links and phantom duplicate nodes.
 
-**Our mitigation:** Spatial proximity matching with a configurable threshold (default: 20 m). The `[:MAPS_TO]` relationship records the association without claiming the nodes are identical. The threshold is exposed as `SPATIAL_MATCH_THRESHOLD_M` in `.env` so operators can tune it per region.
+**Our mitigation:** Spatial proximity matching with a configurable threshold (default: 20 m). The ordered `[:COMPOSED_OF {seq, match_confidence}]` relationship records the association without claiming the nodes are identical. The threshold is exposed as `SPATIAL_MATCH_THRESHOLD_M` in `.env` so operators can tune it per region.
 
-**Residual risk:** At 20 m, parallel trails (e.g., a hiking path and a bike trail 15 m apart) may be incorrectly linked. Mitigation: combine proximity with `highway_type` and `surface` compatibility checks before creating `[:MAPS_TO]`.
+**Residual risk:** At 20 m, parallel trails (e.g., a hiking path and a bike trail 15 m apart) may be incorrectly linked. Mitigation: combine proximity with `highway_type` and `surface` compatibility checks before creating `[:COMPOSED_OF]`; `match_confidence` records how strong each match was.
 
 ---
 

@@ -43,6 +43,7 @@ A physical piece of path or road, sourced from OSM. This is the atomic routing u
 | `surface` | `STRING` | `unpaved`, `gravel`, `asphalt`, `dirt`, etc. |
 | `highway_type` | `STRING` | OSM `highway` tag: `path`, `track`, `cycleway` |
 | `coordinates` | `LIST<POINT>` | Ordered list of WGS84 points (polyline) |
+| `location` | `POINT` | Representative midpoint (spatially indexed — point lists cannot be indexed, this can) |
 
 ---
 
@@ -77,25 +78,34 @@ A spatial bounding area (city, park, municipality) used to group trails geograph
 | Property | Type | Description |
 |---|---|---|
 | `name` | `STRING` | Region name |
-| `bbox` | `STRING` | `"minLat,minLon,maxLat,maxLon"` |
+| `min_lat` / `min_lon` / `max_lat` / `max_lon` | `FLOAT` | Numeric bounding box (queryable; a comma string is not) |
 
 ---
 
 ## Relationships
 
 ```
-(:Trail)-[:COMPOSED_OF]->(:Segment)
+(:Trail)-[:COMPOSED_OF {seq: INTEGER, match_confidence: FLOAT}]->(:Segment)
 ```
-Links a Trailforks trail to the OSM segments that make up its route.
-Created during spatial matching (proximity ≤ 20 m).
+Links a Trailforks trail to the OSM segments that make up its route, **in order**.
+Created during spatial matching (proximity ≤ 20 m, plus `highway_type`/`surface`
+compatibility). `seq` (0-based) makes distance-along-trail queries (e.g. "hut at
+the halfway point") computable; `match_confidence` records match quality. This is
+the single Trail→Segment relationship — the sources stay linked, never merged.
 
 ---
 
 ```
-(:Segment)-[:CONNECTS_TO {distance: FLOAT, elevation_change: FLOAT}]->(:Intersection)
+(:Intersection)-[:CONNECTS_TO {distance: FLOAT, elevation_change: FLOAT,
+                               osm_way_id: STRING, surface: STRING,
+                               highway_type: STRING}]->(:Intersection)
 ```
-Directional edge from a segment to an intersection node.
-`distance` is in metres; `elevation_change` is signed (positive = uphill).
+The routing graph: intersections are the vertices, and each edge carries the
+segment data needed for cost-based pathfinding. `distance` is in metres;
+`elevation_change` is signed (positive = uphill). This is the graph GDS
+projects for Dijkstra — `(:Segment)` nodes are NOT part of the routing
+traversal; they exist for trail composition (`COMPOSED_OF`) and POI proximity
+(`PASSES_BY`).
 
 ---
 
@@ -107,41 +117,36 @@ Created when a segment's geometry comes within a configurable threshold (default
 ---
 
 ```
+(:Trail)-[:LOCATED_IN]->(:Region)
+(:POI)-[:LOCATED_IN]->(:Region)
 (:Intersection)-[:LOCATED_IN]->(:Region)
 ```
-Assigns an intersection to its containing region, enabling regional filtering.
+Created at ingestion time so regional filtering is a direct hop from the nodes
+users actually filter on (trails, POIs) — not a 4-hop traversal.
 
 ---
 
-```
-(:Trail)-[:MAPS_TO]->(:Segment)
-```
-The pragmatic link. When Trailforks geometry cannot be cleanly merged with OSM geometry, this relationship records the spatial association rather than forcing a merge.
-
----
+> **Note:** an earlier draft had a separate `(:Trail)-[:MAPS_TO]->(:Segment)`
+> relationship alongside `COMPOSED_OF`. It was dropped: both had identical
+> endpoints and creation rules. `COMPOSED_OF {seq, match_confidence}` is the
+> single, ordered spatial-match link.
 
 ## Full Schema Diagram
 
 ```
-                     ┌──────────────┐
-                     │   :Region    │
-                     └──────┬───────┘
-                            │ LOCATED_IN ▲
-                     ┌──────┴───────┐
-                     │ :Intersection│
-                     └──────┬───────┘
-              CONNECTS_TO ▲ │ ▼ CONNECTS_TO
-                     ┌──────┴───────┐
-              ┌──────│  :Segment    │──────┐
-              │      └──────────────┘      │
-  COMPOSED_OF │             │ PASSES_BY    │ MAPS_TO
-              │      ┌──────┴───────┐      │
-              │      │    :POI      │      │
-              │      └──────────────┘      │
-              ▼                            ▼
-        ┌──────────┐               ┌──────────┐
-        │  :Trail  │               │  :Trail  │
-        └──────────┘               └──────────┘
+              ┌──────────────┐
+              │   :Region    │◀── LOCATED_IN ── (:Trail) (:POI) (:Intersection)
+              └──────────────┘
+
+  ┌──────────┐  COMPOSED_OF {seq}   ┌──────────────┐  PASSES_BY   ┌──────────┐
+  │  :Trail  │ ───────────────────▶ │  :Segment    │ ───────────▶ │   :POI   │
+  └──────────┘                      └──────────────┘              └──────────┘
+
+  Routing graph (GDS projection):
+  ┌──────────────┐  CONNECTS_TO {distance, elevation_change, osm_way_id}
+  │:Intersection │ ─────────────────────────────────────────▶ ┌──────────────┐
+  └──────────────┘                                            │:Intersection │
+                                                              └──────────────┘
 ```
 
 ---
@@ -158,6 +163,7 @@ Defined in [`graph/schema.cypher`](../graph/schema.cypher). Summary:
 | `POI.osm_id` | Uniqueness constraint | Deduplication |
 | `Intersection.location` | Spatial point index | `distance()` queries |
 | `POI.location` | Spatial point index | `distance()` queries |
+| `Segment.location` | Spatial point index | "trails near X" queries |
 | `Trail.description_embedding` | Vector index (1536-dim) | Semantic search (Phase 3) |
 | `Trail.difficulty` | B-tree index | Filter queries |
 | `POI.type` | B-tree index | Filter queries |

@@ -113,7 +113,7 @@ python ingestion/trailforks_ingest.py --mock
 
 We do **not** attempt to merge nodes from both sources. Instead, `spatial_match.py` runs a proximity check:
 
-> If a Trailforks route polyline passes within **20 metres** of an OSM `(:Segment)`, create a `[:MAPS_TO]` relationship.
+> If a Trailforks route polyline passes within **20 metres** of an OSM `(:Segment)` (and the segment's `highway_type`/`surface` are compatible), create an ordered `[:COMPOSED_OF {seq, match_confidence}]` relationship.
 
 This is fast, predictable, and failure-safe. A missed match means the trail is not linked to that segment — it does not corrupt the graph.
 

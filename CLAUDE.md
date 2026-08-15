@@ -4,27 +4,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Planning-stage repo: docs, docker-compose, and config exist, but **no source code yet**. The directory layout in README.md (`api/`, `ingestion/`, `graph/`, `scripts/`, `tests/`, `fixtures/`) is the target structure — create files there as phases land, starting with Phase 1 (schema + ingestion MVP).
+Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md` — read it before structural work. Layout: `backend/` (FastAPI + Neo4j, Python), `gateway/` (Fastify BFF, Node/TS — Phase 3), `frontend/` (Next.js — Phase 5), `infra/` (compose, Supabase migrations, deploy). Backend code lands under `backend/` (`api/`, `ingestion/`, `graph/`, `scripts/`, `tests/`, `fixtures/`).
 
 ## Setup and commands
 
-- Dependencies: **uv** with `pyproject.toml` (`uv sync`), not pip/requirements.txt. Run tools via `uv run`.
-- Neo4j: `docker-compose up -d neo4j` (needs APOC + GDS plugins; ports 7474/7687). Copy `.env.example` → `.env` first. The compose file's `api` service references a Dockerfile that doesn't exist yet — only the `neo4j` service is runnable.
-- Ingestion for local dev/CI must stay offline: use `python ingestion/trailforks_ingest.py --mock` (reads `fixtures/trailforks_mock.json`), never the live Trailforks API.
-- Checks before PR: `black .`, `ruff check .`, `pytest tests/ -v` — all must pass.
+- Backend deps: **uv** in `backend/` (`cd backend && uv sync`), not pip. Run tools via `uv run`.
+- Neo4j: `docker compose -f infra/docker-compose.yml up -d neo4j` (Community + APOC + GDS). Copy `.env.example` → `.env` first; `NEO4J_PASSWORD` is required (no default).
+- Ingestion for local dev/CI must stay offline: `--mock` (reads `backend/fixtures/trailforks_mock.json`), never the live Trailforks API.
+- Checks before PR (from `backend/`): `uv run ruff check .`, `uv run black --check .`, `uv run pytest tests/ -v`.
 
-## Graph model rules (load-bearing — see docs/fragilities.md)
+## Architecture rules (from docs/plan.md — owner-ratified)
 
-- **Never merge OSM and Trailforks nodes.** They are linked, not merged, via `[:MAPS_TO]` created by proximity matching (≤ `SPATIAL_MATCH_THRESHOLD_M`, default 20 m).
-- **Trail identity lives only on `(:Trail)`** (Trailforks-sourced). OSM `(:Segment)` nodes have no trail name — never filter by trail name on segments; go through `[:COMPOSED_OF]`.
-- **Always bound path traversals** (`-[:CONNECTS_TO*..100]-`) and spatially pre-filter; use GDS Dijkstra for large-graph routing.
-- **Ingestion must be idempotent**: `MERGE` on `osm_way_id` / Trailforks IDs so re-runs update rather than duplicate.
+- The Fastify **gateway is the only public service** and carries no business logic (auth, rate limits, origin control, quota pre-check, SSE proxy only). Backend and Neo4j are internal; backend trusts only the gateway.
+- **The LLM never sees or writes Cypher.** `/chat` uses OpenAI structured outputs to produce a validated pydantic intent, which selects a parameterized template from `backend/graph/queries.cypher`. Out-of-scope input → `Clarify` intent.
+- Chat history, usage ledger, and quotas live in Supabase Postgres (`infra/supabase/migrations/`); per-user daily LLM cost caps are enforced before every OpenAI call.
+- SSE streaming end-to-end for `/chat` (backend → gateway → frontend).
+
+## Graph model rules (load-bearing — see docs/architecture.md, docs/fragilities.md)
+
+- **Never merge OSM and Trailforks nodes.** Single ordered link: `(:Trail)-[:COMPOSED_OF {seq, match_confidence}]->(:Segment)`, created by proximity (≤ `SPATIAL_MATCH_THRESHOLD_M`, default 20 m) + `highway_type`/`surface` compatibility. There is no `MAPS_TO` (dropped as redundant).
+- **Routing graph is Intersection–Intersection**: `(:Intersection)-[:CONNECTS_TO {distance, elevation_change, osm_way_id, surface, highway_type}]->(:Intersection)`. Segments are NOT routing vertices; never put `PASSES_BY` or other semantic edges in a path expression.
+- **Trail identity lives only on `(:Trail)`** — never filter by trail name on segments.
+- **Always bound traversals** (`*..100`) and spatially pre-filter; use GDS Dijkstra (Intersection/CONNECTS_TO projection) for real routing.
+- **Ingestion must be idempotent**: `MERGE` on `osm_way_id` / `osm_node_id` / Trailforks IDs.
+- Distance-along-trail queries must use `COMPOSED_OF.seq` — unordered `sum(s.length)` is wrong.
 - Semantic-search endpoints return `503` (not empty results) when the vector index is unpopulated.
-- Cypher lives in `.cypher` files under `graph/`, not inline in Python.
+- Cypher lives in `.cypher` files under `backend/graph/`, not inline in Python.
 
 ## Code conventions
 
-- Python 3.11+, type hints required on all public functions, async for I/O (Neo4j driver, HTTP).
-- Format with Black, lint with Ruff.
+- Python 3.11+, type hints required on all public functions, async for I/O (Neo4j driver, HTTP). Format Black, lint Ruff.
+- Gateway/frontend: TypeScript strict; gateway stays thin — if a change adds domain logic there, it belongs in the backend.
 - Conventional Commits (`feat:`, `fix:`, `docs:`, …); branches `feat/…`, `fix/…`, `docs/…`.
-- Update the relevant file in `docs/` when a change affects the data model, query patterns, or known fragilities.
+- Update the relevant file in `docs/` (including `docs/plan.md` checkboxes) when a change affects the data model, query patterns, fragilities, or roadmap.

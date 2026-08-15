@@ -9,8 +9,8 @@ All queries run against the schema defined in [`graph/schema.cypher`](../graph/s
 ### All trails in a region
 
 ```cypher
-MATCH (t:Trail)-[:COMPOSED_OF]->(s:Segment)-[:CONNECTS_TO]->(i:Intersection)-[:LOCATED_IN]->(r:Region {name: 'Lecco'})
-RETURN DISTINCT t.name, t.difficulty, t.total_distance
+MATCH (t:Trail)-[:LOCATED_IN]->(:Region {name: 'Lecco'})
+RETURN t.name, t.difficulty, t.total_distance
 ORDER BY t.total_distance ASC
 ```
 
@@ -54,8 +54,8 @@ RETURN t.name, t.difficulty, swim.name AS swim_spot, hut.name AS overnight_hut
 
 ```cypher
 MATCH (p:POI {name: 'Lake Como'})
-MATCH (t:Trail)-[:COMPOSED_OF]->(s:Segment)-[:CONNECTS_TO]->(i:Intersection)
-WHERE point.distance(i.location, p.location) < 5000
+MATCH (t:Trail)-[:COMPOSED_OF]->(s:Segment)
+WHERE point.distance(s.location, p.location) < 5000
 RETURN DISTINCT t.name, t.difficulty, t.total_distance
 ORDER BY t.total_distance ASC
 ```
@@ -81,28 +81,48 @@ LIMIT 10
 
 ### Route between two POIs under 20 km (shortest path)
 
+Routing runs on the Intersection graph only — semantic edges like `PASSES_BY`
+must never appear in a path expression. First snap each POI to its nearest
+intersection, then route:
+
 ```cypher
 MATCH (start:POI {name: 'Station A'}), (end:POI {name: 'Hut B'})
-MATCH path = shortestPath(
-  (start)-[:CONNECTS_TO|PASSES_BY*..50]-(end)
-)
-WITH path, reduce(d = 0.0, r IN relationships(path) | d + coalesce(r.distance, 0)) AS total_m
+CALL (start) {
+  MATCH (i:Intersection)
+  WHERE point.distance(i.location, start.location) < 500
+  RETURN i AS src ORDER BY point.distance(i.location, start.location) LIMIT 1
+}
+CALL (end) {
+  MATCH (i:Intersection)
+  WHERE point.distance(i.location, end.location) < 500
+  RETURN i AS dst ORDER BY point.distance(i.location, end.location) LIMIT 1
+}
+MATCH path = shortestPath((src)-[:CONNECTS_TO*..100]-(dst))
+WITH path, reduce(d = 0.0, r IN relationships(path) | d + r.distance) AS total_m
 WHERE total_m < 20000
 RETURN path, round(total_m / 1000, 2) AS total_km
-ORDER BY total_km ASC
-LIMIT 5
 ```
+
+For anything beyond small graphs, prefer the GDS Dijkstra pattern below.
 
 ### Two-day route with a hut at the midpoint
 
-Find trails where a hut POI appears near the halfway distance.
+Find trails where a hut POI appears near the halfway distance. This depends on
+`COMPOSED_OF.seq` — distance to the hut is the cumulative length of the
+segments that *precede* the hut's segment along the trail (an unordered
+`sum(s.length)` gives wrong answers).
 
 ```cypher
-MATCH (t:Trail)-[:COMPOSED_OF]->(s:Segment)-[:PASSES_BY]->(hut:POI {type: 'hut'})
-WITH t, hut, sum(s.length) AS distance_to_hut
+MATCH (t:Trail)-[c:COMPOSED_OF]->(s:Segment)-[:PASSES_BY]->(hut:POI {type: 'hut'})
+WHERE t.total_distance > 20
+CALL (t, c) {
+  MATCH (t)-[before:COMPOSED_OF]->(prev:Segment)
+  WHERE before.seq <= c.seq
+  RETURN sum(prev.length) AS distance_to_hut
+}
+WITH t, hut, distance_to_hut
 WHERE distance_to_hut > (t.total_distance * 1000 * 0.4)
   AND distance_to_hut < (t.total_distance * 1000 * 0.6)
-  AND t.total_distance > 20
 RETURN t.name, t.difficulty, t.total_distance,
        hut.name AS midpoint_hut,
        round(distance_to_hut / 1000, 1) AS km_to_hut
@@ -121,13 +141,17 @@ RETURN t.name, t.difficulty, t.total_distance
 
 ### Trail with a train station at start or end
 
+Uses `COMPOSED_OF.seq` to identify the first and last segments of each trail.
+
 ```cypher
-MATCH (t:Trail)-[:COMPOSED_OF]->(s:Segment)-[:CONNECTS_TO]->(i:Intersection)
+MATCH (t:Trail)-[c:COMPOSED_OF]->(:Segment)
+WITH t, max(c.seq) AS last_seq
+MATCH (t)-[c:COMPOSED_OF]->(s:Segment)
+WHERE c.seq = 0 OR c.seq = last_seq
 MATCH (station:POI {type: 'station'})
-WHERE point.distance(i.location, station.location) < 500
-WITH t, collect(DISTINCT station.name) AS nearby_stations, i
-// Only keep trails where the intersection is close to the start or end of the trail
-RETURN DISTINCT t.name, t.difficulty, t.total_distance, nearby_stations
+WHERE point.distance(s.location, station.location) < 500
+RETURN DISTINCT t.name, t.difficulty, t.total_distance,
+       collect(DISTINCT station.name) AS nearby_stations
 ```
 
 ---

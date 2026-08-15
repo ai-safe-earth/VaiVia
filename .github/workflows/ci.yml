@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run black --check .
+      - name: Tests (offline, --mock fixtures only)
+        run: |
+          if [ -d tests ]; then uv run pytest tests/ -v; else echo "no tests yet"; fi
+
+  # gateway and frontend jobs (eslint / tsc / vitest) are added when those
+  # services are scaffolded in Phases 3 and 5 — see docs/plan.md.

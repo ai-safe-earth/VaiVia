@@ -15,9 +15,10 @@ cd get-out-door
 
 ### 2. Install dependencies
 
-Dependencies are managed with [uv](https://docs.astral.sh/uv/) and declared in `pyproject.toml`:
+Backend dependencies are managed with [uv](https://docs.astral.sh/uv/) and declared in `backend/pyproject.toml`:
 
 ```bash
+cd backend
 uv sync
 ```
 
@@ -28,7 +29,7 @@ This creates `.venv/` and installs runtime + dev dependencies. Prefix commands w
 The fastest way is Docker:
 
 ```bash
-docker-compose up -d neo4j
+docker compose -f infra/docker-compose.yml up -d neo4j
 ```
 
 Or use [Neo4j Desktop](https://neo4j.com/download/). Ensure **APOC** and **GDS** plugins are enabled.
