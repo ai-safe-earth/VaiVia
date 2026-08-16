@@ -2,8 +2,11 @@
 
 Run from backend/:
     uv run python -m ingestion.osm_ingest --bbox 45.8,9.3,46.0,9.6
-Omitting --bbox uses DEFAULT_BBOX from .env. Responses are cached on disk, so
-re-runs are offline; pass --no-cache to force a fresh Overpass fetch.
+    uv run python -m ingestion.osm_ingest --region Bergamo
+Omitting --bbox uses DEFAULT_BBOX from .env; --region takes both the bbox and
+the Region name from the REGIONS setting (the Region node must be seeded —
+run scripts.init_schema first). Responses are cached on disk, so re-runs are
+offline; pass --no-cache to force a fresh Overpass fetch.
 """
 
 import argparse
@@ -74,9 +77,12 @@ MERGE (p)-[:LOCATED_IN]->(r)
 
 
 async def ingest(
-    bbox: tuple[float, float, float, float], use_cache: bool = True
+    bbox: tuple[float, float, float, float],
+    use_cache: bool = True,
+    region: str | None = None,
 ) -> None:
     settings = get_settings()
+    region = region or settings.default_region_name
     raw = await overpass_client.fetch(
         overpass_client.build_query(bbox), use_cache=use_cache
     )
@@ -109,9 +115,7 @@ async def ingest(
     passes_rows = osm_extract.passes_by_rows(
         result.segments, result.pois, settings.passes_by_threshold_m
     )
-    region_rows = osm_extract.located_in_rows(
-        result, bbox, settings.default_region_name
-    )
+    region_rows = osm_extract.located_in_rows(result, bbox, region)
 
     async with Neo4jClient() as db:
         await db.run_batched(MERGE_INTERSECTIONS, intersection_rows)
@@ -121,12 +125,12 @@ async def ingest(
         await db.run_batched(MERGE_PASSES_BY, passes_rows)
         await db.run(
             MERGE_LOCATED_IN_INTERSECTIONS,
-            region=settings.default_region_name,
+            region=region,
             rows=region_rows["intersections"],
         )
         await db.run(
             MERGE_LOCATED_IN_POIS,
-            region=settings.default_region_name,
+            region=region,
             rows=region_rows["pois"],
         )
     logger.info("OSM ingestion complete (%d routing edges)", len(edge_rows))
@@ -138,19 +142,33 @@ def main() -> None:
         "--bbox", help="minLat,minLon,maxLat,maxLon (default: DEFAULT_BBOX)"
     )
     parser.add_argument(
+        "--region",
+        help="named region from the REGIONS setting; supplies bbox AND the "
+        "Region node the ingested data links to",
+    )
+    parser.add_argument(
         "--no-cache", action="store_true", help="bypass the Overpass cache"
     )
     args = parser.parse_args()
 
     settings = get_settings()
-    if args.bbox:
+    region: str | None = None
+    if args.region:
+        by_name = dict(settings.region_list)
+        if args.region not in by_name:
+            parser.error(
+                f"unknown region {args.region!r}; configured: {sorted(by_name)}"
+            )
+        region = args.region
+        bbox = by_name[args.region]
+    elif args.bbox:
         parts = [float(p) for p in args.bbox.split(",")]
         bbox = (parts[0], parts[1], parts[2], parts[3])
     else:
         bbox = settings.bbox
 
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(ingest(bbox, use_cache=not args.no_cache))
+    asyncio.run(ingest(bbox, use_cache=not args.no_cache, region=region))
 
 
 if __name__ == "__main__":

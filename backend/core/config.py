@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # "minLat,minLon,maxLat,maxLon"
     default_bbox: str = "45.8,9.3,46.0,9.6"
     default_region_name: str = "Lecco"
+    # Every region the beta covers: "Name:minLat,minLon,maxLat,maxLon;..."
+    # Bergamo's box starts at the city (45.70) and runs north into the hills
+    # (Parco dei Colli, Canto Alto, the Brembana/Seriana valley mouths) so the
+    # plains' road grid stays out of the graph.
+    regions: str = "Lecco:45.8,9.3,46.0,9.6;Bergamo:45.68,9.55,45.92,9.85"
 
     spatial_match_threshold_m: float = 20.0
     passes_by_threshold_m: float = 50.0
@@ -57,6 +62,24 @@ class Settings(BaseSettings):
 
     # Supabase Postgres (chat history, ledger, quotas)
     database_url: str = ""
+
+    @property
+    def region_list(self) -> list[tuple[str, tuple[float, float, float, float]]]:
+        """[(name, (min_lat, min_lon, max_lat, max_lon)), ...] from REGIONS."""
+        out: list[tuple[str, tuple[float, float, float, float]]] = []
+        for entry in self.regions.split(";"):
+            entry = entry.strip()
+            if not entry:
+                continue
+            name, _, coords = entry.partition(":")
+            parts = [float(p) for p in coords.split(",")]
+            if not name or len(parts) != 4:
+                raise ValueError(
+                    "REGIONS entries must be 'Name:minLat,minLon,maxLat,maxLon', "
+                    f"got {entry!r}"
+                )
+            out.append((name.strip(), (parts[0], parts[1], parts[2], parts[3])))
+        return out
 
     @property
     def bbox(self) -> tuple[float, float, float, float]:

@@ -20,7 +20,13 @@ WHERE ($activity IS NULL OR t.activity = $activity OR t.activity = 'mixed')
   AND ($max_elevation_gain_m IS NULL OR t.elevation_gain_m <= $max_elevation_gain_m)
   AND ($season IS NULL OR $season IN t.best_seasons)
   AND (size($exclude_hazards) = 0
-       OR none(h IN t.seasonal_hazards WHERE h IN $exclude_hazards))
+       OR none(h IN (CASE $season
+                       WHEN 'spring' THEN coalesce(t.hazards_spring, t.seasonal_hazards)
+                       WHEN 'summer' THEN coalesce(t.hazards_summer, t.seasonal_hazards)
+                       WHEN 'autumn' THEN coalesce(t.hazards_autumn, t.seasonal_hazards)
+                       WHEN 'winter' THEN coalesce(t.hazards_winter, t.seasonal_hazards)
+                       ELSE t.seasonal_hazards END)
+               WHERE h IN $exclude_hazards))
   AND (size($surface_exclusions) = 0
        OR NOT EXISTS {
             MATCH (t)-[:COMPOSED_OF]->(x:Segment)
@@ -202,7 +208,13 @@ WHERE ($activity IS NULL OR t.activity = $activity OR t.activity = 'mixed')
   AND ($max_elevation_gain_m IS NULL OR t.elevation_gain_m <= $max_elevation_gain_m)
   AND ($season IS NULL OR $season IN t.best_seasons)
   AND (size($exclude_hazards) = 0
-       OR none(h IN t.seasonal_hazards WHERE h IN $exclude_hazards))
+       OR none(h IN (CASE $season
+                       WHEN 'spring' THEN coalesce(t.hazards_spring, t.seasonal_hazards)
+                       WHEN 'summer' THEN coalesce(t.hazards_summer, t.seasonal_hazards)
+                       WHEN 'autumn' THEN coalesce(t.hazards_autumn, t.seasonal_hazards)
+                       WHEN 'winter' THEN coalesce(t.hazards_winter, t.seasonal_hazards)
+                       ELSE t.seasonal_hazards END)
+               WHERE h IN $exclude_hazards))
   AND (size($surface_exclusions) = 0
        OR NOT EXISTS {
             MATCH (t)-[:COMPOSED_OF]->(x:Segment)

@@ -56,8 +56,20 @@ RETURN p.location.longitude AS lon, p.location.latitude AS lat
 
 # Each trail's walk starts as close as possible to a POI of this type, so the
 # traced geometry actually passes the feature its prose describes and the
-# lake/hut search filters have something true to match offline.
-ANCHORS = {"tf_001": "lake", "tf_002": "hut", "tf_003": "lake"}
+# lake/hut search filters have something true to match offline. An optional
+# `near` (lon, lat) restricts candidate POIs to that area, so a Bergamo trail
+# anchors on a Bergamo POI rather than the globally nearest one.
+ANCHORS: dict[str, dict] = {
+    "tf_001": {"type": "lake"},
+    "tf_002": {"type": "hut", "near": (9.49, 45.86)},  # Rifugio La Porta (Lecco)
+    "tf_003": {"type": "lake"},
+    "tf_004": {"type": "viewpoint", "near": (9.66, 45.77)},  # Canto Alto
+    "tf_005": {"type": "station", "near": (9.67, 45.70)},  # Bergamo city
+}
+
+# POIs farther than this (squared degrees, ~0.15 deg ≈ 15 km) from `near` are
+# not the anchor the trail meant.
+NEAR_LIMIT_SQ = 0.15**2
 
 SEGMENT_COORDS = """
 MATCH (s:Segment) WHERE s.osm_way_id IN $way_ids
@@ -145,10 +157,18 @@ async def main() -> int:
         node_xy = {r["node"]: (r["lon"], r["lat"]) for r in node_rows}
 
         async def start_order_for(trail_id: str) -> list[str] | None:
-            anchor_type = ANCHORS.get(trail_id)
-            if not anchor_type:
+            anchor = ANCHORS.get(trail_id)
+            if not anchor:
                 return None
-            pois = await db.run(POI_LOCATIONS, type=anchor_type)
+            pois = await db.run(POI_LOCATIONS, type=anchor["type"])
+            near = anchor.get("near")
+            if near is not None:
+                pois = [
+                    p
+                    for p in pois
+                    if (p["lon"] - near[0]) ** 2 + (p["lat"] - near[1]) ** 2
+                    <= NEAR_LIMIT_SQ
+                ]
             if not pois:
                 return None
 

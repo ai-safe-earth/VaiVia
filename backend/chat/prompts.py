@@ -41,6 +41,10 @@ Decomposition rules:
   max_difficulty_level 1.
 - "more than X m of climbing" -> min_elevation_gain_m; "less than X m of
   climbing" -> max_elevation_gain_m.
+- "no snow/ice/mud risk" -> exclude_hazards; if they name WHEN ("in summer"),
+  also set season — hazards are checked for that season only.
+- A named area ("near Bergamo", "around Lecco") -> region, as the proper place
+  name ("Bergamo", "Lecco"). A named start AND end is a route, not a region.
 - Only set a field the user actually implied. Leave everything else null or
   empty; do not invent constraints. NEVER write 0 to mean "no limit" — an
   unset bound is null, and a 0 max would match nothing.

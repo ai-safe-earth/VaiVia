@@ -46,6 +46,10 @@ SET t.name = row.name,
     t.duration_mtb_min = row.duration_mtb_min,
     t.best_seasons = row.best_seasons,
     t.seasonal_hazards = row.seasonal_hazards,
+    t.hazards_spring = row.hazards_spring,
+    t.hazards_summer = row.hazards_summer,
+    t.hazards_autumn = row.hazards_autumn,
+    t.hazards_winter = row.hazards_winter,
     t.trailforks_url = row.trailforks_url
 """
 
@@ -87,6 +91,14 @@ SET r.distance_m = distance_m
 RETURN p.osm_id AS osm_id
 """
 
+# Region links are recomputed from geometry each run; drop first so a trail
+# whose regenerated geometry left a region does not keep a stale link.
+DELETE_TRAIL_REGIONS = """
+UNWIND $rows AS trail_id
+MATCH (t:Trail {id: trail_id})-[r:LOCATED_IN]->(:Region)
+DELETE r
+"""
+
 MERGE_TRAIL_REGION = """
 UNWIND $rows AS trail_id
 MATCH (t:Trail {id: trail_id}), (r:Region {name: $region})
@@ -99,6 +111,37 @@ RETURN s.osm_way_id AS osm_way_id, s.highway_type AS highway_type,
        [c IN s.coordinates | [c.latitude, c.longitude]] AS coordinates,
        [s.location.latitude, s.location.longitude] AS location
 """
+
+
+SEASONS = ("spring", "summer", "autumn", "winter")
+
+
+def hazards_by_season(raw: dict[str, Any]) -> dict[str, list[str]]:
+    """Per-season hazard lists, keyed 'hazards_<season>'.
+
+    A record may scope hazards with `hazards_by_season`; the flat
+    `seasonal_hazards` stays the union for display. Records without scoping
+    get the union in EVERY season — the conservative reading of unscoped data
+    (a hazard we cannot place in time is assumed always possible).
+    """
+    scoped = raw.get("hazards_by_season")
+    if scoped is not None:
+        return {f"hazards_{s}": list(scoped.get(s, [])) for s in SEASONS}
+    union = list(raw.get("seasonal_hazards", []))
+    return {f"hazards_{s}": union for s in SEASONS}
+
+
+def hazards_union(raw: dict[str, Any]) -> list[str]:
+    """Flat display list: explicit seasonal_hazards, else the scoped union."""
+    if raw.get("seasonal_hazards"):
+        return list(raw["seasonal_hazards"])
+    scoped = raw.get("hazards_by_season") or {}
+    union: list[str] = []
+    for season in SEASONS:
+        for h in scoped.get(season, []):
+            if h not in union:
+                union.append(h)
+    return union
 
 
 def trail_row(raw: dict[str, Any]) -> dict[str, Any]:
@@ -131,7 +174,8 @@ def trail_row(raw: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
         "best_seasons": raw.get("best_seasons", []),
-        "seasonal_hazards": raw.get("seasonal_hazards", []),
+        "seasonal_hazards": hazards_union(raw),
+        **hazards_by_season(raw),
         "trailforks_url": trailforks_url(raw),
     }
 
@@ -216,14 +260,16 @@ async def ingest(raw_trails: list[dict[str, Any]]) -> None:
                 settings.poi_near_radius_m,
             )
 
-        in_region = [
-            row["id"]
-            for raw, row in zip(raw_trails, rows, strict=True)
-            if any(in_bbox(p, settings.bbox) for p in trail_polyline(raw))
-        ]
-        await db.run(
-            MERGE_TRAIL_REGION, region=settings.default_region_name, rows=in_region
-        )
+        await db.run(DELETE_TRAIL_REGIONS, rows=[row["id"] for row in rows])
+        for region_name, region_bbox in settings.region_list:
+            in_region = [
+                row["id"]
+                for raw, row in zip(raw_trails, rows, strict=True)
+                if any(in_bbox(p, region_bbox) for p in trail_polyline(raw))
+            ]
+            if in_region:
+                await db.run(MERGE_TRAIL_REGION, region=region_name, rows=in_region)
+                logger.info("region %s: %d trails", region_name, len(in_region))
     logger.info("Trailforks ingestion complete (%d trails)", len(rows))
 
 

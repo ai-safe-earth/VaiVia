@@ -13,6 +13,9 @@
 //   * difficulty: 'Easy'|'Intermediate'|'Difficult'|'Pro' <-> difficulty_level 1..4.
 //   * Seasonality: best_seasons / seasonal_hazards are LIST<STRING> filterable
 //     vocabularies; prose stays in difficulty_notes / landscape_description.
+//   * Hazards are season-scoped: hazards_spring/summer/autumn/winter hold each
+//     season's list, seasonal_hazards stays the union for display. Queries use
+//     the requested season's list, the union when no season is given.
 //   * (:Trail)-[:NEAR_POI {distance_m}]->(:POI) is a precomputed proximity edge
 //     (radius POI_NEAR_RADIUS_M, default 500 m from any trail segment) so POI
 //     filters see features the narrower segment-level PASSES_BY misses. Like

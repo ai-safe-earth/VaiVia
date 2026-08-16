@@ -39,12 +39,14 @@ before anything deploys. Everything else that remains is Phase 6 hardening
 | Query decomposition + composer | Complete | Model decomposes into atomic subqueries; Python composer merges tightest-wins, drops vacuous 0-bounds, clarifies with suggestions when under-specified; 17/17 live containment (adversarial 7/7 clarify) |
 | Semantic + filters in chat | Complete | New `semantic_search_trails_filtered` template (vector pool → NULL-idiom filters); degrades to structured search with `semantic_unavailable` while the index is cold |
 | Trailforks links | Complete | `trailforks_url` stored at ingestion (from `alias`/explicit URL, never guessed), returned by all trail templates, linked on TrailCard and cited by the answer prompt |
-| Golden dataset eval | Complete | `fixtures/golden_questions.json` (18 questions) + `scripts/eval_golden.py`; live: decomposition 18/18, retrieval 12/15 ranked-first after the schema round (remaining: no bathing_water POI in the bbox; two interpretation ambiguities) |
+| Golden dataset eval | Complete | `fixtures/golden_questions.json` (24 questions incl. Bergamo + season-hazard cases) + `scripts/eval_golden.py`; live: decomposition 24/24, retrieval 16/21 ranked-first (misses: no bathing_water POI in either bbox; model over-constraining ambiguous phrasings) |
 | NEAR_POI proximity edges | Complete, live-verified | `(:Trail)-[:NEAR_POI {distance_m}]->(:POI)` at ingestion (500 m); fixture walks now anchor near a lake/hut, so lake and hut filters return the right trail live |
 | POI full-text lookup | Complete, live-verified | `poi_name_fulltext` Lucene index; route resolution queries it first with escaped input (`core/text.py`), CONTAINS as fallback |
 | Richer embedding input | Complete | Input now adds activity/difficulty, seasons, and POIs along the way; sha-gated job re-embedded only changed trails |
+| Season-scoped hazards | Complete | `hazards_<season>` lists on Trail, `seasonal_hazards` stays the union; queries check the requested season's list (union when unseasoned); unscoped records get the union in every season |
+| Bergamo region | Complete, live-ingested | Multi-region config (`REGIONS`), `osm_ingest --region`; 24,859 intersections / 25,755 segments / 51,503 edges / 101 POIs from live Overpass; two new mock trails (Canto Alto Skyline hike, Colli di Bergamo Ride mtb) anchored on real Bergamo POIs |
 
-Totals: 140 backend, 28 gateway, 33 frontend unit tests plus 4 e2e, all
+Totals: 148 backend, 28 gateway, 33 frontend unit tests plus 4 e2e, all
 passing. CI runs the three unit suites and stays fully offline; the e2e suite
 is a local/pre-deploy check that skips itself without credentials.
 
@@ -125,10 +127,11 @@ Docker Desktop is installed and the stack runs. Note two local specifics:
   Neo4j started anyway. Recreating the container fixed it. If `gds.version()`
   is unknown, that is what happened — recreate rather than debug.
 
-Current state: schema applied, 15,937 segments and 31,848 routing edges
-ingested for the Lecco bbox, GDS 2.13.12 loaded. The stack was brought down
-with `docker compose … down` on 2026-08-16; the data volume persists, so
-`up -d neo4j` restores the ingested graph without re-running ingestion.
+Current state: schema applied, two regions ingested — Lecco (15,937 segments /
+31,848 edges) and Bergamo (25,755 segments / 51,503 edges, live Overpass) —
+GDS 2.13.12 loaded, five mock trails matched and embedded. The data volume
+persists across `docker compose … down`, so `up -d neo4j` restores the graph
+without re-running ingestion.
 
 ## Suggested order of work
 
@@ -287,7 +290,10 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "Fixture trail walks anchor at the intersection nearest a lake/hut POI so the traced geometry passes the features its prose describes; owner declined season-scoped hazards for now" },
         { "date": "2026-08-16", "text": "POI name resolution goes Lucene full-text first with Python-side escaping (core/text.py), CONTAINS as fallback; CALL subqueries modernized to the CALL (t) scope-clause form after live deprecation warnings" },
         { "date": "2026-08-16", "text": "Embedding input extended (owner-ratified) with activity/difficulty, best seasons, and POIs along the way; the sha gate re-embedded only changed trails" },
-        { "date": "2026-08-16", "text": "Grouping variables cannot appear inside an aggregation expression in one WITH (direct + collect(x) is a syntax error live); offline FakeDb cannot catch Cypher syntax, only the live run did" }
+        { "date": "2026-08-16", "text": "Grouping variables cannot appear inside an aggregation expression in one WITH (direct + collect(x) is a syntax error live); offline FakeDb cannot catch Cypher syntax, only the live run did" },
+        { "date": "2026-08-16", "text": "Hazards are season-scoped (hazards_spring/summer/autumn/winter; seasonal_hazards stays the union for display); a hazard filter with a season checks that season only, and unscoped source records put the union in every season as the conservative reading" },
+        { "date": "2026-08-16", "text": "Coverage is multi-region via the REGIONS setting (Lecco, Bergamo); Bergamo's bbox starts at the city and runs north into the hills so the plains' road grid stays out of the graph; trail-region links recompute from geometry each run, deleted first so a moved trail drops its stale region" },
+        { "date": "2026-08-16", "text": "Fixture anchors carry an optional near-point: with Bergamo data present, a type-only 'nearest hut' anchor silently relocated the Lecco traverse onto a Bergamo bivouac, so anchors that mean a specific area must say so" }
       ] }
   ],
   "blockers": [
@@ -297,14 +303,13 @@ cost through Phase 5 was roughly $62.
     { "text": "The Supabase account password is 12345678 and was shared in plaintext; it must be changed before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" }
   ],
   "nextSteps": [
-    { "title": "Season-scoped hazards (declined for now): per-season hazard lists so 'no snow risk in summer' stops excluding winter-hazard trails", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
   "sessions": [
     { "date": "2026-08-15", "model": "fable-5", "credits": 69, "person": "oscar", "hours": null },
     { "date": "2026-08-16", "model": "opus-5", "credits": 175, "person": "oscar", "hours": null },
-    { "date": "2026-08-16", "model": "fable-5", "credits": 37, "person": "oscar", "hours": null }
+    { "date": "2026-08-16", "model": "fable-5", "credits": 53, "person": "oscar", "hours": null }
   ]
 }
 ```

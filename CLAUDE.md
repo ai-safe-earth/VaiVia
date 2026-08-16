@@ -32,6 +32,8 @@ Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md`
 - **Ingestion must be idempotent**: `MERGE` on `osm_way_id` / `osm_node_id` / Trailforks IDs.
 - Distance-along-trail queries must use `COMPOSED_OF.seq` — unordered `sum(s.length)` is wrong.
 - Semantic-search endpoints return `503` (not empty results) when the vector index is unpopulated.
+- Hazards are season-scoped: `hazards_spring/summer/autumn/winter` hold each season's list and `seasonal_hazards` stays the union for display. A hazard filter with a season checks that season's list only; without a season it checks the union. Unscoped source records put the union in every season (a hazard we cannot place in time is always possible).
+- Coverage is multi-region (`REGIONS` setting: Lecco, Bergamo). Seed with `scripts.init_schema`; ingest OSM per region via `ingestion.osm_ingest --region <name>`; trail→region links are recomputed from geometry each ingestion run.
 - Cypher lives in `.cypher` files under `backend/graph/`, not inline in Python. Query-service Cypher goes in `queries.cypher` as a named template (`// name: <x>`) and runs via `db.run_named("<x>", **params)` — parameters only, never string interpolation. Guard tests in `tests/test_query_loader.py` fail the build if a template mutates data, traverses semantic edges in a path expression, or leaves a traversal unbounded.
 
 ## Code conventions
