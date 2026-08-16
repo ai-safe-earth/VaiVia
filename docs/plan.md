@@ -85,7 +85,8 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] `backend/ingestion/osm_ingest.py`: Overpass with backoff + on-disk cache (`overpass_client.py`); pure topology extractor (`osm_extract.py`) splits ways at intersections into deterministic `"<wayId>#<n>"` pieces and builds the Intersection/CONNECTS_TO routing graph (oneway-aware, both directions); MERGE-idempotent loaders.
 - [x] `backend/ingestion/trailforks_ingest.py --mock` + `fixtures/trailforks_mock.json` (full ontology); `spatial_match.py` creates ordered `COMPOSED_OF {seq, match_confidence}` with activity/highway compatibility checks (delete-and-recreate so re-runs never leave stale links).
 - [x] Tests (29, offline): topology split/oneway/determinism, matcher precision incl. the 15 m parallel-trail residual risk, DIN/MTB duration formulas, fixture normalization.
-- [ ] Live-DB smoke: run init_schema + both ingesters against compose Neo4j, assert re-run leaves counts unchanged (needs Docker running).
+- [x] Live-DB smoke: `uv run python -m scripts.smoke_graph` runs both ingesters twice against the compose Neo4j and compares counts. Passes — 15,937 Segment, 15,451 Intersection, 31,848 CONNECTS_TO, 489 PASSES_BY, identical across both passes, so the MERGE keys are stable. Fixed on the way: the schema loader split `.cypher` files on `;` before stripping comments, so a semicolon inside a comment sent `durations are MINUTES.` to the server as Cypher, and Overpass rejected the default httpx User-Agent with 406 so OSM ingestion could never run.
+- [ ] The mock Trailforks fixture cannot exercise spatial matching: its synthetic geometry sits ~106 m from the nearest real OSM way and the threshold is 20 m, so all three trails match 0 segments and no `COMPOSED_OF` edge is ever created offline.
 
 ### Phase 2 — Backend query service ✅
 - [x] FastAPI app (`backend/api/`): `POST /trails/search`, `GET /trails/{id}`, `GET /trails/{id}/geojson`, `POST /routes`, `GET /healthz`.
@@ -93,7 +94,7 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] Routing: POI resolution → nearest-intersection snap (point index, bounded radius) → bounded `shortestPath` over `CONNECTS_TO` only; distance capped by settings.
 - [x] Gateway-trust middleware (`X-Gateway-Secret`, `/healthz` public) + request-id propagation + structured JSON logging.
 - [x] 34 API/template tests (63 backend total), no Neo4j needed — fake graph client records template name + parameters. Guard tests assert no template mutates data, none traverses semantic edges in a path, and no traversal is unbounded.
-- [ ] GDS Dijkstra swap-in: `route_gds_dijkstra` + `graph_project_routing` templates are written but not wired to the endpoint until they can be verified against a live GDS instance.
+- [ ] GDS Dijkstra swap-in: `route_gds_dijkstra` + `graph_project_routing` templates are written but not wired to the endpoint. No longer blocked — GDS 2.13.12 is loaded in the compose container and a real routing graph is ingested, so the templates can now be verified.
 
 ### Phase 3 — Gateway (security layer) ✅
 - [x] Fastify 5 + TypeScript (`gateway/`): Supabase JWT verification via remote JWKS (`jose`), `@fastify/rate-limit` keyed by verified user id with IP fallback, strict CORS allowlist, `@fastify/http-proxy` (SSE-capable) for `/trails`, `/routes`, `/chat` only — every other path 404s at the gateway.

@@ -28,6 +28,7 @@ written and unit-tested; it has simply never met its dependencies.
 | Frontend (Next.js + MapLibre) | Complete | 25 tests; `next build` clean; production server verified serving |
 | Supabase store and quotas | Complete | Schema applied; 12-check live round-trip of `PostgresStore`; gateway quota store queries the real database |
 | Supabase auth | Complete | Real sign-in issues an ES256 token; the running gateway verifies it against the live JWKS and 401s both a missing and a malformed token |
+| Graph, live | Ingested and idempotent | Schema applied to a real Neo4j; both ingesters run twice leave counts identical (`scripts/smoke_graph.py`) |
 
 Totals: 96 backend, 28 gateway, 25 frontend tests, all passing. CI runs all
 three suites and is fully offline.
@@ -81,8 +82,14 @@ file, because both fail in ways that look like something else:
    The OpenAI key in `backend/.env`, and the Supabase database password, have
    both been pasted into chat transcripts. They work today and are gitignored;
    treat both as compromised.
-2. **No Docker.** The ingestion idempotency check, the routing queries, and the
-   GDS Dijkstra upgrade are all unverified against a real database.
+2. **The offline fixture cannot exercise spatial matching.** The three mock
+   Trailforks trails have synthetic geometry roughly 106 m from the nearest real
+   OSM way, against a 20 m threshold, so every trail matches 0 segments and no
+   `COMPOSED_OF` edge exists. The matcher is behaving correctly; the fixture
+   simply does not trace anything real. Until it is re-cut along actual OSM
+   ways in the bbox (or real Trailforks data clears licensing review), trail
+   detail and GeoJSON responses have nothing to ground themselves in, and the
+   `seq`-ordered distance-along-trail logic is untested against live data.
 3. **The account password is `12345678`.** It is eight characters, entirely
    numeric, and has been pasted into a chat transcript. Fine for a scratch
    login today; it must not survive contact with a deployed service.
@@ -91,12 +98,33 @@ The auth chain itself is no longer a blocker: a real sign-in was exercised end
 to end against the running gateway. The frontend sign-in page is still unbuilt,
 which is now ordinary work rather than something waiting on infrastructure.
 
+## Running the graph locally
+
+Docker Desktop is installed and the stack runs. Note two local specifics:
+
+- **Neo4j is on 7688/7475, not the defaults.** An older copy of this project
+  (container `god-neo4j`, `restart: unless-stopped`, from
+  `…\Learning\google, kaggle, antropic, openai\dev\agentic\get-out-door`)
+  already binds 7687/7474 and starts with Docker Desktop. The compose ports are
+  now variables; the root `.env` moves this stack aside so both can run. Stop
+  that container and clear `NEO4J_*_PORT` if you would rather have the defaults.
+- **The first boot after Docker starts can lose GDS.** The plugin installer
+  fetches a version manifest over the network, and on a cold Docker Desktop it
+  ran before networking was ready: APOC installed, GDS silently did not, and
+  Neo4j started anyway. Recreating the container fixed it. If `gds.version()`
+  is unknown, that is what happened — recreate rather than debug.
+
+Current state: schema applied, 15,937 segments and 31,848 routing edges
+ingested for the Lecco bbox, GDS 2.13.12 loaded.
+
 ## Suggested order of work
 
-Get Docker running and do the graph smoke test, since every routing claim
-depends on it and it is the last piece of the stack never run for real. The
-frontend sign-in page can proceed in parallel — nothing blocks it now. Rotate
-all three credentials before Phase 6 deploys anything.
+Re-cut the Trailforks fixture along real OSM ways so `COMPOSED_OF` gets
+exercised offline — until then the trail-facing half of the graph is unproven,
+and it blocks the Playwright end-to-end smoke from being meaningful. GDS
+Dijkstra can now be wired and verified. The frontend sign-in page is unblocked
+and can proceed in parallel. Rotate all three credentials before Phase 6
+deploys anything.
 
 Two smaller things found while verifying the gateway, neither urgent:
 
@@ -222,20 +250,24 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "Backend tests pin gateway_shared_secret and database_url to empty via an autouse fixture; they previously inherited the developer's .env, so a populated secret 401'd 23 tests and a populated DATABASE_URL opened a real Postgres pool during unit tests" },
         { "date": "2026-08-16", "text": "Gateway builds from tsconfig.build.json with rootDir src: the base config includes test/ for typecheck, which made tsc emit dist/src/... so npm start could not find dist/server.js and the built artifact was unstartable" },
         { "date": "2026-08-16", "text": "Gateway dev and start load gateway/.env via node --env-file-if-exists rather than a dotenv dependency; nothing read that file before, so its Supabase settings were inert" },
-        { "date": "2026-08-16", "text": "The auth plugin throws a named error when SUPABASE_JWT_JWKS_URL is empty; config only requires it in production, so outside production the empty string reached new URL and killed boot with a bare ERR_INVALID_URL" }
+        { "date": "2026-08-16", "text": "The auth plugin throws a named error when SUPABASE_JWT_JWKS_URL is empty; config only requires it in production, so outside production the empty string reached new URL and killed boot with a bare ERR_INVALID_URL" },
+        { "date": "2026-08-16", "text": "run_cypher_file strips // comments before splitting on semicolons; splitting first cut comments containing semicolons in half and executed the tail as Cypher, which is why applying the schema to a real database failed on 'durations are MINUTES.'" },
+        { "date": "2026-08-16", "text": "The Overpass client sends a descriptive User-Agent, overridable via OVERPASS_USER_AGENT; Overpass answers the default python-httpx UA with 406, which is not retryable, so live OSM ingestion could never have worked" },
+        { "date": "2026-08-16", "text": "Compose host ports for Neo4j are variables defaulting to 7474/7687, because an older copy of this project already binds those on the dev machine and starts with Docker Desktop" },
+        { "date": "2026-08-16", "text": "Compose uses the Neo4j 5 server.memory.* setting names; the dbms.memory.* forms worked but warned on every boot" }
       ] }
   ],
   "blockers": [
     { "text": "OpenAI API key was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
     { "text": "Supabase database password was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" },
-    { "text": "No Docker access, so ingestion idempotency, routing queries and GDS Dijkstra are unverified against a real Neo4j", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
+    { "text": "The mock Trailforks fixture has synthetic geometry ~106m from the nearest real OSM way against a 20m threshold, so 0 segments match and no COMPOSED_OF edge is ever created offline; trail detail, GeoJSON and seq-ordered distance logic stay unverified", "severity": "medium", "owner": "oscar", "since": "2026-08-16" },
     { "text": "The Supabase account password is 12345678 and was shared in plaintext; it must be changed before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" }
   ],
   "nextSteps": [
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Add a gateway health endpoint for the planned uptime check; /health currently 404s like any unproxied path", "est": 0.25, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Validate iss and aud on Supabase tokens in the gateway auth plugin; jwtVerify currently checks signature and expiry only", "est": 0.25, "owner": "oscar", "phase": "Phase 3 - Gateway", "plan": "redesign" },
-    { "title": "Run the live graph smoke test once Docker is available: init schema, both ingesters twice, assert counts unchanged", "est": 0.5, "owner": "oscar", "phase": "Phase 1 - Graph core and ingestion", "plan": "redesign" },
+    { "title": "Re-cut fixtures/trailforks_mock.json geometry along real OSM ways in the Lecco bbox so spatial matching and COMPOSED_OF are exercised offline", "est": 0.5, "owner": "oscar", "phase": "Phase 1 - Graph core and ingestion", "plan": "redesign" },
     { "title": "Wire GDS Dijkstra routing and verify the bounded projection against a live GDS instance", "est": 1, "owner": "oscar", "phase": "Phase 2 - Query service", "plan": "redesign" },
     { "title": "Build the Supabase sign-in page and conversation list in the frontend", "est": 1, "owner": "oscar", "phase": "Phase 5 - Frontend", "plan": "redesign" },
     { "title": "Playwright end-to-end smoke across the full stack", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },

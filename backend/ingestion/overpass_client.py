@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,14 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "overpass_cache"
 RETRYABLE_STATUS = {429, 502, 504}
 MAX_RETRIES = 5
+
+# Overpass rejects generic library User-Agents with 406 Not Acceptable: the
+# default `python-httpx/x.y.z` gets 406 where this string gets 200. Identifying
+# the client is also what the OSM usage policy asks for. Override via env to add
+# a contact address before running anything high-volume.
+USER_AGENT = os.environ.get(
+    "OVERPASS_USER_AGENT", "get-out-door/0.1 (trail data ingestion)"
+)
 
 OSM_QUERY_TEMPLATE = """
 [out:json][timeout:{timeout}];
@@ -52,7 +61,10 @@ async def fetch(query: str, use_cache: bool = True) -> dict[str, Any]:
 
     settings = get_settings()
     delay = 2.0
-    async with httpx.AsyncClient(timeout=settings.overpass_timeout_s + 10) as client:
+    async with httpx.AsyncClient(
+        timeout=settings.overpass_timeout_s + 10,
+        headers={"User-Agent": USER_AGENT},
+    ) as client:
         for attempt in range(MAX_RETRIES):
             response = await client.post(settings.overpass_url, data={"data": query})
             if response.status_code == 200:

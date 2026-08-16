@@ -79,19 +79,47 @@ class Neo4jClient:
     async def run_cypher_file(self, path: Path) -> int:
         """Run each ;-terminated statement in a .cypher file. Returns statement count.
 
-        Statements in our .cypher files never contain literal semicolons, so a
-        plain split is safe; comment-only chunks are skipped.
+        Comments are stripped before splitting. Statements themselves contain no
+        literal semicolons, but *comments* do — schema.cypher's header alone has
+        several — and splitting first cuts a comment in half, leaving its tail
+        looking like a statement. That is how "durations are MINUTES." reached
+        the server as Cypher.
         """
         text = await asyncio.to_thread(path.read_text, encoding="utf-8")
-        statements = [stmt.strip() for stmt in text.split(";") if _has_code(stmt)]
+        statements = split_statements(text)
         for stmt in statements:
             logger.info("cypher: %s...", stmt.splitlines()[-1][:80])
             await self.run(stmt)
         return len(statements)
 
 
-def _has_code(chunk: str) -> bool:
-    return any(
-        line.strip() and not line.strip().startswith("//")
-        for line in chunk.splitlines()
-    )
+def strip_line_comments(text: str) -> str:
+    """Remove `//` comments, leaving `//` inside string literals alone."""
+    kept = []
+    for line in text.splitlines():
+        quote: str | None = None
+        cut = None
+        for index, char in enumerate(line):
+            if quote is not None:
+                if char == quote and not _is_escaped(line, index):
+                    quote = None
+            elif char in "\"'":
+                quote = char
+            elif char == "/" and line[index + 1 : index + 2] == "/":
+                cut = index
+                break
+        kept.append(line if cut is None else line[:cut])
+    return "\n".join(kept)
+
+
+def _is_escaped(line: str, index: int) -> bool:
+    backslashes = 0
+    while index - 1 - backslashes >= 0 and line[index - 1 - backslashes] == "\\":
+        backslashes += 1
+    return backslashes % 2 == 1
+
+
+def split_statements(text: str) -> list[str]:
+    """Statements from a .cypher file: comments removed, split on semicolons."""
+    stripped = strip_line_comments(text)
+    return [stmt.strip() for stmt in stripped.split(";") if stmt.strip()]
