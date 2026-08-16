@@ -17,7 +17,8 @@ const SUGGESTIONS = [
 interface Props {
   onGeometry: (geometry: GeoJSON.Feature | GeoJSON.Geometry | null) => void;
   /** Resume this stored conversation; null starts fresh. The page remounts the
-   *  panel (via key) when this changes, so state never leaks across switches. */
+   *  panel (via key) on explicit navigation, so state never leaks across
+   *  switches — but not when this panel's own first turn is assigned an id. */
   initialConversationId?: string | null;
   initialMessages?: ChatMessage[];
   /** Fired when the backend assigns an id to a brand-new conversation. */

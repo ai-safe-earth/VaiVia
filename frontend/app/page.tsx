@@ -28,6 +28,12 @@ export default function Home() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatMessage[]>([]);
+  // The remount key changes only on explicit navigation (picking a stored
+  // conversation, "+ New chat"). It must NOT track `selected` directly: when a
+  // fresh chat's first turn is assigned an id, `selected` updates so the list
+  // highlights it — and keying on that would remount the panel mid-stream and
+  // destroy the answer as it arrives.
+  const [panelKey, setPanelKey] = useState('new-0');
 
   useEffect(() => onSession(setUser), []);
 
@@ -48,17 +54,20 @@ export default function Home() {
     if (id === null) {
       setSelected(null);
       setHistory([]);
+      setPanelKey(`new-${Date.now()}`); // always a fresh panel, even new -> new
       return;
     }
     // Load before switching so the remounted panel starts with its history.
     const messages = await loadMessages(id).catch(() => []);
     setHistory(messages);
     setSelected(id);
+    setPanelKey(id);
   }
 
   function conversationCreated(id: string) {
+    // Highlight the new conversation, but leave panelKey alone — the panel
+    // that created it is mid-stream and must not be remounted.
     setSelected(id);
-    // The backend just inserted the row; refresh the list so it appears.
     void listConversations()
       .then(setConversations)
       .catch(() => {});
@@ -93,7 +102,7 @@ export default function Home() {
           />
         )}
         <ChatPanel
-          key={selected ?? 'new'}
+          key={panelKey}
           onGeometry={setGeometry}
           initialConversationId={selected}
           initialMessages={history}

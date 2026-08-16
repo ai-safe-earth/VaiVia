@@ -118,12 +118,14 @@ ingested for the Lecco bbox, GDS 2.13.12 loaded.
 
 ## Suggested order of work
 
-The whole product now works end to end and has been driven in a real browser:
-sign-in, resumed history, a live streamed chat turn grounded in the graph, and
-the trail drawn on the map. What remains is Phase 6 hardening: the scripted
-Playwright end-to-end smoke (the manual browser run proves the path; a repeatable
-script should pin it), embeddings + semantic search, deploy plumbing, and the
-credential rotations. Rotate all three credentials before anything deploys.
+The whole product works end to end and is pinned by a repeatable Playwright
+suite (`cd frontend && E2E_EMAIL=… E2E_PASSWORD=… npm run test:e2e`, add
+`E2E_LIVE=1` to spend one real OpenAI turn). Its first run earned its keep by
+catching a bug the manual browser pass missed: a brand-new chat's first answer
+was destroyed mid-stream, because assigning the conversation id remounted the
+panel. What remains is Phase 6 hardening: embeddings + semantic search, deploy
+plumbing (Caddy TLS, backups, uptime check, the gateway health endpoint), and
+the credential rotations. Rotate all three credentials before anything deploys.
 
 Two smaller things found while verifying the gateway, neither urgent:
 
@@ -258,7 +260,9 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "/routes prefers GDS Dijkstra over a per-request bbox projection with a unique name dropped in finally, and falls back to shortestPath when GDS is unavailable, because the GDS plugin silently skips installation when its network fetch fails at container start" },
         { "date": "2026-08-16", "text": "GDS streams node ids only, so the route_edge_details template maps consecutive node pairs back onto CONNECTS_TO to recover gain, surfaces and way ids; parallel edges resolve to the shortest, matching what Dijkstra weighted by" },
         { "date": "2026-08-16", "text": "The browser reads conversations and messages directly from Supabase under the migration's select-only RLS policies (auth.uid() = user_id); this is what those policies were written for and does not breach the gateway-only rule, which guards backend, Neo4j and OpenAI. Writes still go only through the backend" },
-        { "date": "2026-08-16", "text": "Switching conversations remounts ChatPanel via a React key instead of syncing state with effects, so no message or stream state can leak across conversations" }
+        { "date": "2026-08-16", "text": "Switching conversations remounts ChatPanel via a React key instead of syncing state with effects, so no message or stream state can leak across conversations" },
+        { "date": "2026-08-16", "text": "The panel remount key changes only on explicit navigation, never when a fresh chat's first turn is assigned a conversation id: keying on selected remounted the panel mid-stream and destroyed the arriving answer, a bug the manual browser pass missed and the first scripted e2e run caught" },
+        { "date": "2026-08-16", "text": "The e2e suite reads credentials from E2E_EMAIL/E2E_PASSWORD and skips when unset so CI stays offline; the live OpenAI turn is additionally gated behind E2E_LIVE=1" }
       ] }
   ],
   "blockers": [
@@ -271,7 +275,6 @@ cost through Phase 5 was roughly $62.
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Add a gateway health endpoint for the planned uptime check; /health currently 404s like any unproxied path", "est": 0.25, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Validate iss and aud on Supabase tokens in the gateway auth plugin; jwtVerify currently checks signature and expiry only", "est": 0.25, "owner": "oscar", "phase": "Phase 3 - Gateway", "plan": "redesign" },
-    { "title": "Playwright end-to-end smoke across the full stack", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Embeddings job and semantic search behind the 503-until-populated rule", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
