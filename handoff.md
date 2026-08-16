@@ -29,6 +29,8 @@ written and unit-tested; it has simply never met its dependencies.
 | Supabase store and quotas | Complete | Schema applied; 12-check live round-trip of `PostgresStore`; gateway quota store queries the real database |
 | Supabase auth | Complete | Real sign-in issues an ES256 token; the running gateway verifies it against the live JWKS and 401s both a missing and a malformed token |
 | Graph, live | Ingested and idempotent | Schema applied to a real Neo4j; both ingesters run twice leave counts identical (`scripts/smoke_graph.py`) |
+| Spatial matching | Complete | Fixture re-cut along real OSM ways; 39 `COMPOSED_OF` edges, idempotent |
+| Routing (GDS Dijkstra) | Wired and verified live | `/routes` served a real 223 m POI route via GDS; Dijkstra beat shortestPath 2322 m vs 2474 m on the verification pair; shortestPath fallback kept for GDS-absent starts |
 
 Totals: 96 backend, 28 gateway, 25 frontend tests, all passing. CI runs all
 three suites and is fully offline.
@@ -82,14 +84,10 @@ file, because both fail in ways that look like something else:
    The OpenAI key in `backend/.env`, and the Supabase database password, have
    both been pasted into chat transcripts. They work today and are gitignored;
    treat both as compromised.
-2. **The offline fixture cannot exercise spatial matching.** The three mock
-   Trailforks trails have synthetic geometry roughly 106 m from the nearest real
-   OSM way, against a 20 m threshold, so every trail matches 0 segments and no
-   `COMPOSED_OF` edge exists. The matcher is behaving correctly; the fixture
-   simply does not trace anything real. Until it is re-cut along actual OSM
-   ways in the bbox (or real Trailforks data clears licensing review), trail
-   detail and GeoJSON responses have nothing to ground themselves in, and the
-   `seq`-ordered distance-along-trail logic is untested against live data.
+2. **Real Trailforks data still needs licensing review.** The mock fixture now
+   traces real OSM ways (so matching, `COMPOSED_OF`, and routing are all
+   exercised), but the three trails themselves remain synthetic until live
+   Trailforks data clears review (docs/fragilities.md #4).
 3. **The account password is `12345678`.** It is eight characters, entirely
    numeric, and has been pasted into a chat transcript. Fine for a scratch
    login today; it must not survive contact with a deployed service.
@@ -119,12 +117,11 @@ ingested for the Lecco bbox, GDS 2.13.12 loaded.
 
 ## Suggested order of work
 
-Re-cut the Trailforks fixture along real OSM ways so `COMPOSED_OF` gets
-exercised offline — until then the trail-facing half of the graph is unproven,
-and it blocks the Playwright end-to-end smoke from being meaningful. GDS
-Dijkstra can now be wired and verified. The frontend sign-in page is unblocked
-and can proceed in parallel. Rotate all three credentials before Phase 6
-deploys anything.
+The full data path is now proven live: schema, ingestion (idempotent), spatial
+matching (`COMPOSED_OF`), and GDS-weighted routing over HTTP. What remains is
+product work — the frontend sign-in page and conversation list, then the
+Playwright end-to-end smoke across the full stack, both unblocked. Rotate all
+three credentials before Phase 6 deploys anything.
 
 Two smaller things found while verifying the gateway, neither urgent:
 
@@ -254,21 +251,22 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "run_cypher_file strips // comments before splitting on semicolons; splitting first cut comments containing semicolons in half and executed the tail as Cypher, which is why applying the schema to a real database failed on 'durations are MINUTES.'" },
         { "date": "2026-08-16", "text": "The Overpass client sends a descriptive User-Agent, overridable via OVERPASS_USER_AGENT; Overpass answers the default python-httpx UA with 406, which is not retryable, so live OSM ingestion could never have worked" },
         { "date": "2026-08-16", "text": "Compose host ports for Neo4j are variables defaulting to 7474/7687, because an older copy of this project already binds those on the dev machine and starts with Docker Desktop" },
-        { "date": "2026-08-16", "text": "Compose uses the Neo4j 5 server.memory.* setting names; the dbms.memory.* forms worked but warned on every boot" }
+        { "date": "2026-08-16", "text": "Compose uses the Neo4j 5 server.memory.* setting names; the dbms.memory.* forms worked but warned on every boot" },
+        { "date": "2026-08-16", "text": "The fixture's trail geometry is generated from the ingested graph by scripts/make_trailforks_fixture.py rather than hand-written, so it always traces real ways and spatial matching is exercised offline; metadata is preserved because tests pin it" },
+        { "date": "2026-08-16", "text": "/routes prefers GDS Dijkstra over a per-request bbox projection with a unique name dropped in finally, and falls back to shortestPath when GDS is unavailable, because the GDS plugin silently skips installation when its network fetch fails at container start" },
+        { "date": "2026-08-16", "text": "GDS streams node ids only, so the route_edge_details template maps consecutive node pairs back onto CONNECTS_TO to recover gain, surfaces and way ids; parallel edges resolve to the shortest, matching what Dijkstra weighted by" }
       ] }
   ],
   "blockers": [
     { "text": "OpenAI API key was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
     { "text": "Supabase database password was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" },
-    { "text": "The mock Trailforks fixture has synthetic geometry ~106m from the nearest real OSM way against a 20m threshold, so 0 segments match and no COMPOSED_OF edge is ever created offline; trail detail, GeoJSON and seq-ordered distance logic stay unverified", "severity": "medium", "owner": "oscar", "since": "2026-08-16" },
+    { "text": "Real Trailforks data is pending licensing review; the fixture now traces real OSM ways but the three trails are synthetic", "severity": "low", "owner": "oscar", "since": "2026-08-15" },
     { "text": "The Supabase account password is 12345678 and was shared in plaintext; it must be changed before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" }
   ],
   "nextSteps": [
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Add a gateway health endpoint for the planned uptime check; /health currently 404s like any unproxied path", "est": 0.25, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Validate iss and aud on Supabase tokens in the gateway auth plugin; jwtVerify currently checks signature and expiry only", "est": 0.25, "owner": "oscar", "phase": "Phase 3 - Gateway", "plan": "redesign" },
-    { "title": "Re-cut fixtures/trailforks_mock.json geometry along real OSM ways in the Lecco bbox so spatial matching and COMPOSED_OF are exercised offline", "est": 0.5, "owner": "oscar", "phase": "Phase 1 - Graph core and ingestion", "plan": "redesign" },
-    { "title": "Wire GDS Dijkstra routing and verify the bounded projection against a live GDS instance", "est": 1, "owner": "oscar", "phase": "Phase 2 - Query service", "plan": "redesign" },
     { "title": "Build the Supabase sign-in page and conversation list in the frontend", "est": 1, "owner": "oscar", "phase": "Phase 5 - Frontend", "plan": "redesign" },
     { "title": "Playwright end-to-end smoke across the full stack", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Embeddings job and semantic search behind the 503-until-populated rule", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },

@@ -119,6 +119,22 @@ RETURN total_m,
        [r IN relationships(path) | r.osm_way_id] AS osm_way_ids,
        [r IN relationships(path) | r.surface] AS surfaces
 
+// name: route_edge_details
+// Map a computed path's consecutive node pairs back onto CONNECTS_TO edges to
+// recover per-edge properties — GDS streams node ids only. Parallel edges
+// between the same pair (two ways joining the same intersections) resolve to
+// the shortest, matching what Dijkstra weighted by.
+UNWIND range(0, size($node_ids) - 2) AS i
+MATCH (a:Intersection)-[c:CONNECTS_TO]->(b:Intersection)
+WHERE a.osm_node_id = $node_ids[i] AND b.osm_node_id = $node_ids[i + 1]
+WITH i, c ORDER BY i, c.distance_m
+WITH i, collect(c)[0] AS edge
+RETURN i,
+       edge.osm_way_id AS osm_way_id,
+       edge.surface AS surface,
+       coalesce(edge.elevation_gain_m, 0.0) AS gain_m
+ORDER BY i
+
 // name: route_gds_dijkstra
 // Cost-weighted routing over a named GDS projection. The projection is created
 // by graph_project_routing (below) and dropped after use.
