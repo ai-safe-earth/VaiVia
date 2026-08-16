@@ -124,18 +124,16 @@ suite (`cd frontend && E2E_EMAIL=… E2E_PASSWORD=… npm run test:e2e`, add
 catching a bug the manual browser pass missed: a brand-new chat's first answer
 was destroyed mid-stream, because assigning the conversation id remounted the
 panel. What remains is Phase 6 hardening: embeddings + semantic search, deploy
-plumbing (Caddy TLS, backups, uptime check, the gateway health endpoint), and
+plumbing (Caddy TLS, backups, uptime check against /healthz), and
 the credential rotations. Rotate all three credentials before anything deploys.
 
-Two smaller things found while verifying the gateway, neither urgent:
-
-- **There is no health endpoint.** `/health` 404s like any other unproxied
-  path. The planned uptime check has nothing to poll, so add one before deploy.
-- **The gateway does not validate `iss` or `aud`.** `jwtVerify` is called with
-  no claim options, so it checks signature and expiry only. The project-specific
-  signing key makes this sound in practice, but pinning
-  `iss=https://<ref>.supabase.co/auth/v1` and `aud=authenticated` is cheap
-  defence in depth. It was left alone rather than changed blind.
+Both gateway findings from the auth verification are resolved. The "missing
+health endpoint" turned out to be a wrong finding: the gateway has always served
+`/healthz` (matching the backend's path) — the check that produced the finding
+curled `/health`. And the gateway now pins `iss` (`<project-url>/auth/v1`) and
+`aud` (`authenticated`) whenever `SUPABASE_URL` is configured, verified both by
+negative tests (right key, wrong issuer or audience -> 401) and live: a real
+Supabase token still passes with pinning active.
 
 ## Running it locally
 
@@ -273,8 +271,6 @@ cost through Phase 5 was roughly $62.
   ],
   "nextSteps": [
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
-    { "title": "Add a gateway health endpoint for the planned uptime check; /health currently 404s like any unproxied path", "est": 0.25, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
-    { "title": "Validate iss and aud on Supabase tokens in the gateway auth plugin; jwtVerify currently checks signature and expiry only", "est": 0.25, "owner": "oscar", "phase": "Phase 3 - Gateway", "plan": "redesign" },
     { "title": "Embeddings job and semantic search behind the 503-until-populated rule", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],

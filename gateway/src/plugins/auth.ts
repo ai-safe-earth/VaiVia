@@ -31,6 +31,10 @@ declare module 'fastify' {
 
 export interface AuthOptions {
   jwksUrl: string;
+  /** Pin the token issuer (Supabase: `<project-url>/auth/v1`). Unset = not checked. */
+  issuer?: string;
+  /** Pin the token audience (Supabase: `authenticated`). Unset = not checked. */
+  audience?: string;
   /** Injected in tests so verification runs without a network call. */
   keyResolver?: JWTVerifyGetKey;
 }
@@ -55,6 +59,14 @@ const authPlugin: FastifyPluginAsync<AuthOptions> = async (app, options) => {
   const resolveKey: JWTVerifyGetKey =
     options.keyResolver ?? createRemoteJWKSet(new URL(options.jwksUrl));
 
+  // Defence in depth beyond the project-specific signing key: a token signed by
+  // the right key but minted for another purpose (wrong issuer or audience) is
+  // rejected the same way a bad signature is.
+  const verifyOptions = {
+    ...(options.issuer ? { issuer: options.issuer } : {}),
+    ...(options.audience ? { audience: options.audience } : {}),
+  };
+
   // Identification runs early (before rate limiting) so limits can key on the
   // verified user id. It never rejects: enforcement is `authenticate`'s job,
   // which keeps unauthenticated traffic inside the IP-keyed rate limit instead
@@ -64,7 +76,7 @@ const authPlugin: FastifyPluginAsync<AuthOptions> = async (app, options) => {
     if (!token) return;
 
     try {
-      const { payload } = await jwtVerify(token, resolveKey);
+      const { payload } = await jwtVerify(token, resolveKey, verifyOptions);
       if (!payload.sub) return;
       request.user = {
         id: payload.sub,

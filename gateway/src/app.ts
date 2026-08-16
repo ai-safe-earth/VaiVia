@@ -57,6 +57,10 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
 
   await app.register(authPlugin, {
     jwksUrl: config.supabaseJwksUrl,
+    // Supabase mints tokens with iss <project-url>/auth/v1 and aud
+    // "authenticated"; pin both whenever the project URL is configured.
+    issuer: config.supabaseUrl ? `${config.supabaseUrl}/auth/v1` : undefined,
+    audience: config.supabaseUrl ? 'authenticated' : undefined,
     keyResolver: options.keyResolver,
   });
 

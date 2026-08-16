@@ -26,14 +26,26 @@ export async function makeKeys(): Promise<Keys> {
   return { privateKey, keyResolver: createLocalJWKSet({ keys: [jwk] }) };
 }
 
+/** Must match testConfig's SUPABASE_URL — the app pins the issuer from it. */
+export const TEST_SUPABASE_URL = 'https://test-project.supabase.co';
+
 export async function signToken(
   keys: Keys,
   claims: Record<string, unknown> = {},
-  { expiresIn = '1h', subject = 'user-123' }: { expiresIn?: string; subject?: string } = {},
+  {
+    expiresIn = '1h',
+    subject = 'user-123',
+    // Defaults mirror what Supabase actually mints, so every existing test
+    // exercises the pinned-claims path; negative tests override these.
+    issuer = `${TEST_SUPABASE_URL}/auth/v1`,
+    audience = 'authenticated',
+  }: { expiresIn?: string; subject?: string; issuer?: string; audience?: string } = {},
 ): Promise<string> {
   return new SignJWT({ email: 'rider@example.com', ...claims })
     .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
     .setSubject(subject)
+    .setIssuer(issuer)
+    .setAudience(audience)
     .setIssuedAt()
     .setExpirationTime(expiresIn)
     .sign(keys.privateKey);
@@ -87,6 +99,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     ...loadConfig({
       NODE_ENV: 'test',
       GATEWAY_SHARED_SECRET: 'test-shared-secret',
+      SUPABASE_URL: TEST_SUPABASE_URL,
       SUPABASE_JWT_JWKS_URL: 'http://localhost/jwks',
       ALLOWED_ORIGINS: 'http://localhost:3000,https://app.example.com',
       LOG_LEVEL: 'silent',
