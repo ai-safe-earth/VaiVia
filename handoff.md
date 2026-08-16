@@ -116,7 +116,9 @@ Docker Desktop is installed and the stack runs. Note two local specifics:
   is unknown, that is what happened — recreate rather than debug.
 
 Current state: schema applied, 15,937 segments and 31,848 routing edges
-ingested for the Lecco bbox, GDS 2.13.12 loaded.
+ingested for the Lecco bbox, GDS 2.13.12 loaded. The stack was brought down
+with `docker compose … down` on 2026-08-16; the data volume persists, so
+`up -d neo4j` restores the ingested graph without re-running ingestion.
 
 ## Suggested order of work
 
@@ -280,7 +282,8 @@ cost through Phase 5 was roughly $62.
   ],
   "sessions": [
     { "date": "2026-08-15", "model": "fable-5", "credits": 69, "person": "oscar", "hours": null },
-    { "date": "2026-08-16", "model": "opus-5", "credits": 175, "person": "oscar", "hours": null }
+    { "date": "2026-08-16", "model": "opus-5", "credits": 175, "person": "oscar", "hours": null },
+    { "date": "2026-08-16", "model": "fable-5", "credits": 1, "person": "oscar", "hours": null }
   ]
 }
 ```
