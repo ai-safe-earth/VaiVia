@@ -1,6 +1,6 @@
 # Handoff — get-out-door
 
-Last updated 2026-08-15.
+Last updated 2026-08-16.
 
 ## Where the project stands
 
@@ -96,13 +96,38 @@ and `frontend/`. After changing chat prompts or intents, re-run
 `uv run python -m scripts.check_intents_live` — it costs money and the
 adversarial half must stay at seven of seven.
 
+## Knowing what a session cost
+
+`backend/scripts/cost_by_commit.py` attributes Claude Code token spend to git
+commits, sessions, or models. It reads the local transcripts under
+`~/.claude/projects/`, buckets each request into the commit whose interval
+contains its timestamp, and prices the tokens at list rates. Stdlib only, so it
+runs without `uv sync`.
+
+```bash
+python backend/scripts/cost_by_commit.py              # per commit
+python backend/scripts/cost_by_commit.py --by session # or model / branch
+python backend/scripts/cost_by_commit.py --json       # feeds sessions[].credits
+```
+
+Two things it gets right that a naive count does not. Each API request writes
+several assistant records to the transcript — one per content block — and every
+one repeats the *same* usage object, so the script dedupes on `requestId`;
+summing raw records roughly doubles the figure. And cache reads dominate the
+token volume by an order of magnitude while billing at a tenth of the input
+rate, so 5-minute writes, 1-hour writes, and reads are priced separately.
+
+The numbers are list-price API equivalents. On a subscription plan nothing here
+is billed per token — `/usage` is what reflects real plan consumption. Build
+cost through Phase 5 was roughly $62.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "get-out-door",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-15",
+  "updated": "2026-08-16",
   "deadline": null,
   "people": ["oscar"],
   "plans": [
@@ -152,7 +177,9 @@ adversarial half must stay at seven of seven.
         { "date": "2026-08-15", "text": "Sign-in page deferred rather than built speculatively against a Supabase project that does not exist" }
       ] },
     { "name": "Phase 6 - Beta hardening", "status": "planned", "start": null, "end": null, "plan": "redesign",
-      "decisions": [] }
+      "decisions": [
+        { "date": "2026-08-16", "text": "Claude Code spend is attributed per commit by bucketing transcript usage into commit time intervals, deduped on requestId because one request writes several assistant records that each repeat the same usage object" }
+      ] }
   ],
   "blockers": [
     { "text": "OpenAI API key was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
@@ -171,7 +198,8 @@ adversarial half must stay at seven of seven.
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
   "sessions": [
-    { "date": "2026-08-15", "model": "fable-5", "credits": null, "person": "oscar", "hours": null }
+    { "date": "2026-08-15", "model": "fable-5", "credits": null, "person": "oscar", "hours": null },
+    { "date": "2026-08-16", "model": "opus-5", "credits": 12, "person": "oscar", "hours": null }
   ]
 }
 ```
