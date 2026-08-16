@@ -16,13 +16,26 @@ const SUGGESTIONS = [
 
 interface Props {
   onGeometry: (geometry: GeoJSON.Feature | GeoJSON.Geometry | null) => void;
+  /** Resume this stored conversation; null starts fresh. The page remounts the
+   *  panel (via key) when this changes, so state never leaks across switches. */
+  initialConversationId?: string | null;
+  initialMessages?: ChatMessage[];
+  /** Fired when the backend assigns an id to a brand-new conversation. */
+  onConversationCreated?: (id: string) => void;
 }
 
-export function ChatPanel({ onGeometry }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export function ChatPanel({
+  onGeometry,
+  initialConversationId = null,
+  initialMessages = [],
+  onConversationCreated,
+}: Props) {
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(
+    initialConversationId,
+  );
   const [selectedTrail, setSelectedTrail] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -61,6 +74,7 @@ export function ChatPanel({ onGeometry }: Props) {
       for await (const event of sendChat(message, conversationId)) {
         switch (event.type) {
           case 'conversation':
+            if (conversationId === null) onConversationCreated?.(event.conversationId);
             setConversationId(event.conversationId);
             break;
           case 'results':

@@ -122,7 +122,7 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] `lib/format.ts` — the single place metres/minutes become human units.
 - [x] Map: OSM raster tiles (no API key, correct attribution), casing under the route line for legibility, auto-fit bounds; `dynamic(ssr: false)` since MapLibre touches `window` at import.
 - [x] Verified: 25 tests pass, `next build` compiles and type-checks clean, production server serves the rendered app, and no secret appears in the bundle.
-- [ ] Sign-in page + conversation list: deferred until the Supabase project exists (the app runs and warns in-page without it).
+- [x] Sign-in page + conversation list. Email/password auth (`AuthPanel`, sign-up with the confirm-email flow, friendly error mapping), a session bar with sign-out, and a conversation list read straight from Supabase under the migration's RLS policies — select-only, `auth.uid() = user_id`, which is what those policies were written for; writes still go only through the backend. Selecting a conversation loads its history and resumes it (the page remounts `ChatPanel` via `key`, so no state leaks across switches). Verified in a real browser against the full live stack: sign-in as a real user, history resumed, a live streamed follow-up turn answered with a graph-grounded trail, and its geometry drawn on the map. RLS also verified negatively: the anon role sees zero rows.
 - [ ] Playwright end-to-end smoke — needs the full stack (Neo4j + backend + gateway) running.
 
 ### Phase 6 — Beta hardening

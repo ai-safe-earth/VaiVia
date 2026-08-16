@@ -268,3 +268,113 @@ button.primary:disabled {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* ── Auth & conversations (added with the sign-in page) ─────────────────── */
+
+.shell.centered {
+  display: grid;
+  grid-template-columns: 1fr;
+  place-items: center;
+}
+
+.auth {
+  width: min(360px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.auth h1 {
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.auth form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+}
+
+.link {
+  background: none;
+  border: none;
+  color: var(--accent, #2f6f4f);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.chat-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.chat-column .chat {
+  border-right: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.session-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.session-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversations {
+  display: flex;
+  gap: 8px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.conversations button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversations button.active {
+  border-color: var(--accent, #2f6f4f);
+  font-weight: 600;
+}
