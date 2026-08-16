@@ -5,36 +5,39 @@ Last updated 2026-08-16.
 ## Where the project stands
 
 A trail-query chatbot backed by a Neo4j knowledge graph that fuses OpenStreetMap
-geometry with Trailforks curation. The repository began this session as a
-docs-only skeleton with no code. It is now a working four-tier monorepo:
-Next.js frontend, Fastify gateway, FastAPI backend, Neo4j graph, with Supabase
-providing auth and Postgres.
+geometry with Trailforks curation. A working four-tier monorepo: Next.js
+frontend, Fastify gateway, FastAPI backend, Neo4j graph, with Supabase providing
+auth and Postgres.
 
-Status is amber, not green, for one reason: everything is verified except the
-parts that need infrastructure nobody has stood up yet. No Docker was available,
-so nothing has been run against a real Neo4j; no Supabase project exists, so
-real sign-in and persistent history are unproven. The code for both paths is
-written and unit-tested; it has simply never met its dependencies.
+The product works end to end against real infrastructure and has been driven in
+a real browser: sign-in, resumed conversation history, a live streamed chat turn
+grounded in the graph, and the trail drawn on the map — all of it pinned by a
+repeatable Playwright suite. Status stays amber for one reason only: three
+credentials were shared in plaintext during development and must be rotated
+before anything deploys. Everything else that remains is Phase 6 hardening
+(embeddings, deploy plumbing), not unverified core.
 
 ## What is built and how far it is verified
 
 | Piece | State | Verification |
 |---|---|---|
-| Graph schema and ontology | Owner-validated, frozen | Encoded in `backend/graph/schema.cypher`; never applied to a live database |
-| Ingestion (OSM + Trailforks) | Complete | 29 offline tests on synthetic fixtures; never run against Neo4j or the live Overpass API |
-| Query service (FastAPI) | Complete | 34 tests against a fake graph client; five endpoints registered and serving |
-| Gateway (Fastify) | Complete | 25 tests with real RSA-signed JWTs and a stub upstream |
-| Chat orchestration (OpenAI) | Complete | 33 offline tests, plus 15/15 against the live OpenAI API |
-| Frontend (Next.js + MapLibre) | Complete | 25 tests; `next build` clean; production server verified serving |
+| Graph schema and ontology | Owner-validated, frozen | Applied to the live database (16 statements, region seeded) |
+| Ingestion (OSM + Trailforks) | Complete, live-verified | Offline tests plus real runs: 15,937 segments / 31,848 edges from live Overpass; re-runs leave counts identical |
+| Query service (FastAPI) | Complete | Tests against a fake graph client; live `/routes` and `/trails` verified over HTTP |
+| Gateway (Fastify) | Complete | 28 tests; real Supabase ES256 token verified against the live JWKS |
+| Chat orchestration (OpenAI) | Complete | 33 offline tests, plus 15/15 against the live OpenAI API; live turns persisted to Supabase |
+| Frontend (Next.js + MapLibre) | Complete | 33 unit tests; `next build` clean; driven in a real browser |
 | Supabase store and quotas | Complete | Schema applied; 12-check live round-trip of `PostgresStore`; gateway quota store queries the real database |
 | Supabase auth | Complete | Real sign-in issues an ES256 token; the running gateway verifies it against the live JWKS and 401s both a missing and a malformed token |
 | Graph, live | Ingested and idempotent | Schema applied to a real Neo4j; both ingesters run twice leave counts identical (`scripts/smoke_graph.py`) |
 | Spatial matching | Complete | Fixture re-cut along real OSM ways; 39 `COMPOSED_OF` edges, idempotent |
 | Routing (GDS Dijkstra) | Wired and verified live | `/routes` served a real 223 m POI route via GDS; Dijkstra beat shortestPath 2322 m vs 2474 m on the verification pair; shortestPath fallback kept for GDS-absent starts |
 | Sign-in + conversations | Complete | Real browser session against the full stack: sign-in, history resumed under RLS, live streamed turn, trail drawn on the map; anon role reads zero rows |
+| Playwright e2e | Complete | 4/4 against the live stack in ~10 s; first run caught a real mid-stream remount bug |
 
-Totals: 96 backend, 28 gateway, 25 frontend tests, all passing. CI runs all
-three suites and is fully offline.
+Totals: 107 backend, 28 gateway, 33 frontend unit tests plus 4 e2e, all
+passing. CI runs the three unit suites and stays fully offline; the e2e suite
+is a local/pre-deploy check that skips itself without credentials.
 
 ## The two properties the redesign exists to guarantee
 
@@ -93,9 +96,6 @@ file, because both fail in ways that look like something else:
    numeric, and has been pasted into a chat transcript. Fine for a scratch
    login today; it must not survive contact with a deployed service.
 
-The auth chain itself is no longer a blocker: a real sign-in was exercised end
-to end against the running gateway. The frontend sign-in page is still unbuilt,
-which is now ordinary work rather than something waiting on infrastructure.
 
 ## Running the graph locally
 
@@ -279,9 +279,8 @@ cost through Phase 5 was roughly $62.
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
   "sessions": [
-    { "date": "2026-08-15", "model": "fable-5", "credits": null, "person": "oscar", "hours": null },
-    { "date": "2026-08-16", "model": "opus-5", "credits": 12, "person": "oscar", "hours": null },
-    { "date": "2026-08-16", "model": "opus-5", "credits": 18, "person": "oscar", "hours": null }
+    { "date": "2026-08-15", "model": "fable-5", "credits": 69, "person": "oscar", "hours": null },
+    { "date": "2026-08-16", "model": "opus-5", "credits": 175, "person": "oscar", "hours": null }
   ]
 }
 ```
