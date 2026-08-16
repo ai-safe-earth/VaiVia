@@ -20,6 +20,7 @@ export interface Trail {
   duration_mtb_min: number | null;
   best_seasons: string[];
   seasonal_hazards: string[];
+  trailforks_url?: string | null;
   pois: PoiRef[];
 }
 
@@ -30,15 +31,28 @@ export interface RouteResult {
   end: string;
 }
 
+/** One resolved (or failed) route from a composed plan. */
+export interface RouteBlock {
+  route: RouteResult | null;
+  geometry?: GeoJSON.LineString;
+  unknown_place?: string;
+  off_network?: string;
+  no_path?: boolean;
+}
+
 export interface ChatResults {
   kind: 'trail_search' | 'route' | 'clarify';
   trails?: Trail[];
+  /** Every route in the plan; `route`/`geometry` mirror the first resolved one. */
+  routes?: RouteBlock[];
   route?: RouteResult | null;
   geometry?: GeoJSON.LineString;
   unknown_place?: string;
   off_network?: string;
   no_path?: boolean;
   clarification?: string;
+  suggestions?: string[];
+  semantic_unavailable?: boolean;
 }
 
 export interface ChatMessage {

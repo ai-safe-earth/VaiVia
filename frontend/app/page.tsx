@@ -21,7 +21,9 @@ const MapView = dynamic(() => import('@/components/MapView').then((m) => m.MapVi
 });
 
 export default function Home() {
-  const [geometry, setGeometry] = useState<GeoJSON.Feature | GeoJSON.Geometry | null>(null);
+  const [geometry, setGeometry] = useState<
+    GeoJSON.Feature | GeoJSON.FeatureCollection | GeoJSON.Geometry | null
+  >(null);
   // undefined = session still resolving; render nothing rather than flashing
   // the sign-in form at an already signed-in user.
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);

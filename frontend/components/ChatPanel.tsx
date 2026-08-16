@@ -15,7 +15,9 @@ const SUGGESTIONS = [
 ];
 
 interface Props {
-  onGeometry: (geometry: GeoJSON.Feature | GeoJSON.Geometry | null) => void;
+  onGeometry: (
+    geometry: GeoJSON.Feature | GeoJSON.FeatureCollection | GeoJSON.Geometry | null,
+  ) => void;
   /** Resume this stored conversation; null starts fresh. The page remounts the
    *  panel (via key) on explicit navigation, so state never leaks across
    *  switches — but not when this panel's own first turn is assigned an id. */
@@ -78,10 +80,26 @@ export function ChatPanel({
             if (conversationId === null) onConversationCreated?.(event.conversationId);
             setConversationId(event.conversationId);
             break;
-          case 'results':
+          case 'results': {
             updateLast({ results: event.results });
-            if (event.results.geometry) onGeometry(event.results.geometry);
+            // A composed plan can resolve several routes; draw them all.
+            const lines = (event.results.routes ?? [])
+              .map((block) => block.geometry)
+              .filter((g): g is GeoJSON.LineString => Boolean(g));
+            if (lines.length > 1) {
+              onGeometry({
+                type: 'FeatureCollection',
+                features: lines.map((geometry) => ({
+                  type: 'Feature',
+                  properties: {},
+                  geometry,
+                })),
+              });
+            } else if (event.results.geometry) {
+              onGeometry(event.results.geometry);
+            }
             break;
+          }
           case 'token':
             streamed += event.delta;
             updateLast({ content: streamed });
@@ -141,6 +159,21 @@ export function ChatPanel({
             <div className={`bubble ${message.role}`}>
               {message.content || (message.streaming ? '…' : '')}
             </div>
+
+            {message.results?.suggestions && message.results.suggestions.length > 0 && (
+              <div className="suggestions">
+                {message.results.suggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void submit(suggestion)}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {message.results?.trails?.map((trail) => (
               <TrailCard

@@ -71,7 +71,12 @@ async def chat(
         )
 
     state = http_request.app.state
-    orchestrator = ChatOrchestrator(db=db, llm=state.llm, store=state.store)
+    orchestrator = ChatOrchestrator(
+        db=db,
+        llm=state.llm,
+        store=state.store,
+        embedder=getattr(state, "embedder", None),
+    )
 
     return StreamingResponse(
         _stream(

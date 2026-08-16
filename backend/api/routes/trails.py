@@ -36,6 +36,7 @@ async def search_trails(request: TrailSearchRequest, db: DbDep) -> TrailSearchRe
         max_difficulty_level=request.max_difficulty_level,
         min_distance_m=request.min_distance_m,
         max_distance_m=request.max_distance_m,
+        min_elevation_gain_m=request.min_elevation_gain_m,
         max_elevation_gain_m=request.max_elevation_gain_m,
         poi_types=list(request.poi_types),
         surface_exclusions=list(request.surface_exclusions),

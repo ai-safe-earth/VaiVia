@@ -29,6 +29,7 @@ class TrailSearchIntent(BaseModel):
     min_distance_m: Annotated[float, Field(ge=0)] | None = None
     max_distance_m: Annotated[float, Field(ge=0)] | None = None
     max_duration_min: Annotated[int, Field(ge=0)] | None = None
+    min_elevation_gain_m: Annotated[float, Field(ge=0)] | None = None
     max_elevation_gain_m: Annotated[float, Field(ge=0)] | None = None
     poi_types: list[PoiType] = Field(default_factory=list)
     surface_exclusions: list[str] = Field(default_factory=list)
@@ -47,22 +48,45 @@ class RouteIntent(BaseModel):
     max_distance_m: Annotated[float, Field(gt=0)] | None = None
 
 
+class SemanticThemeIntent(BaseModel):
+    """Free-text atmosphere the structured filters cannot express
+    ("panoramic ridge", "shady forest by a stream"). The text is embedded
+    server-side and handed to the vector index as a parameter — it never
+    approaches Cypher."""
+
+    kind: Literal["semantic_theme"] = "semantic_theme"
+    text: str
+
+
 class ClarifyIntent(BaseModel):
-    """Out of scope, ambiguous, or adversarial — ask instead of guessing."""
+    """Out of scope, ambiguous, or adversarial — ask instead of guessing.
+    Suggestions are short example follow-ups that would make a good search."""
 
     kind: Literal["clarify"] = "clarify"
     question: str
+    suggestions: list[str] = Field(default_factory=list)
 
 
 Intent = Annotated[
-    TrailSearchIntent | RouteIntent | ClarifyIntent, Field(discriminator="kind")
+    TrailSearchIntent | RouteIntent | SemanticThemeIntent | ClarifyIntent,
+    Field(discriminator="kind"),
 ]
 
 
 class IntentEnvelope(BaseModel):
-    """What the model is asked to return."""
+    """Legacy single-intent envelope (kept for tools that probe one intent)."""
 
     intent: Intent
+
+
+class PlanEnvelope(BaseModel):
+    """What the model is asked to return: the user's message decomposed into
+    atomic subqueries. The composer (chat/composer.py) — Python, not the model —
+    merges these into named parameterized templates. Length is deliberately
+    unconstrained here (strict mode rejects array bounds); the composer caps it.
+    """
+
+    subqueries: list[Intent] = Field(default_factory=list)
 
 
 def to_strict_schema(model: type[BaseModel]) -> dict[str, Any]:

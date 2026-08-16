@@ -13,12 +13,21 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
   const time = primaryDuration(trail);
   const gain = elevation(trail.elevation_gain_m);
 
+  // A div with button semantics rather than <button>: the card holds a real
+  // <a> to Trailforks, and an anchor inside a button is invalid HTML.
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className="card"
       aria-pressed={selected}
       onClick={() => onSelect(trail)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(trail);
+        }
+      }}
     >
       <h3>{trail.name}</h3>
       <div className="stats">
@@ -48,6 +57,18 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
       )}
 
       {trail.difficulty_notes && <p className="note">{trail.difficulty_notes}</p>}
-    </button>
+
+      {trail.trailforks_url && (
+        <a
+          className="external"
+          href={trail.trailforks_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => event.stopPropagation()}
+        >
+          View on Trailforks ↗
+        </a>
+      )}
+    </div>
   );
 }

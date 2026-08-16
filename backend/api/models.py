@@ -33,6 +33,7 @@ class TrailSummary(BaseModel):
     duration_mtb_min: int | None = None
     best_seasons: list[str] = Field(default_factory=list)
     seasonal_hazards: list[str] = Field(default_factory=list)
+    trailforks_url: str | None = None
     pois: list[PoiRef] = Field(default_factory=list)
 
 
@@ -48,6 +49,7 @@ class TrailSearchRequest(BaseModel):
     max_difficulty_level: Annotated[int, Field(ge=1, le=4)] | None = None
     min_distance_m: Annotated[float, Field(ge=0)] | None = None
     max_distance_m: Annotated[float, Field(ge=0)] | None = None
+    min_elevation_gain_m: Annotated[float, Field(ge=0)] | None = None
     max_elevation_gain_m: Annotated[float, Field(ge=0)] | None = None
     poi_types: list[PoiType] = Field(default_factory=list)
     surface_exclusions: list[str] = Field(default_factory=list)

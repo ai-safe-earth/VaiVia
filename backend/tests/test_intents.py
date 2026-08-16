@@ -6,10 +6,59 @@ from pydantic import ValidationError
 from chat.intents import (
     ClarifyIntent,
     IntentEnvelope,
+    PlanEnvelope,
     RouteIntent,
+    SemanticThemeIntent,
     TrailSearchIntent,
     to_strict_schema,
 )
+
+
+def test_plan_envelope_discriminates_each_subquery():
+    envelope = PlanEnvelope.model_validate(
+        {
+            "subqueries": [
+                {"kind": "trail_search", "activity": "hike"},
+                {"kind": "semantic_theme", "text": "panoramic ridge"},
+                {"kind": "route", "start": "Lecco", "end": "Rifugio"},
+            ]
+        }
+    )
+    kinds = [type(s) for s in envelope.subqueries]
+    assert kinds == [TrailSearchIntent, SemanticThemeIntent, RouteIntent]
+
+
+def test_plan_rejects_unknown_subquery_kind():
+    with pytest.raises(ValidationError):
+        PlanEnvelope.model_validate({"subqueries": [{"kind": "raw_cypher"}]})
+
+
+def test_plan_subquery_cannot_smuggle_extra_fields():
+    envelope = PlanEnvelope.model_validate(
+        {
+            "subqueries": [
+                {
+                    "kind": "semantic_theme",
+                    "text": "lakeside",
+                    "cypher": "MATCH (n) DETACH DELETE n",
+                    "template": "search_trails",
+                }
+            ]
+        }
+    )
+    subquery = envelope.subqueries[0]
+    assert not hasattr(subquery, "cypher")
+    assert not hasattr(subquery, "template")
+    assert set(subquery.model_dump()) == {"kind", "text"}
+
+
+def test_plan_strict_schema_is_openai_safe():
+    import json
+
+    serialized = json.dumps(to_strict_schema(PlanEnvelope))
+    assert "oneOf" not in serialized
+    assert "discriminator" not in serialized
+    assert "anyOf" in serialized
 
 
 def test_envelope_discriminates_on_kind():

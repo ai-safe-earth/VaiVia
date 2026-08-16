@@ -10,8 +10,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from chat.intents import IntentEnvelope, to_strict_schema
-from chat.prompts import ANSWER_SYSTEM_PROMPT, INTENT_SYSTEM_PROMPT
+from chat.intents import PlanEnvelope, to_strict_schema
+from chat.prompts import ANSWER_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -28,15 +28,15 @@ class Usage:
 
 
 @dataclass
-class IntentResult:
-    envelope: IntentEnvelope
+class PlanResult:
+    envelope: PlanEnvelope
     usage: Usage
 
 
 class LLMClient(Protocol):
-    async def extract_intent(
+    async def extract_plan(
         self, message: str, history: list[dict[str, str]]
-    ) -> IntentResult: ...
+    ) -> PlanResult: ...
 
     def stream_answer(
         self, message: str, results_json: str, history: list[dict[str, str]]
@@ -57,22 +57,22 @@ class OpenAIClient:
         self._answer_model = settings.answer_model
         self._answer_usage = Usage()
 
-    async def extract_intent(
+    async def extract_plan(
         self, message: str, history: list[dict[str, str]]
-    ) -> IntentResult:
+    ) -> PlanResult:
         response = await self._client.chat.completions.create(
             model=self._intent_model,
             messages=[
-                {"role": "system", "content": INTENT_SYSTEM_PROMPT},
+                {"role": "system", "content": PLAN_SYSTEM_PROMPT},
                 *history,
                 {"role": "user", "content": message},
             ],
             response_format={
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "intent_envelope",
+                    "name": "plan_envelope",
                     "strict": True,
-                    "schema": to_strict_schema(IntentEnvelope),
+                    "schema": to_strict_schema(PlanEnvelope),
                 },
             },
             temperature=0,
@@ -82,9 +82,7 @@ class OpenAIClient:
             input_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
             output_tokens=getattr(response.usage, "completion_tokens", 0) or 0,
         )
-        return IntentResult(
-            envelope=IntentEnvelope.model_validate_json(raw), usage=usage
-        )
+        return PlanResult(envelope=PlanEnvelope.model_validate_json(raw), usage=usage)
 
     async def stream_answer(
         self, message: str, results_json: str, history: list[dict[str, str]]

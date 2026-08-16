@@ -16,6 +16,7 @@ WHERE ($activity IS NULL OR t.activity = $activity OR t.activity = 'mixed')
   AND ($min_difficulty_level IS NULL OR t.difficulty_level >= $min_difficulty_level)
   AND ($min_distance_m IS NULL OR t.total_distance_m >= $min_distance_m)
   AND ($max_distance_m IS NULL OR t.total_distance_m <= $max_distance_m)
+  AND ($min_elevation_gain_m IS NULL OR t.elevation_gain_m >= $min_elevation_gain_m)
   AND ($max_elevation_gain_m IS NULL OR t.elevation_gain_m <= $max_elevation_gain_m)
   AND ($season IS NULL OR $season IN t.best_seasons)
   AND (size($exclude_hazards) = 0
@@ -48,6 +49,7 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
+       t.trailforks_url AS trailforks_url,
        pois AS pois
 ORDER BY t.total_distance_m ASC
 LIMIT $limit
@@ -67,6 +69,7 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
+       t.trailforks_url AS trailforks_url,
        collect(DISTINCT {name: p.name, type: p.type}) AS pois
 
 // name: trail_geometry
@@ -148,9 +151,61 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
+       t.trailforks_url AS trailforks_url,
        pois AS pois,
        score AS score
 ORDER BY score DESC
+
+// name: semantic_search_trails_filtered
+// The composer's combined query: vector similarity ranks a candidate pool,
+// then the same NULL-idiom structured filters as search_trails cut it down.
+// The embedding arrives as a parameter (the chat layer embeds the theme);
+// nothing here builds Cypher from user text.
+CALL db.index.vector.queryNodes('trail_embeddings', $candidate_pool, $embedding)
+YIELD node AS t, score
+WHERE ($activity IS NULL OR t.activity = $activity OR t.activity = 'mixed')
+  AND ($max_difficulty_level IS NULL OR t.difficulty_level <= $max_difficulty_level)
+  AND ($min_difficulty_level IS NULL OR t.difficulty_level >= $min_difficulty_level)
+  AND ($min_distance_m IS NULL OR t.total_distance_m >= $min_distance_m)
+  AND ($max_distance_m IS NULL OR t.total_distance_m <= $max_distance_m)
+  AND ($min_elevation_gain_m IS NULL OR t.elevation_gain_m >= $min_elevation_gain_m)
+  AND ($max_elevation_gain_m IS NULL OR t.elevation_gain_m <= $max_elevation_gain_m)
+  AND ($season IS NULL OR $season IN t.best_seasons)
+  AND (size($exclude_hazards) = 0
+       OR none(h IN t.seasonal_hazards WHERE h IN $exclude_hazards))
+  AND (size($surface_exclusions) = 0
+       OR NOT EXISTS {
+            MATCH (t)-[:COMPOSED_OF]->(x:Segment)
+            WHERE x.surface IN $surface_exclusions
+          })
+  AND ($region IS NULL
+       OR EXISTS { MATCH (t)-[:LOCATED_IN]->(:Region {name: $region}) })
+CALL {
+  WITH t
+  MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p:POI)
+  WHERE size($poi_types) = 0 OR p.type IN $poi_types
+  RETURN collect(DISTINCT p.type) AS found_types,
+         collect(DISTINCT {name: p.name, type: p.type}) AS pois
+}
+WITH t, score, found_types, pois
+WHERE size($poi_types) = 0
+   OR all(wanted IN $poi_types WHERE wanted IN found_types)
+RETURN t.id AS id, t.name AS name, t.activity AS activity,
+       t.difficulty AS difficulty, t.difficulty_level AS difficulty_level,
+       t.difficulty_notes AS difficulty_notes,
+       t.landscape_description AS landscape_description,
+       t.total_distance_m AS total_distance_m,
+       t.elevation_gain_m AS elevation_gain_m,
+       t.elevation_loss_m AS elevation_loss_m,
+       t.duration_hike_min AS duration_hike_min,
+       t.duration_mtb_min AS duration_mtb_min,
+       t.best_seasons AS best_seasons,
+       t.seasonal_hazards AS seasonal_hazards,
+       t.trailforks_url AS trailforks_url,
+       pois AS pois,
+       score AS score
+ORDER BY score DESC
+LIMIT $limit
 
 // name: route_edge_details
 // Map a computed path's consecutive node pairs back onto CONNECTS_TO edges to

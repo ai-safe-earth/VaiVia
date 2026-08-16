@@ -4,8 +4,8 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from chat.intents import IntentEnvelope
-from chat.llm import IntentResult, Usage
+from chat.intents import PlanEnvelope
+from chat.llm import PlanResult, Usage
 from chat.store import InMemoryStore
 
 
@@ -13,9 +13,9 @@ class StubLLM:
     def __init__(self, intent: dict) -> None:
         self.intent = intent
 
-    async def extract_intent(self, message, history):
-        return IntentResult(
-            envelope=IntentEnvelope.model_validate({"intent": self.intent}),
+    async def extract_plan(self, message, history):
+        return PlanResult(
+            envelope=PlanEnvelope.model_validate({"subqueries": [self.intent]}),
             usage=Usage(10, 5),
         )
 

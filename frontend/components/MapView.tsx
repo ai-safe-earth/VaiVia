@@ -26,7 +26,7 @@ const STYLE: maplibregl.StyleSpecification = {
 };
 
 interface Props {
-  geometry: GeoJSON.Feature | GeoJSON.Geometry | null;
+  geometry: GeoJSON.Feature | GeoJSON.FeatureCollection | GeoJSON.Geometry | null;
 }
 
 export function MapView({ geometry }: Props) {
@@ -55,9 +55,9 @@ export function MapView({ geometry }: Props) {
     if (!instance) return;
 
     const draw = () => {
-      const data: GeoJSON.Feature =
-        geometry && 'type' in geometry && geometry.type === 'Feature'
-          ? (geometry as GeoJSON.Feature)
+      const data: GeoJSON.Feature | GeoJSON.FeatureCollection =
+        geometry && 'type' in geometry && (geometry.type === 'Feature' || geometry.type === 'FeatureCollection')
+          ? (geometry as GeoJSON.Feature | GeoJSON.FeatureCollection)
           : { type: 'Feature', properties: {}, geometry: (geometry ?? null) as GeoJSON.Geometry };
 
       const source = instance.getSource('selection') as maplibregl.GeoJSONSource | undefined;
@@ -98,17 +98,20 @@ export function MapView({ geometry }: Props) {
   return <div ref={container} style={{ position: 'absolute', inset: 0 }} />;
 }
 
-/** Bounds over every coordinate in a LineString or MultiLineString. */
-function boundsOf(feature: GeoJSON.Feature): maplibregl.LngLatBoundsLike | null {
-  const geometry = feature.geometry;
-  if (!geometry) return null;
-
-  const lines: GeoJSON.Position[][] =
-    geometry.type === 'MultiLineString'
+/** Bounds over every coordinate in the line features of a Feature or collection. */
+function boundsOf(
+  data: GeoJSON.Feature | GeoJSON.FeatureCollection,
+): maplibregl.LngLatBoundsLike | null {
+  const features = data.type === 'FeatureCollection' ? data.features : [data];
+  const lines: GeoJSON.Position[][] = features.flatMap((feature) => {
+    const geometry = feature.geometry;
+    if (!geometry) return [];
+    return geometry.type === 'MultiLineString'
       ? geometry.coordinates
       : geometry.type === 'LineString'
         ? [geometry.coordinates]
         : [];
+  });
 
   const points = lines.flat();
   if (points.length === 0) return null;

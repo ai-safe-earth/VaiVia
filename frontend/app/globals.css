@@ -150,6 +150,18 @@ body {
   font-size: 14.5px;
 }
 
+.card .external {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--accent);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+.card .external:hover {
+  text-decoration: underline;
+}
+
 .stats {
   display: flex;
   flex-wrap: wrap;

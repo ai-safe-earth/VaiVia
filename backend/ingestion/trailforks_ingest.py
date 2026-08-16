@@ -45,7 +45,8 @@ SET t.name = row.name,
     t.duration_hike_min = row.duration_hike_min,
     t.duration_mtb_min = row.duration_mtb_min,
     t.best_seasons = row.best_seasons,
-    t.seasonal_hazards = row.seasonal_hazards
+    t.seasonal_hazards = row.seasonal_hazards,
+    t.trailforks_url = row.trailforks_url
 """
 
 # Replace-then-recreate keeps COMPOSED_OF consistent when a re-run changes the
@@ -105,7 +106,23 @@ def trail_row(raw: dict[str, Any]) -> dict[str, Any]:
         ),
         "best_seasons": raw.get("best_seasons", []),
         "seasonal_hazards": raw.get("seasonal_hazards", []),
+        "trailforks_url": trailforks_url(raw),
     }
+
+
+def trailforks_url(raw: dict[str, Any]) -> str | None:
+    """Public Trailforks page for a source record, when one can be named.
+
+    The live API supplies `alias` (the URL slug); an explicit `trailforks_url`
+    wins if present. Records with neither get no link — never guess a URL.
+    """
+    explicit = raw.get("trailforks_url")
+    if explicit:
+        return str(explicit)
+    alias = raw.get("alias")
+    if alias:
+        return f"https://www.trailforks.com/trails/{alias}/"
+    return None
 
 
 def trail_polyline(raw: dict[str, Any]) -> list[tuple[float, float]]:
