@@ -43,6 +43,15 @@ function bearerToken(header: string | undefined): string | null {
 }
 
 const authPlugin: FastifyPluginAsync<AuthOptions> = async (app, options) => {
+  if (!options.keyResolver && !options.jwksUrl) {
+    // config.ts only *requires* this in production, so outside production the
+    // empty string used to reach `new URL` and kill boot with a bare
+    // ERR_INVALID_URL that named neither the variable nor the gateway.
+    throw new Error(
+      'SUPABASE_JWT_JWKS_URL is not set — the gateway cannot verify Supabase tokens',
+    );
+  }
+
   const resolveKey: JWTVerifyGetKey =
     options.keyResolver ?? createRemoteJWKSet(new URL(options.jwksUrl));
 

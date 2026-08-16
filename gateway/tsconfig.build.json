@@ -1,0 +1,14 @@
+// Production build: src only.
+//
+// The base config includes test/ so `npm run typecheck` covers it, but that
+// makes tsc pick a common rootDir of "." and emit dist/src/... — which is why
+// `npm start` (node dist/server.js) could not find its entrypoint. Building
+// from src alone puts the entrypoint where the start script expects it and
+// keeps test files out of the deployed artifact.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"]
+}

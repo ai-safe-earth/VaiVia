@@ -73,7 +73,7 @@ Security model: browsers never reach FastAPI, Neo4j, or OpenAI. The gateway is t
 - [x] CI (GitHub Actions): backend lint/format/test, offline.
 - [x] Supabase Postgres migration drafts (`infra/supabase/migrations/`).
 - [x] Supabase project created; `0001_chat_and_quotas.sql` applied (four tables, RLS on, one policy each). Applied with `uv run python -m scripts.apply_migrations` rather than the Supabase CLI, which expects its own `supabase/migrations` layout. The direct host `db.<ref>.supabase.co` is IPv6-only, so `DATABASE_URL` points at the Supavisor pooler in session mode (port 5432).
-- [ ] Email auth configured and a real sign-in exercised end to end (no user has been created yet).
+- [x] Email auth configured (email provider only, signups on, autoconfirm off) and a real sign-in exercised end to end: password grant returns an ES256 token whose `kid` matches the project JWKS, and the running gateway verifies it against the live JWKS — no token 401, malformed token 401, real token passes auth and the quota pre-check and is only stopped by the backend being down.
 
 ### Phase 1 — Graph core & ingestion (the moat) ✅
 Ontology extended and owner-validated before build: difficulty trio (label +

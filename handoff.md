@@ -27,6 +27,7 @@ written and unit-tested; it has simply never met its dependencies.
 | Chat orchestration (OpenAI) | Complete | 33 offline tests, plus 15/15 against the live OpenAI API |
 | Frontend (Next.js + MapLibre) | Complete | 25 tests; `next build` clean; production server verified serving |
 | Supabase store and quotas | Complete | Schema applied; 12-check live round-trip of `PostgresStore`; gateway quota store queries the real database |
+| Supabase auth | Complete | Real sign-in issues an ES256 token; the running gateway verifies it against the live JWKS and 401s both a missing and a malformed token |
 
 Totals: 96 backend, 28 gateway, 25 frontend tests, all passing. CI runs all
 three suites and is fully offline.
@@ -82,16 +83,30 @@ file, because both fail in ways that look like something else:
    treat both as compromised.
 2. **No Docker.** The ingestion idempotency check, the routing queries, and the
    GDS Dijkstra upgrade are all unverified against a real database.
-3. **No sign-in has ever happened.** The gateway can fetch and parse Supabase's
-   JWKS, but no user account exists, so no real token has been minted or
-   verified. The frontend sign-in page is still unbuilt.
+3. **The account password is `12345678`.** It is eight characters, entirely
+   numeric, and has been pasted into a chat transcript. Fine for a scratch
+   login today; it must not survive contact with a deployed service.
+
+The auth chain itself is no longer a blocker: a real sign-in was exercised end
+to end against the running gateway. The frontend sign-in page is still unbuilt,
+which is now ordinary work rather than something waiting on infrastructure.
 
 ## Suggested order of work
 
-Enable email auth and sign one real user in: that closes the last unproven link
-in the auth chain, and the frontend sign-in page depends on it. Then get Docker
-running and do the graph smoke test, since every routing claim depends on it.
-Rotate both credentials before Phase 6 deploys anything.
+Get Docker running and do the graph smoke test, since every routing claim
+depends on it and it is the last piece of the stack never run for real. The
+frontend sign-in page can proceed in parallel — nothing blocks it now. Rotate
+all three credentials before Phase 6 deploys anything.
+
+Two smaller things found while verifying the gateway, neither urgent:
+
+- **There is no health endpoint.** `/health` 404s like any other unproxied
+  path. The planned uptime check has nothing to poll, so add one before deploy.
+- **The gateway does not validate `iss` or `aud`.** `jwtVerify` is called with
+  no claim options, so it checks signature and expiry only. The project-specific
+  signing key makes this sound in practice, but pinning
+  `iss=https://<ref>.supabase.co/auth/v1` and `aud=authenticated` is cheap
+  defence in depth. It was left alone rather than changed blind.
 
 ## Running it locally
 
@@ -204,18 +219,22 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "DATABASE_URL points at the Supavisor pooler in session mode because the direct host db.<ref>.supabase.co publishes an AAAA record only and does not resolve without IPv6" },
         { "date": "2026-08-16", "text": "Gateway selects TLS in quotaStore.ts for any non-local host rather than via sslmode in the URL: node-postgres sends no SSLRequest by default so a bare connection string is silently plaintext, while sslmode=require is aliased to verify-full by the bundled pg and fails against Supabase's pooler certificate" },
         { "date": "2026-08-16", "text": "Migrations are applied by scripts/apply_migrations.py rather than the Supabase CLI, which expects its own supabase/migrations layout; every migration must be idempotent, so the RLS policies now drop-if-exists first" },
-        { "date": "2026-08-16", "text": "Backend tests pin gateway_shared_secret and database_url to empty via an autouse fixture; they previously inherited the developer's .env, so a populated secret 401'd 23 tests and a populated DATABASE_URL opened a real Postgres pool during unit tests" }
+        { "date": "2026-08-16", "text": "Backend tests pin gateway_shared_secret and database_url to empty via an autouse fixture; they previously inherited the developer's .env, so a populated secret 401'd 23 tests and a populated DATABASE_URL opened a real Postgres pool during unit tests" },
+        { "date": "2026-08-16", "text": "Gateway builds from tsconfig.build.json with rootDir src: the base config includes test/ for typecheck, which made tsc emit dist/src/... so npm start could not find dist/server.js and the built artifact was unstartable" },
+        { "date": "2026-08-16", "text": "Gateway dev and start load gateway/.env via node --env-file-if-exists rather than a dotenv dependency; nothing read that file before, so its Supabase settings were inert" },
+        { "date": "2026-08-16", "text": "The auth plugin throws a named error when SUPABASE_JWT_JWKS_URL is empty; config only requires it in production, so outside production the empty string reached new URL and killed boot with a bare ERR_INVALID_URL" }
       ] }
   ],
   "blockers": [
     { "text": "OpenAI API key was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
     { "text": "Supabase database password was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" },
     { "text": "No Docker access, so ingestion idempotency, routing queries and GDS Dijkstra are unverified against a real Neo4j", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
-    { "text": "Email auth is not configured and no user has ever signed in, so no real Supabase token has been minted or verified end to end", "severity": "medium", "owner": "oscar", "since": "2026-08-16" }
+    { "text": "The Supabase account password is 12345678 and was shared in plaintext; it must be changed before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" }
   ],
   "nextSteps": [
-    { "title": "Enable email auth in Supabase and sign one real user in end to end, confirming the gateway accepts the token", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
-    { "title": "Rotate the exposed OpenAI API key and Supabase database password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Add a gateway health endpoint for the planned uptime check; /health currently 404s like any unproxied path", "est": 0.25, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Validate iss and aud on Supabase tokens in the gateway auth plugin; jwtVerify currently checks signature and expiry only", "est": 0.25, "owner": "oscar", "phase": "Phase 3 - Gateway", "plan": "redesign" },
     { "title": "Run the live graph smoke test once Docker is available: init schema, both ingesters twice, assert counts unchanged", "est": 0.5, "owner": "oscar", "phase": "Phase 1 - Graph core and ingestion", "plan": "redesign" },
     { "title": "Wire GDS Dijkstra routing and verify the bounded projection against a live GDS instance", "est": 1, "owner": "oscar", "phase": "Phase 2 - Query service", "plan": "redesign" },
     { "title": "Build the Supabase sign-in page and conversation list in the frontend", "est": 1, "owner": "oscar", "phase": "Phase 5 - Frontend", "plan": "redesign" },
