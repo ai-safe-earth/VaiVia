@@ -8,9 +8,12 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from api.deps import DbDep
+from api.deps import DbDep, EmbedderDep
 from api.models import (
     GeoJsonGeometry,
+    ScoredTrail,
+    SemanticSearchRequest,
+    SemanticSearchResponse,
     TrailDetail,
     TrailGeoJson,
     TrailSearchRequest,
@@ -44,6 +47,37 @@ async def search_trails(request: TrailSearchRequest, db: DbDep) -> TrailSearchRe
     trails = [TrailSummary.model_validate(row) for row in rows]
     logger.info("trail search", extra={"results": len(trails)})
     return TrailSearchResponse(count=len(trails), trails=trails)
+
+
+@router.post("/semantic-search", response_model=SemanticSearchResponse)
+async def semantic_search(
+    request: SemanticSearchRequest, db: DbDep, embedder: EmbedderDep
+) -> SemanticSearchResponse:
+    """Free-text similarity search over trail descriptions.
+
+    The user's text is embedded here and passed to the vector index as a
+    parameter — it never becomes Cypher. While the index is unpopulated the
+    endpoint refuses with 503 rather than returning an empty list, so "not set
+    up yet" can never be mistaken for "no matching trails" (CLAUDE.md).
+    """
+    status = await db.run_named("count_embedded_trails")
+    embedded = status[0]["embedded"] if status else 0
+    if not embedded:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "semantic search is not available yet — "
+                "the vector index is unpopulated"
+            ),
+        )
+
+    [embedding] = await embedder.embed_texts([request.query])
+    rows = await db.run_named(
+        "semantic_search_trails", limit=request.limit, embedding=embedding
+    )
+    trails = [ScoredTrail.model_validate(dict(row)) for row in rows]
+    logger.info("semantic search", extra={"results": len(trails), "embedded": embedded})
+    return SemanticSearchResponse(count=len(trails), trails=trails)
 
 
 @router.get("/{trail_id}", response_model=TrailDetail)

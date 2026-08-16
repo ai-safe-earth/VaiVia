@@ -55,18 +55,37 @@ class FakeDb:
         return next(params for called, params in self.calls if called == name)
 
 
+class FakeEmbedder:
+    """Deterministic embedder: unit vector per call, records inputs."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        return [[1.0] + [0.0] * 1535 for _ in texts]
+
+
 @pytest.fixture
 def db() -> FakeDb:
     return FakeDb()
 
 
 @pytest.fixture
-def client(db: FakeDb) -> TestClient:
+def embedder() -> FakeEmbedder:
+    return FakeEmbedder()
+
+
+@pytest.fixture
+def client(db: FakeDb, embedder: FakeEmbedder) -> TestClient:
     # Import here so app creation happens after fixtures are ready.
+    from api.deps import get_embedder
     from api.main import app
 
     app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_embedder] = lambda: embedder
     app.state.db = db
+    app.state.embedder = embedder
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

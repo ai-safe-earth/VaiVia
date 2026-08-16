@@ -119,6 +119,39 @@ RETURN total_m,
        [r IN relationships(path) | r.osm_way_id] AS osm_way_ids,
        [r IN relationships(path) | r.surface] AS surfaces
 
+// name: count_embedded_trails
+// Gate for semantic search: the endpoint returns 503 while this is zero
+// (unpopulated index must never masquerade as "no results" — CLAUDE.md).
+MATCH (t:Trail)
+RETURN count(t) AS trails,
+       count(t.description_embedding) AS embedded
+
+// name: semantic_search_trails
+// Vector similarity over the trail_embeddings index. The embedding comes from
+// the caller (the endpoint embeds the user's query); nothing here builds
+// Cypher from user text. Same summary shape as search_trails, plus score.
+CALL db.index.vector.queryNodes('trail_embeddings', $limit, $embedding)
+YIELD node AS t, score
+CALL {
+  WITH t
+  MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p:POI)
+  RETURN collect(DISTINCT {name: p.name, type: p.type}) AS pois
+}
+RETURN t.id AS id, t.name AS name, t.activity AS activity,
+       t.difficulty AS difficulty, t.difficulty_level AS difficulty_level,
+       t.difficulty_notes AS difficulty_notes,
+       t.landscape_description AS landscape_description,
+       t.total_distance_m AS total_distance_m,
+       t.elevation_gain_m AS elevation_gain_m,
+       t.elevation_loss_m AS elevation_loss_m,
+       t.duration_hike_min AS duration_hike_min,
+       t.duration_mtb_min AS duration_mtb_min,
+       t.best_seasons AS best_seasons,
+       t.seasonal_hazards AS seasonal_hazards,
+       pois AS pois,
+       score AS score
+ORDER BY score DESC
+
 // name: route_edge_details
 // Map a computed path's consecutive node pairs back onto CONNECTS_TO edges to
 // recover per-edge properties — GDS streams node ids only. Parallel edges

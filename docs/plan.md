@@ -126,8 +126,9 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] Playwright end-to-end smoke (`frontend/e2e/smoke.spec.ts`, `npm run test:e2e`). Four tests against the full running stack: wrong password gets a human sentence, sign-in/sign-out round-trip, resuming a stored conversation renders its history, and — behind `E2E_LIVE=1`, since it costs an OpenAI turn — a live streamed answer whose trail card draws geometry on the map. Credentials come from `E2E_EMAIL`/`E2E_PASSWORD`, never the repo; the suite skips cleanly when they are unset, so CI stays offline. First run caught a real bug: creating a conversation remounted `ChatPanel` mid-stream (the panel key tracked `selected`) and destroyed the streaming answer — the key now changes only on explicit navigation. 4/4 passing.
 
 ### Phase 6 — Beta hardening
-- Embeddings job (`backend/scripts/embed_trails.py`) + vector search behind the 503-until-populated rule.
-- Caddy TLS, VPS deploy script, Neo4j + Postgres backup cron, uptime check, dashboards from structured logs.
+- [x] Embeddings job + semantic search behind the 503-until-populated rule. `scripts/embed_trails.py` embeds the owner-ratified input (description + landscape_description + difficulty_notes) via text-embedding-3-small and stores a sha of the input on the node, so re-runs embed only changed trails (verified live: 3 embedded, then 0 on re-run). `POST /trails/semantic-search` embeds the user's text and queries the `trail_embeddings` vector index through the named template `semantic_search_trails` — the text never becomes Cypher. Before the index is populated the endpoint returns 503, verified live against the real unpopulated index before the first embedding run. Live ranking discriminates correctly: three distinct queries each ranked their intended trail first.
+- [x] Gateway pins `iss`/`aud` on Supabase tokens when `SUPABASE_URL` is set; negative tests (right key, wrong claims → 401) and a live pass with a real token. The gateway has always served `/healthz` — an earlier "missing health endpoint" finding was checked against the wrong path and is retracted.
+- Caddy TLS, VPS deploy script, Neo4j + Postgres backup cron, uptime check against `/healthz`, dashboards from structured logs.
 
 ## Verification per phase
 

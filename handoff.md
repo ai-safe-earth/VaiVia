@@ -34,6 +34,8 @@ before anything deploys. Everything else that remains is Phase 6 hardening
 | Routing (GDS Dijkstra) | Wired and verified live | `/routes` served a real 223 m POI route via GDS; Dijkstra beat shortestPath 2322 m vs 2474 m on the verification pair; shortestPath fallback kept for GDS-absent starts |
 | Sign-in + conversations | Complete | Real browser session against the full stack: sign-in, history resumed under RLS, live streamed turn, trail drawn on the map; anon role reads zero rows |
 | Playwright e2e | Complete | 4/4 against the live stack in ~10 s; first run caught a real mid-stream remount bug |
+| Gateway claim pinning | Complete | iss/aud pinned when SUPABASE_URL is set; right-key/wrong-claim tokens 401 in tests, real token passes live |
+| Semantic search | Complete | 503 verified live on the unpopulated index; job idempotent (3 embedded, 0 on re-run); three distinct queries each ranked the intended trail first |
 
 Totals: 107 backend, 28 gateway, 33 frontend unit tests plus 4 e2e, all
 passing. CI runs the three unit suites and stays fully offline; the e2e suite
@@ -123,9 +125,9 @@ suite (`cd frontend && E2E_EMAIL=… E2E_PASSWORD=… npm run test:e2e`, add
 `E2E_LIVE=1` to spend one real OpenAI turn). Its first run earned its keep by
 catching a bug the manual browser pass missed: a brand-new chat's first answer
 was destroyed mid-stream, because assigning the conversation id remounted the
-panel. What remains is Phase 6 hardening: embeddings + semantic search, deploy
-plumbing (Caddy TLS, backups, uptime check against /healthz), and
-the credential rotations. Rotate all three credentials before anything deploys.
+panel. What remains is deploy plumbing (Caddy TLS, VPS deploy script, backup
+cron, uptime check against /healthz) and the credential rotations. Rotate all
+three credentials before anything deploys.
 
 Both gateway findings from the auth verification are resolved. The "missing
 health endpoint" turned out to be a wrong finding: the gateway has always served
@@ -260,7 +262,10 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "The browser reads conversations and messages directly from Supabase under the migration's select-only RLS policies (auth.uid() = user_id); this is what those policies were written for and does not breach the gateway-only rule, which guards backend, Neo4j and OpenAI. Writes still go only through the backend" },
         { "date": "2026-08-16", "text": "Switching conversations remounts ChatPanel via a React key instead of syncing state with effects, so no message or stream state can leak across conversations" },
         { "date": "2026-08-16", "text": "The panel remount key changes only on explicit navigation, never when a fresh chat's first turn is assigned a conversation id: keying on selected remounted the panel mid-stream and destroyed the arriving answer, a bug the manual browser pass missed and the first scripted e2e run caught" },
-        { "date": "2026-08-16", "text": "The e2e suite reads credentials from E2E_EMAIL/E2E_PASSWORD and skips when unset so CI stays offline; the live OpenAI turn is additionally gated behind E2E_LIVE=1" }
+        { "date": "2026-08-16", "text": "The e2e suite reads credentials from E2E_EMAIL/E2E_PASSWORD and skips when unset so CI stays offline; the live OpenAI turn is additionally gated behind E2E_LIVE=1" },
+        { "date": "2026-08-16", "text": "The gateway pins token iss to <project-url>/auth/v1 and aud to authenticated whenever SUPABASE_URL is configured; unset leaves behaviour unchanged for dev without Supabase" },
+        { "date": "2026-08-16", "text": "Semantic search embeds the user's text server-side and passes the vector as a query parameter, so free text never approaches Cypher; the endpoint returns 503 while the vector index is unpopulated rather than an empty list" },
+        { "date": "2026-08-16", "text": "The embedding job stores a sha256 of the owner-ratified input text on each Trail and skips unchanged trails on re-run, making it idempotent and safe to run after every ingestion; vectors are written with db.create.setNodeVectorProperty so the index sees a typed vector" }
       ] }
   ],
   "blockers": [
@@ -271,7 +276,6 @@ cost through Phase 5 was roughly $62.
   ],
   "nextSteps": [
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
-    { "title": "Embeddings job and semantic search behind the 503-until-populated rule", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
   "sessions": [

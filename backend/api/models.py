@@ -62,6 +62,20 @@ class TrailSearchResponse(BaseModel):
     trails: list[TrailSummary]
 
 
+class SemanticSearchRequest(BaseModel):
+    query: Annotated[str, Field(min_length=3, max_length=500)]
+    limit: Annotated[int, Field(ge=1, le=20)] = 5
+
+
+class ScoredTrail(TrailSummary):
+    score: float
+
+
+class SemanticSearchResponse(BaseModel):
+    count: int
+    trails: list[ScoredTrail]
+
+
 class GeoJsonGeometry(BaseModel):
     type: Literal["MultiLineString"] = "MultiLineString"
     coordinates: list[list[list[float]]]  # [[[lon, lat], ...], ...]

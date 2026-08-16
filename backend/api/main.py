@@ -36,6 +36,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from chat.llm import OpenAIClient
 
         app.state.llm = OpenAIClient()
+    if getattr(app.state, "embedder", None) is None:
+        from core.embeddings import OpenAIEmbedder
+
+        app.state.embedder = OpenAIEmbedder()
     owns_pool = False
     if getattr(app.state, "store", None) is None:
         # Postgres store is wired when DATABASE_URL is set; without it, history
