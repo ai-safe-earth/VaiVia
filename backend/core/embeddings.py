@@ -47,10 +47,31 @@ def embedding_input(
     description: str | None,
     landscape_description: str | None,
     difficulty_notes: str | None,
+    activity: str | None = None,
+    difficulty: str | None = None,
+    best_seasons: list[str] | None = None,
+    pois: list[dict] | None = None,
 ) -> str:
-    """The owner-ratified embedding input (docs/plan.md Phase 3):
-    description + landscape_description + difficulty_notes, in that order."""
+    """The owner-ratified embedding input (extended 2026-08-16): the three
+    prose fields, then activity/difficulty, seasons, and the POIs along the
+    way — so themes like "swim spot" or "hut" match semantically even where
+    POI edges are sparse."""
     parts = [description, landscape_description, difficulty_notes]
+    if activity or difficulty:
+        parts.append(
+            " ".join(p for p in (f"{difficulty or ''}".strip(), activity) if p)
+        )
+    if best_seasons:
+        parts.append("Best seasons: " + ", ".join(best_seasons) + ".")
+    if pois:
+        labels = []
+        for poi in pois:
+            name, kind = poi.get("name"), poi.get("type")
+            if not kind:
+                continue
+            labels.append(f"{name} ({kind})" if name else str(kind))
+        if labels:
+            parts.append("Along the way: " + ", ".join(labels) + ".")
     return "\n".join(p.strip() for p in parts if p and p.strip())
 
 

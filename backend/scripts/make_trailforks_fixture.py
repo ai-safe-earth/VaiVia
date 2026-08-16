@@ -43,6 +43,22 @@ RETURN a.osm_node_id AS from_node, b.osm_node_id AS to_node,
        c.distance_m AS distance_m
 """
 
+NODE_LOCATIONS = """
+MATCH (i:Intersection)
+RETURN i.osm_node_id AS node,
+       i.location.longitude AS lon, i.location.latitude AS lat
+"""
+
+POI_LOCATIONS = """
+MATCH (p:POI) WHERE p.type = $type
+RETURN p.location.longitude AS lon, p.location.latitude AS lat
+"""
+
+# Each trail's walk starts as close as possible to a POI of this type, so the
+# traced geometry actually passes the feature its prose describes and the
+# lake/hut search filters have something true to match offline.
+ANCHORS = {"tf_001": "lake", "tf_002": "hut", "tf_003": "lake"}
+
 SEGMENT_COORDS = """
 MATCH (s:Segment) WHERE s.osm_way_id IN $way_ids
 RETURN s.osm_way_id AS way_id,
@@ -55,13 +71,22 @@ def walk(
     allowed: set[str],
     target_m: float,
     skip_ways: set[str],
+    start_order: list[str] | None = None,
 ) -> list[dict]:
-    """Greedy deterministic walk: longest allowed edge first, no repeats."""
-    starts = sorted(
+    """Greedy deterministic walk: longest allowed edge first, no repeats.
+
+    ``start_order`` ranks candidate start nodes (e.g. nearest an anchor POI
+    first); without it, starts are tried in sorted-id order.
+    """
+    candidates = {
         node
         for node, edges in edges_by_node.items()
         if any(e["highway_type"] in allowed for e in edges)
-    )
+    }
+    if start_order is not None:
+        starts = [node for node in start_order if node in candidates]
+    else:
+        starts = sorted(candidates)
     for start in starts:
         chain: list[dict] = []
         used: set[str] = set()
@@ -116,11 +141,29 @@ async def main() -> int:
         for row in rows:
             edges_by_node[row["from_node"]].append(row)
 
+        node_rows = await db.run(NODE_LOCATIONS)
+        node_xy = {r["node"]: (r["lon"], r["lat"]) for r in node_rows}
+
+        async def start_order_for(trail_id: str) -> list[str] | None:
+            anchor_type = ANCHORS.get(trail_id)
+            if not anchor_type:
+                return None
+            pois = await db.run(POI_LOCATIONS, type=anchor_type)
+            if not pois:
+                return None
+
+            def anchor_gap(node: str) -> float:
+                lon, lat = node_xy[node]
+                return min((lon - p["lon"]) ** 2 + (lat - p["lat"]) ** 2 for p in pois)
+
+            return sorted(node_xy, key=lambda n: (anchor_gap(n), n))
+
         used_ways: set[str] = set()
         for trail in trails:
             activity = trail["activity"]
             allowed = COMPATIBLE_HIGHWAYS[activity]
-            chain = walk(edges_by_node, allowed, TARGET_LENGTH_M, used_ways)
+            order = await start_order_for(trail["trail_id"])
+            chain = walk(edges_by_node, allowed, TARGET_LENGTH_M, used_ways, order)
             way_ids = [e["way_id"] for e in chain]
             used_ways.update(way_ids)  # distinct trails, no shared geometry
 

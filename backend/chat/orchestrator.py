@@ -30,6 +30,7 @@ from chat.llm import LLMClient, results_to_json
 from chat.store import ConversationStore
 from core.config import get_settings
 from core.embeddings import Embedder
+from core.text import lucene_escape
 from graph.neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
@@ -264,12 +265,23 @@ class ChatOrchestrator:
                 refs[f"{key}_{index}" if len(intents) > 1 else key] = value
         return routes, refs
 
+    async def _find_poi(self, name: str) -> list[dict[str, Any]]:
+        """Relevance-ranked full-text lookup, CONTAINS as the fallback."""
+        query = lucene_escape(name).strip()
+        if query:
+            rows = await self._db.run_named(
+                "poi_by_name_fulltext", query=query, limit=1
+            )
+            if rows:
+                return rows
+        return await self._db.run_named("poi_by_name", name=name, limit=1)
+
     async def _route(
         self, intent: RouteIntent
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         settings = get_settings()
-        start = await self._db.run_named("poi_by_name", name=intent.start, limit=1)
-        end = await self._db.run_named("poi_by_name", name=intent.end, limit=1)
+        start = await self._find_poi(intent.start)
+        end = await self._find_poi(intent.end)
         if not start or not end:
             missing = intent.start if not start else intent.end
             return {"route": None, "unknown_place": missing}, {}

@@ -74,6 +74,26 @@ def test_embedding_input_is_the_ratified_concatenation():
     assert embedding_input("A loop.", None, "  ") == "A loop."
 
 
+def test_embedding_input_includes_ontology_and_pois_when_given():
+    text = embedding_input(
+        "A loop.",
+        None,
+        None,
+        activity="mtb",
+        difficulty="Intermediate",
+        best_seasons=["spring", "summer"],
+        pois=[
+            {"name": "Lago di Como", "type": "lake"},
+            {"name": None, "type": "hut"},
+            {"name": "ghost", "type": None},  # typeless placeholders drop out
+        ],
+    )
+    assert "Intermediate mtb" in text
+    assert "Best seasons: spring, summer." in text
+    assert "Along the way: Lago di Como (lake), hut." in text
+    assert "ghost" not in text
+
+
 def test_plan_embeds_new_and_changed_skips_unchanged_and_empty():
     unchanged_text = embedding_input(
         "A scenic loop.", "Lakeside gravel.", "Two rock gardens."

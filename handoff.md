@@ -39,7 +39,10 @@ before anything deploys. Everything else that remains is Phase 6 hardening
 | Query decomposition + composer | Complete | Model decomposes into atomic subqueries; Python composer merges tightest-wins, drops vacuous 0-bounds, clarifies with suggestions when under-specified; 17/17 live containment (adversarial 7/7 clarify) |
 | Semantic + filters in chat | Complete | New `semantic_search_trails_filtered` template (vector pool → NULL-idiom filters); degrades to structured search with `semantic_unavailable` while the index is cold |
 | Trailforks links | Complete | `trailforks_url` stored at ingestion (from `alias`/explicit URL, never guessed), returned by all trail templates, linked on TrailCard and cited by the answer prompt |
-| Golden dataset eval | Complete | `fixtures/golden_questions.json` (18 questions) + `scripts/eval_golden.py`; live: decomposition 18/18, retrieval 9/15 ranked-first — all 6 misses trace to mock-graph POI coverage, feeding the schema proposals |
+| Golden dataset eval | Complete | `fixtures/golden_questions.json` (18 questions) + `scripts/eval_golden.py`; live: decomposition 18/18, retrieval 12/15 ranked-first after the schema round (remaining: no bathing_water POI in the bbox; two interpretation ambiguities) |
+| NEAR_POI proximity edges | Complete, live-verified | `(:Trail)-[:NEAR_POI {distance_m}]->(:POI)` at ingestion (500 m); fixture walks now anchor near a lake/hut, so lake and hut filters return the right trail live |
+| POI full-text lookup | Complete, live-verified | `poi_name_fulltext` Lucene index; route resolution queries it first with escaped input (`core/text.py`), CONTAINS as fallback |
+| Richer embedding input | Complete | Input now adds activity/difficulty, seasons, and POIs along the way; sha-gated job re-embedded only changed trails |
 
 Totals: 140 backend, 28 gateway, 33 frontend unit tests plus 4 e2e, all
 passing. CI runs the three unit suites and stays fully offline; the e2e suite
@@ -279,7 +282,12 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "The composer nullifies non-positive bounds: under strict structured outputs the model occasionally writes 0 to mean no-limit, and a 0-metre max silently filters out every trail (found by the golden eval, g09)" },
         { "date": "2026-08-16", "text": "Semantic themes compose with structured filters in one template (vector candidate pool then NULL-idiom WHERE); while the index is unpopulated chat degrades to structured search and flags semantic_unavailable instead of 503ing the turn" },
         { "date": "2026-08-16", "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) — never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands" },
-        { "date": "2026-08-16", "text": "Golden eval (scripts/eval_golden.py) scores decomposition and retrieval separately so a failure names its layer; retrieval misses are all POI-coverage gaps in the mock graph, not pipeline bugs" }
+        { "date": "2026-08-16", "text": "Golden eval (scripts/eval_golden.py) scores decomposition and retrieval separately so a failure names its layer; retrieval misses are all POI-coverage gaps in the mock graph, not pipeline bugs" },
+        { "date": "2026-08-16", "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node — the lake's node sits ~400 m off its own shoreline path" },
+        { "date": "2026-08-16", "text": "Fixture trail walks anchor at the intersection nearest a lake/hut POI so the traced geometry passes the features its prose describes; owner declined season-scoped hazards for now" },
+        { "date": "2026-08-16", "text": "POI name resolution goes Lucene full-text first with Python-side escaping (core/text.py), CONTAINS as fallback; CALL subqueries modernized to the CALL (t) scope-clause form after live deprecation warnings" },
+        { "date": "2026-08-16", "text": "Embedding input extended (owner-ratified) with activity/difficulty, best seasons, and POIs along the way; the sha gate re-embedded only changed trails" },
+        { "date": "2026-08-16", "text": "Grouping variables cannot appear inside an aggregation expression in one WITH (direct + collect(x) is a syntax error live); offline FakeDb cannot catch Cypher syntax, only the live run did" }
       ] }
   ],
   "blockers": [
@@ -289,14 +297,14 @@ cost through Phase 5 was roughly $62.
     { "text": "The Supabase account password is 12345678 and was shared in plaintext; it must be changed before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" }
   ],
   "nextSteps": [
-    { "title": "Decide on the proposed schema.cypher improvements (POI coverage, season-scoped hazards, CALL scope-clause modernization)", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Season-scoped hazards (declined for now): per-season hazard lists so 'no snow risk in summer' stops excluding winter-hazard trails", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
   "sessions": [
     { "date": "2026-08-15", "model": "fable-5", "credits": 69, "person": "oscar", "hours": null },
     { "date": "2026-08-16", "model": "opus-5", "credits": 175, "person": "oscar", "hours": null },
-    { "date": "2026-08-16", "model": "fable-5", "credits": 20, "person": "oscar", "hours": null }
+    { "date": "2026-08-16", "model": "fable-5", "credits": 37, "person": "oscar", "hours": null }
   ]
 }
 ```

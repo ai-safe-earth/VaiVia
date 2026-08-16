@@ -235,6 +235,31 @@ async def test_route_intent_resolves_snaps_and_routes(db):
     assert results["geometry"]["type"] == "LineString"
 
 
+async def test_route_prefers_fulltext_poi_lookup_and_escapes_lucene(db):
+    poi = {"osm_id": "1", "name": "Lecco", "type": "station", "lat": 45.85, "lon": 9.39}
+    db.when("poi_by_name_fulltext", [poi])
+    db.when("nearest_intersection", [{"osm_node_id": "n1", "distance_m": 10.0}])
+    db.when(
+        "route_between_intersections",
+        [
+            {
+                "total_m": 9000.0,
+                "gain_m": 400.0,
+                "coordinates": [[9.39, 45.85]],
+                "surfaces": [],
+            }
+        ],
+    )
+    orchestrator, _, _ = build(
+        db, {"kind": "route", "start": "Lecco (station)", "end": 'Rifugio "Rosalba"'}
+    )
+    await collect(orchestrator, user_id="u1", message="route please")
+
+    assert "poi_by_name" not in [c[0] for c in db.calls]  # fulltext hit, no fallback
+    first_query = db.params_for("poi_by_name_fulltext")["query"]
+    assert "\\(" in first_query and "\\)" in first_query  # Lucene syntax escaped
+
+
 async def test_route_reports_unknown_place_without_inventing_one(db):
     db.when("poi_by_name", [])
     orchestrator, _, _ = build(

@@ -61,6 +61,32 @@ MATCH (t:Trail {id: $trail_id}), (s:Segment {osm_way_id: row.osm_way_id})
 CREATE (t)-[:COMPOSED_OF {seq: row.seq, match_confidence: row.match_confidence}]->(s)
 """
 
+# Trail-level POI proximity (NEAR_POI). Segment-level PASSES_BY is deliberately
+# tight; this wider radius is what makes "past a lake / hut" filters usable.
+# Delete-then-recreate for the same reason as COMPOSED_OF: a radius change or
+# re-match must not leave stale edges behind.
+DELETE_NEAR_POI = """
+MATCH (t:Trail {id: $trail_id})-[r:NEAR_POI]->() DELETE r
+"""
+
+# Pre-filter on the segment centroid (point index) before paying for the exact
+# min distance over the segment's coordinates.
+CREATE_NEAR_POI = """
+MATCH (t:Trail {id: $trail_id})-[:COMPOSED_OF]->(s:Segment)
+MATCH (p:POI)
+WHERE point.distance(p.location, s.location)
+      < $radius_m + coalesce(s.length_m, 0.0) / 2.0
+WITH t, p,
+     reduce(best = 1.0e12, c IN s.coordinates |
+            CASE WHEN point.distance(p.location, c) < best
+                 THEN point.distance(p.location, c) ELSE best END) AS seg_min
+WITH t, p, min(seg_min) AS distance_m
+WHERE distance_m <= $radius_m
+MERGE (t)-[r:NEAR_POI]->(p)
+SET r.distance_m = distance_m
+RETURN p.osm_id AS osm_id
+"""
+
 MERGE_TRAIL_REGION = """
 UNWIND $rows AS trail_id
 MATCH (t:Trail {id: trail_id}), (r:Region {name: $region})
@@ -176,7 +202,19 @@ async def ingest(raw_trails: list[dict[str, Any]]) -> None:
                     trail_id=row["id"],
                     rows=[vars(m) for m in matches],
                 )
-            logger.info("trail %s: %d segments matched", row["id"], len(matches))
+            await db.run(DELETE_NEAR_POI, trail_id=row["id"])
+            near = await db.run(
+                CREATE_NEAR_POI,
+                trail_id=row["id"],
+                radius_m=settings.poi_near_radius_m,
+            )
+            logger.info(
+                "trail %s: %d segments matched, %d POIs within %.0f m",
+                row["id"],
+                len(matches),
+                len(near),
+                settings.poi_near_radius_m,
+            )
 
         in_region = [
             row["id"]

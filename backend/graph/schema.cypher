@@ -13,7 +13,12 @@
 //   * difficulty: 'Easy'|'Intermediate'|'Difficult'|'Pro' <-> difficulty_level 1..4.
 //   * Seasonality: best_seasons / seasonal_hazards are LIST<STRING> filterable
 //     vocabularies; prose stays in difficulty_notes / landscape_description.
-//   * Embedding input (Phase 3) = description + landscape_description + difficulty_notes.
+//   * (:Trail)-[:NEAR_POI {distance_m}]->(:POI) is a precomputed proximity edge
+//     (radius POI_NEAR_RADIUS_M, default 500 m from any trail segment) so POI
+//     filters see features the narrower segment-level PASSES_BY misses. Like
+//     PASSES_BY it is semantic: never in a routing path expression.
+//   * Embedding input = description + landscape_description + difficulty_notes
+//     + POI names/types + activity/difficulty/seasons (owner-ratified 2026-08-16).
 
 // ── Uniqueness constraints (idempotent re-ingestion anchors) ─────────────────
 CREATE CONSTRAINT trail_id        IF NOT EXISTS FOR (t:Trail)        REQUIRE t.id IS UNIQUE;
@@ -35,6 +40,9 @@ CREATE INDEX trail_duration_hike    IF NOT EXISTS FOR (t:Trail) ON (t.duration_h
 CREATE INDEX trail_duration_mtb     IF NOT EXISTS FOR (t:Trail) ON (t.duration_mtb_min);
 CREATE INDEX trail_elevation_gain   IF NOT EXISTS FOR (t:Trail) ON (t.elevation_gain_m);
 CREATE INDEX poi_type               IF NOT EXISTS FOR (p:POI)   ON (p.type);
+
+// ── Full-text index (route start/end resolution; Lucene input is escaped) ───
+CREATE FULLTEXT INDEX poi_name_fulltext IF NOT EXISTS FOR (p:POI) ON EACH [p.name];
 
 // ── Vector index (queried from Phase 3; created now so the schema is stable) ─
 CREATE VECTOR INDEX trail_embeddings IF NOT EXISTS

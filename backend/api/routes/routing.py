@@ -22,6 +22,7 @@ from neo4j.exceptions import Neo4jError
 from api.deps import DbDep
 from api.models import PoiRef, RouteRequest, RouteResponse
 from core.config import get_settings
+from core.text import lucene_escape
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,14 @@ router = APIRouter(tags=["routing"])
 
 
 async def _resolve_poi(db: DbDep, name: str) -> dict:
-    rows = await db.run_named("poi_by_name", name=name, limit=1)
+    query = lucene_escape(name).strip()
+    rows = (
+        await db.run_named("poi_by_name_fulltext", query=query, limit=1)
+        if query
+        else []
+    )
+    if not rows:
+        rows = await db.run_named("poi_by_name", name=name, limit=1)
     if not rows:
         raise HTTPException(status_code=404, detail=f"no POI matching {name!r}")
     return rows[0]

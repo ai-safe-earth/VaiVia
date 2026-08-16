@@ -21,6 +21,11 @@ class Settings(BaseSettings):
 
     spatial_match_threshold_m: float = 20.0
     passes_by_threshold_m: float = 50.0
+    # Trail-level NEAR_POI edges: a POI within this distance of any trail
+    # segment counts as "along the trail" for search filters. 500 m because
+    # area features are ingested as a single node (a lake's node sits out on
+    # the water, ~400 m from its own shoreline path).
+    poi_near_radius_m: float = 500.0
 
     trailforks_api_key: str = ""
     trailforks_base_url: str = "https://www.trailforks.com/api/1"

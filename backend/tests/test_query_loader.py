@@ -12,6 +12,10 @@ EXPECTED = {
     "trail_geometry",
     "nearest_intersection",
     "poi_by_name",
+    "poi_by_name_fulltext",
+    "semantic_search_trails",
+    "semantic_search_trails_filtered",
+    "count_embedded_trails",
     "route_between_intersections",
     "route_gds_dijkstra",
     "graph_project_routing",
@@ -72,6 +76,7 @@ def test_routing_templates_never_traverse_semantic_edges():
         assert "PASSES_BY" not in body
         assert "COMPOSED_OF" not in body
         assert "LOCATED_IN" not in body
+        assert "NEAR_POI" not in body
 
 
 def test_variable_length_traversals_are_bounded():

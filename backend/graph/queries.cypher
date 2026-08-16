@@ -28,12 +28,17 @@ WHERE ($activity IS NULL OR t.activity = $activity OR t.activity = 'mixed')
           })
   AND ($region IS NULL
        OR EXISTS { MATCH (t)-[:LOCATED_IN]->(:Region {name: $region}) })
-CALL {
-  WITH t
-  MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p:POI)
+CALL (t) {
+  OPTIONAL MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p1:POI)
+  WITH t, collect(DISTINCT p1) AS direct
+  OPTIONAL MATCH (t)-[:NEAR_POI]->(p2:POI)
+  WITH direct, collect(DISTINCT p2) AS near
+  WITH direct + near AS all_pois
+  UNWIND all_pois AS p
+  WITH DISTINCT p
   WHERE size($poi_types) = 0 OR p.type IN $poi_types
-  RETURN collect(DISTINCT p.type) AS found_types,
-         collect(DISTINCT {name: p.name, type: p.type}) AS pois
+  RETURN collect(p.type) AS found_types,
+         collect({name: p.name, type: p.type}) AS pois
 }
 WITH t, found_types, pois
 WHERE size($poi_types) = 0
@@ -56,7 +61,16 @@ LIMIT $limit
 
 // name: trail_by_id
 MATCH (t:Trail {id: $trail_id})
-OPTIONAL MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p:POI)
+CALL (t) {
+  OPTIONAL MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p1:POI)
+  WITH t, collect(DISTINCT p1) AS direct
+  OPTIONAL MATCH (t)-[:NEAR_POI]->(p2:POI)
+  WITH direct, collect(DISTINCT p2) AS near
+  WITH direct + near AS all_pois
+  UNWIND all_pois AS p
+  WITH DISTINCT p
+  RETURN collect({name: p.name, type: p.type}) AS pois
+}
 RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.difficulty AS difficulty, t.difficulty_level AS difficulty_level,
        t.difficulty_notes AS difficulty_notes,
@@ -70,7 +84,7 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
        t.trailforks_url AS trailforks_url,
-       collect(DISTINCT {name: p.name, type: p.type}) AS pois
+       pois AS pois
 
 // name: trail_geometry
 // Segment polylines in trail order — the map payload for a trail.
@@ -94,6 +108,17 @@ RETURN i.osm_node_id AS osm_node_id,
          AS distance_m
 ORDER BY distance_m ASC
 LIMIT 1
+
+// name: poi_by_name_fulltext
+// Preferred place-name lookup: Lucene-backed, ranked by relevance. The caller
+// escapes Lucene syntax (core/text.py) so user text is only ever search terms.
+// Falls back to poi_by_name (CONTAINS) when this yields nothing.
+CALL db.index.fulltext.queryNodes('poi_name_fulltext', $query)
+YIELD node AS p, score
+RETURN p.osm_id AS osm_id, p.name AS name, p.type AS type,
+       p.location.latitude AS lat, p.location.longitude AS lon
+ORDER BY score DESC
+LIMIT $limit
 
 // name: poi_by_name
 MATCH (p:POI)
@@ -135,10 +160,15 @@ RETURN count(t) AS trails,
 // Cypher from user text. Same summary shape as search_trails, plus score.
 CALL db.index.vector.queryNodes('trail_embeddings', $limit, $embedding)
 YIELD node AS t, score
-CALL {
-  WITH t
-  MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p:POI)
-  RETURN collect(DISTINCT {name: p.name, type: p.type}) AS pois
+CALL (t) {
+  OPTIONAL MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p1:POI)
+  WITH t, collect(DISTINCT p1) AS direct
+  OPTIONAL MATCH (t)-[:NEAR_POI]->(p2:POI)
+  WITH direct, collect(DISTINCT p2) AS near
+  WITH direct + near AS all_pois
+  UNWIND all_pois AS p
+  WITH DISTINCT p
+  RETURN collect({name: p.name, type: p.type}) AS pois
 }
 RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.difficulty AS difficulty, t.difficulty_level AS difficulty_level,
@@ -180,12 +210,17 @@ WHERE ($activity IS NULL OR t.activity = $activity OR t.activity = 'mixed')
           })
   AND ($region IS NULL
        OR EXISTS { MATCH (t)-[:LOCATED_IN]->(:Region {name: $region}) })
-CALL {
-  WITH t
-  MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p:POI)
+CALL (t) {
+  OPTIONAL MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p1:POI)
+  WITH t, collect(DISTINCT p1) AS direct
+  OPTIONAL MATCH (t)-[:NEAR_POI]->(p2:POI)
+  WITH direct, collect(DISTINCT p2) AS near
+  WITH direct + near AS all_pois
+  UNWIND all_pois AS p
+  WITH DISTINCT p
   WHERE size($poi_types) = 0 OR p.type IN $poi_types
-  RETURN collect(DISTINCT p.type) AS found_types,
-         collect(DISTINCT {name: p.name, type: p.type}) AS pois
+  RETURN collect(p.type) AS found_types,
+         collect({name: p.name, type: p.type}) AS pois
 }
 WITH t, score, found_types, pois
 WHERE size($poi_types) = 0

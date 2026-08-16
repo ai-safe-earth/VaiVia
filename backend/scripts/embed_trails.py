@@ -1,9 +1,10 @@
 """Embed trail descriptions into the trail_embeddings vector index.
 
 For each (:Trail), the embedding input is the owner-ratified concatenation
-(description + landscape_description + difficulty_notes). A sha256 of that
-input is stored on the node, so re-runs embed only trails whose text changed —
-the job is idempotent and cheap to run after every ingestion.
+(description + landscape_description + difficulty_notes, extended 2026-08-16
+with activity/difficulty, best seasons, and the POIs along the way). A sha256
+of that input is stored on the node, so re-runs embed only trails whose text
+changed — the job is idempotent and cheap to run after every ingestion.
 
 Costs money (OpenAI embeddings API; text-embedding-3-small, fractions of a
 cent for the beta data set). Run from ``backend/``::
@@ -28,10 +29,24 @@ BATCH_SIZE = 64  # well under the API's input limits; one call for the beta set
 
 FETCH_TRAILS = """
 MATCH (t:Trail)
+CALL (t) {
+  OPTIONAL MATCH (t)-[:COMPOSED_OF]->(:Segment)-[:PASSES_BY]->(p1:POI)
+  WITH t, collect(DISTINCT p1) AS direct
+  OPTIONAL MATCH (t)-[:NEAR_POI]->(p2:POI)
+  WITH direct, collect(DISTINCT p2) AS near
+  WITH direct + near AS all_pois
+  UNWIND all_pois AS p
+  WITH DISTINCT p
+  RETURN collect({name: p.name, type: p.type}) AS pois
+}
 RETURN t.id AS id,
        t.description AS description,
        t.landscape_description AS landscape_description,
        t.difficulty_notes AS difficulty_notes,
+       t.activity AS activity,
+       t.difficulty AS difficulty,
+       t.best_seasons AS best_seasons,
+       pois AS pois,
        t.embedding_input_sha AS embedded_sha
 """
 
@@ -55,6 +70,10 @@ def plan(trails: list[dict]) -> tuple[list[dict], int, int]:
             trail.get("description"),
             trail.get("landscape_description"),
             trail.get("difficulty_notes"),
+            activity=trail.get("activity"),
+            difficulty=trail.get("difficulty"),
+            best_seasons=trail.get("best_seasons"),
+            pois=trail.get("pois"),
         )
         if not text:
             empty += 1
