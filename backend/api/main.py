@@ -36,18 +36,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from chat.llm import OpenAIClient
 
         app.state.llm = OpenAIClient()
+    owns_pool = False
     if getattr(app.state, "store", None) is None:
         # Postgres store is wired when DATABASE_URL is set; without it, history
         # and the cost ledger live in memory (dev only — quotas reset on restart).
-        from chat.store import InMemoryStore
+        if settings.database_url:
+            import asyncpg
 
-        if not settings.database_url:
+            from chat.store import PostgresStore
+
+            # statement_cache_size=0 keeps this working if DATABASE_URL is ever
+            # pointed at the pooler's transaction mode (6543), where prepared
+            # statements are not safe across pooled connections.
+            app.state.pg_pool = await asyncpg.create_pool(
+                settings.database_url,
+                ssl="require",
+                statement_cache_size=0,
+                min_size=1,
+                max_size=5,
+            )
+            owns_pool = True
+            app.state.store = PostgresStore(app.state.pg_pool)
+            logger.info("chat history and quotas backed by Postgres")
+        else:
+            from chat.store import InMemoryStore
+
             logger.warning("DATABASE_URL unset — chat history and quotas are in-memory")
-        app.state.store = InMemoryStore()
+            app.state.store = InMemoryStore()
 
     try:
         yield
     finally:
+        if owns_pool:
+            await app.state.pg_pool.close()
         if owns_client:
             await app.state.db.close()
 

@@ -26,8 +26,9 @@ written and unit-tested; it has simply never met its dependencies.
 | Gateway (Fastify) | Complete | 25 tests with real RSA-signed JWTs and a stub upstream |
 | Chat orchestration (OpenAI) | Complete | 33 offline tests, plus 15/15 against the live OpenAI API |
 | Frontend (Next.js + MapLibre) | Complete | 25 tests; `next build` clean; production server verified serving |
+| Supabase store and quotas | Complete | Schema applied; 12-check live round-trip of `PostgresStore`; gateway quota store queries the real database |
 
-Totals: 96 backend, 25 gateway, 25 frontend tests, all passing. CI runs all
+Totals: 96 backend, 28 gateway, 25 frontend tests, all passing. CI runs all
 three suites and is fully offline.
 
 ## The two properties the redesign exists to guarantee
@@ -52,24 +53,45 @@ seven of seven injection and jailbreak payloads were contained this way.
 - `docs/fragilities.md` — known failure modes and the mitigations chosen.
 - `CLAUDE.md` — the rules a contributor is most likely to break by accident.
 
+## Supabase is wired
+
+Project `fatktvawkmrytywegjjz` (eu-west-1) is live and the schema is applied:
+`conversations`, `messages`, `usage_ledger`, `daily_quotas`, RLS on with one
+policy each. Chat history, the cost ledger and quotas now survive a restart.
+
+Two things about the connection are worth knowing before anyone edits an env
+file, because both fail in ways that look like something else:
+
+- **The direct host is unusable.** `db.<ref>.supabase.co` publishes an AAAA
+  record and no A record, so without IPv6 it does not resolve at all. Every
+  `DATABASE_URL` points at the Supavisor pooler
+  (`aws-1-eu-west-1.pooler.supabase.com`) in **session** mode, port 5432 — not
+  6543, because these services hold long-lived connections.
+- **`sslmode=require` in the URL breaks the gateway.** The bundled `pg` treats
+  it as `verify-full`, and Supabase's pooler certificate does not chain to a
+  public root, so the connection is rejected as self-signed. TLS is instead
+  selected in `gateway/src/quotaStore.ts`, which encrypts for any non-local
+  host. This matters: a bare connection string connects happily *in plaintext*,
+  which is exactly what makes it easy to miss.
+
 ## What blocks progress
 
-1. **The OpenAI key in `backend/.env` was shared in plaintext and must be
-   rotated before any deployment.** It works today and is gitignored, but treat
-   it as compromised.
+1. **Credentials shared in plaintext must be rotated before any deployment.**
+   The OpenAI key in `backend/.env`, and the Supabase database password, have
+   both been pasted into chat transcripts. They work today and are gitignored;
+   treat both as compromised.
 2. **No Docker.** The ingestion idempotency check, the routing queries, and the
    GDS Dijkstra upgrade are all unverified against a real database.
-3. **No Supabase project.** `PostgresStore` is written but unwired, so chat
-   history and quotas live in memory and reset on restart. Real sign-in is
-   untested, and the frontend sign-in page was deliberately not built against a
-   project that does not exist.
+3. **No sign-in has ever happened.** The gateway can fetch and parse Supabase's
+   JWKS, but no user account exists, so no real token has been minted or
+   verified. The frontend sign-in page is still unbuilt.
 
 ## Suggested order of work
 
-Create the Supabase project first: it unblocks auth, history, and quotas
-together, and it is the cheapest of the three. Then get Docker running and do
-the graph smoke test, since every routing claim depends on it. Rotate the key
-whenever convenient, and certainly before Phase 6 deploys anything.
+Enable email auth and sign one real user in: that closes the last unproven link
+in the auth chain, and the frontend sign-in page depends on it. Then get Docker
+running and do the graph smoke test, since every routing claim depends on it.
+Rotate both credentials before Phase 6 deploys anything.
 
 ## Running it locally
 
@@ -176,21 +198,25 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-15", "text": "Map draws geometry from the same segments the answer was grounded in, so prose and map cannot disagree" },
         { "date": "2026-08-15", "text": "Sign-in page deferred rather than built speculatively against a Supabase project that does not exist" }
       ] },
-    { "name": "Phase 6 - Beta hardening", "status": "planned", "start": null, "end": null, "plan": "redesign",
+    { "name": "Phase 6 - Beta hardening", "status": "active", "start": "2026-08-16", "end": null, "plan": "redesign",
       "decisions": [
-        { "date": "2026-08-16", "text": "Claude Code spend is attributed per commit by bucketing transcript usage into commit time intervals, deduped on requestId because one request writes several assistant records that each repeat the same usage object" }
+        { "date": "2026-08-16", "text": "Claude Code spend is attributed per commit by bucketing transcript usage into commit time intervals, deduped on requestId because one request writes several assistant records that each repeat the same usage object" },
+        { "date": "2026-08-16", "text": "DATABASE_URL points at the Supavisor pooler in session mode because the direct host db.<ref>.supabase.co publishes an AAAA record only and does not resolve without IPv6" },
+        { "date": "2026-08-16", "text": "Gateway selects TLS in quotaStore.ts for any non-local host rather than via sslmode in the URL: node-postgres sends no SSLRequest by default so a bare connection string is silently plaintext, while sslmode=require is aliased to verify-full by the bundled pg and fails against Supabase's pooler certificate" },
+        { "date": "2026-08-16", "text": "Migrations are applied by scripts/apply_migrations.py rather than the Supabase CLI, which expects its own supabase/migrations layout; every migration must be idempotent, so the RLS policies now drop-if-exists first" },
+        { "date": "2026-08-16", "text": "Backend tests pin gateway_shared_secret and database_url to empty via an autouse fixture; they previously inherited the developer's .env, so a populated secret 401'd 23 tests and a populated DATABASE_URL opened a real Postgres pool during unit tests" }
       ] }
   ],
   "blockers": [
     { "text": "OpenAI API key was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
+    { "text": "Supabase database password was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" },
     { "text": "No Docker access, so ingestion idempotency, routing queries and GDS Dijkstra are unverified against a real Neo4j", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
-    { "text": "No Supabase project, so PostgresStore is unwired and history, quotas and real sign-in are unproven", "severity": "high", "owner": "oscar", "since": "2026-08-15" }
+    { "text": "Email auth is not configured and no user has ever signed in, so no real Supabase token has been minted or verified end to end", "severity": "medium", "owner": "oscar", "since": "2026-08-16" }
   ],
   "nextSteps": [
-    { "title": "Create the Supabase project, enable email auth and apply infra/supabase/migrations/0001_chat_and_quotas.sql", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
-    { "title": "Rotate the exposed OpenAI API key and update backend/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Enable email auth in Supabase and sign one real user in end to end, confirming the gateway accepts the token", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Rotate the exposed OpenAI API key and Supabase database password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Run the live graph smoke test once Docker is available: init schema, both ingesters twice, assert counts unchanged", "est": 0.5, "owner": "oscar", "phase": "Phase 1 - Graph core and ingestion", "plan": "redesign" },
-    { "title": "Swap InMemoryStore for PostgresStore and verify history, ledger and quota against Supabase", "est": 1, "owner": "oscar", "phase": "Phase 4 - Chat orchestration", "plan": "redesign" },
     { "title": "Wire GDS Dijkstra routing and verify the bounded projection against a live GDS instance", "est": 1, "owner": "oscar", "phase": "Phase 2 - Query service", "plan": "redesign" },
     { "title": "Build the Supabase sign-in page and conversation list in the frontend", "est": 1, "owner": "oscar", "phase": "Phase 5 - Frontend", "plan": "redesign" },
     { "title": "Playwright end-to-end smoke across the full stack", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
@@ -199,7 +225,8 @@ cost through Phase 5 was roughly $62.
   ],
   "sessions": [
     { "date": "2026-08-15", "model": "fable-5", "credits": null, "person": "oscar", "hours": null },
-    { "date": "2026-08-16", "model": "opus-5", "credits": 12, "person": "oscar", "hours": null }
+    { "date": "2026-08-16", "model": "opus-5", "credits": 12, "person": "oscar", "hours": null },
+    { "date": "2026-08-16", "model": "opus-5", "credits": 18, "person": "oscar", "hours": null }
   ]
 }
 ```

@@ -72,7 +72,8 @@ Security model: browsers never reach FastAPI, Neo4j, or OpenAI. The gateway is t
 - [x] `infra/docker-compose.yml`: Neo4j Community, localhost-only port binding for dev.
 - [x] CI (GitHub Actions): backend lint/format/test, offline.
 - [x] Supabase Postgres migration drafts (`infra/supabase/migrations/`).
-- [ ] Supabase project created + auth configured (manual, needs account).
+- [x] Supabase project created; `0001_chat_and_quotas.sql` applied (four tables, RLS on, one policy each). Applied with `uv run python -m scripts.apply_migrations` rather than the Supabase CLI, which expects its own `supabase/migrations` layout. The direct host `db.<ref>.supabase.co` is IPv6-only, so `DATABASE_URL` points at the Supavisor pooler in session mode (port 5432).
+- [ ] Email auth configured and a real sign-in exercised end to end (no user has been created yet).
 
 ### Phase 1 — Graph core & ingestion (the moat) ✅
 Ontology extended and owner-validated before build: difficulty trio (label +
@@ -111,7 +112,7 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - [x] History persisted per conversation with an ownership check — one user cannot continue another's conversation.
 - [x] 33 offline tests (96 backend total): pipeline, dispatch, quota, history, ownership, injection containment.
 - [x] **Live verification** — `uv run python -m scripts.check_intents_live`: 15/15 against the real API (8 natural phrasings → correct intents and fields; 7 injection/out-of-scope payloads → all `clarify`). Costs money, so it is a script, not CI.
-- [ ] Swap `InMemoryStore` for the written `PostgresStore` (asyncpg) once the Supabase project exists.
+- [x] Swap `InMemoryStore` for the written `PostgresStore` (asyncpg). The lifespan now opens a pool when `DATABASE_URL` is set and falls back to in-memory only when it is not — previously it warned about the missing variable and then used `InMemoryStore` either way. Verified against the live database by `uv run python -m scripts.smoke_supabase` (12 checks inside a transaction that is always rolled back).
 
 ### Phase 5 — Frontend ✅
 - [x] Next.js 15 + React 19 app (`frontend/`): chat-first two-pane layout, streaming replies, trail result cards, MapLibre map drawing the selected trail's real geometry.

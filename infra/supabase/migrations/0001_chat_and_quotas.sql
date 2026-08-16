@@ -50,8 +50,13 @@ alter table messages enable row level security;
 alter table usage_ledger enable row level security;
 alter table daily_quotas enable row level security;
 
+-- `create policy` has no `if not exists`, so each is dropped first to keep the
+-- whole migration re-runnable like the statements above it.
+drop policy if exists "own conversations" on conversations;
 create policy "own conversations" on conversations
     for select using (auth.uid() = user_id);
+
+drop policy if exists "own messages" on messages;
 create policy "own messages" on messages
     for select using (
         exists (
@@ -59,7 +64,11 @@ create policy "own messages" on messages
             where c.id = conversation_id and c.user_id = auth.uid()
         )
     );
+
+drop policy if exists "own usage" on usage_ledger;
 create policy "own usage" on usage_ledger
     for select using (auth.uid() = user_id);
+
+drop policy if exists "own quotas" on daily_quotas;
 create policy "own quotas" on daily_quotas
     for select using (auth.uid() = user_id);

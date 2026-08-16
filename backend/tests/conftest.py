@@ -10,7 +10,27 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.deps import get_db
+from core.config import get_settings
 from graph.query_loader import get_query
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings() -> Any:
+    """Pin the environment-sensitive settings so the suite is hermetic.
+
+    Both of these are read from ``backend/.env`` in normal use, which made test
+    outcomes depend on the developer's local file: a populated
+    ``GATEWAY_SHARED_SECRET`` turns on the gateway guard and 401s every request
+    that does not send the header, and a populated ``DATABASE_URL`` makes the
+    app open a real Postgres pool at startup. Tests that want either behaviour
+    set it themselves.
+    """
+    settings = get_settings()
+    saved = (settings.gateway_shared_secret, settings.database_url)
+    settings.gateway_shared_secret = ""
+    settings.database_url = ""
+    yield
+    settings.gateway_shared_secret, settings.database_url = saved
 
 
 class FakeDb:
