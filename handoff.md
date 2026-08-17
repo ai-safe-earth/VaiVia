@@ -115,6 +115,38 @@ file, because both fail in ways that look like something else:
   host. This matters: a bare connection string connects happily *in plaintext*,
   which is exactly what makes it easy to miss.
 
+## Dependency audit, triaged 2026-08-17
+
+`npm audit` reported 7 findings in the gateway and 8 in the frontend. They are
+not equally serious and the counts are misleading, so here is what each one
+actually meant.
+
+**The gateway's critical was real and is fixed.**
+`@fastify/http-proxy` 10 carried GHSA-gwhp-pf74-vj37 — a client can name a
+header in `Connection:` and have the proxy strip it *after* the rewrite hook
+added it. That is precisely the gateway's trust mechanism: `app.ts` injects
+`x-gateway-secret`, `x-user-id` and `x-user-email` in `rewriteRequestHeaders`.
+The saving grace is that both consumers **fail closed** —
+`GatewayTrustMiddleware` 401s on a missing or wrong secret, and `/chat` 401s on
+an empty `x-user-id` — so the reachable impact was a caller denying its own
+request, not forging an identity or evading the quota ledger. Client-supplied
+`x-user-id` was never a risk either: the rewrite spreads incoming headers first
+and then overwrites. Upgraded to `@fastify/http-proxy` 11.6.0; 34/34 gateway
+tests and typecheck pass. Gateway production dependencies are now at zero
+findings.
+
+**Everything else was dev- or build-time.** The `vitest`/`vite`/`esbuild` chain
+(GHSA-67mh-4wv8-2f99) only exposes a dev server on a developer's machine;
+bumping `vitest` to 3 in both packages cleared it, with all tests still passing.
+
+**Three high findings remain in the frontend and are deliberately deferred.**
+`postcss` (CSS-stringify XSS and `sourceMappingURL` path traversal) and `sharp`
+(inherited libvips CVEs) are both reached only through `next` 14, and npm's only
+fix is `next` 16 — a two-major framework migration. Neither is reachable as this
+app is built: the CSS is authored in-repo rather than attacker-supplied, and
+nothing imports `next/image`, which is what pulls `sharp` into a running server.
+Do the Next upgrade as its own piece of work, not as an audit drive-by.
+
 ## What blocks progress
 
 1. **Credentials shared in plaintext must be rotated before any deployment.**
@@ -314,7 +346,9 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "Coverage is multi-region via the REGIONS setting (Lecco, Bergamo); Bergamo's bbox starts at the city and runs north into the hills so the plains' road grid stays out of the graph; trail-region links recompute from geometry each run, deleted first so a moved trail drops its stale region" },
         { "date": "2026-08-16", "text": "Fixture anchors carry an optional near-point: with Bergamo data present, a type-only 'nearest hut' anchor silently relocated the Lecco traverse onto a Bergamo bivouac, so anchors that mean a specific area must say so" },
         { "date": "2026-08-17", "text": "Project renamed get-out-door to VaiVia: remote is github.com/ai-safe-earth/VaiVia.git, packages are vaivia / vaivia-gateway / vaivia-frontend, container is vaivia-neo4j. The compose volumes keep their names so the ingested graph survives the rename; only the container is recreated" },
-        { "date": "2026-08-17", "text": "Renaming the root folder invalidates every console-script shim in backend/.venv, because Windows .exe launchers hardcode the absolute interpreter path; uv run black failed with 'Failed to canonicalize script path' until .venv was deleted and uv sync re-run" }
+        { "date": "2026-08-17", "text": "Renaming the root folder invalidates every console-script shim in backend/.venv, because Windows .exe launchers hardcode the absolute interpreter path; uv run black failed with 'Failed to canonicalize script path' until .venv was deleted and uv sync re-run" },
+        { "date": "2026-08-17", "text": "@fastify/http-proxy upgraded 10 to 11.6.0 for GHSA-gwhp-pf74-vj37 (Connection-header abuse strips proxy-added headers, which is exactly how the gateway injects x-gateway-secret and x-user-id). Impact was bounded because both consumers fail closed: the trust middleware 401s on a bad secret and /chat 401s on an empty x-user-id, so the attack denied the caller's own request rather than forging identity" },
+        { "date": "2026-08-17", "text": "next 14 to 16 deferred rather than taken as an audit fix: postcss and sharp are reachable only through next, the CSS is authored in-repo rather than attacker-supplied, and nothing imports next/image, so a two-major framework migration is not justified by these advisories" }
       ] }
   ],
   "blockers": [
@@ -325,6 +359,7 @@ cost through Phase 5 was roughly $62.
   ],
   "nextSteps": [
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Upgrade next 14 to 16 as its own piece of work, clearing the deferred postcss and sharp advisories", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
   "sessions": [
