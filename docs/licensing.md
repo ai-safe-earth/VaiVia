@@ -203,11 +203,41 @@ third-party commercial licensing is uncommon.
 
 **B. Ship OSM-only.** Removes the blocker entirely and is fully compatible with
 a commercial consumer product, subject to ODbL attribution and share-alike.
-Costs the curated layer: named trail loops, editorial difficulty ratings, and
-the prose that currently feeds the embedding. Before pricing this as a large
-loss, note that OSM natively carries `mtb:scale`, `sac_scale`, `surface`,
-`trail_visibility` and `route=hiking/mtb` relations — which covers a meaningful
-share of what Trailforks supplies. Worth a spike to quantify.
+
+**Measured 2026-08-17** (`scripts/spike_osm_coverage.py`, live Overpass over our
+two regions) — the coverage is better than assumed:
+
+| | Lecco | Bergamo |
+|---|---|---|
+| Paths/tracks | 11,292 | 17,092 |
+| Route relations (the `:Trail` analog) | 453 | 366 |
+| ...of which named | 167 (36.9%) | 135 (36.9%) |
+| `sac_scale` (hiking difficulty) | 43.3% | 33.0% |
+| `mtb:scale` | 22.7% | 27.2% |
+| `surface` | 62.4% | 61.5% |
+| `trail_visibility` | 38.8% | 31.1% |
+| `osmc:symbol` (waymarking) | 84.1% | 71.9% |
+| `description` on relations | 20.8% | 10.7% |
+
+What this means:
+
+- **The named-trail layer survives.** 302 named routes across the two regions —
+  against the 5 synthetic trails we have today. They are real CAI *sentieri*
+  with ref numbers ("Traversata Bassa delle Grigne [6]", "Sentiero delle Foppe
+  [9]"), mostly on the `lwn`/`rwn` walking networks.
+- **Difficulty survives.** `sac_scale` values (`hiking`,
+  `mountain_hiking`, `demanding_mountain_hiking`, `alpine_hiking`...) and
+  `mtb:scale` 0-6 both map cleanly onto our existing `difficulty_level` 1-4.
+- **The prose does not survive.** `description` sits at 10-21%, and that is the
+  one field with no structural substitute — it is what
+  `core/embeddings.py::embedding_input()` feeds to the vector index. An OSM-only
+  build needs a new embedding input composed from facts we do hold (name, ref,
+  network, sac_scale, surface mix, elevation, POIs passed, region), which is
+  less evocative than curated prose but factual and already half-built: the
+  existing input already appends POI names.
+- **Bonus OSM has that Trailforks does not:** `osmc:symbol` waymarking (~80%),
+  which is what a hiker actually follows on the ground, and `website` links on
+  31-72% of relations.
 
 **C. Own or community-sourced curation.** Longer road, but the curated layer
 becomes an asset rather than a dependency, and it removes a supplier who is also
