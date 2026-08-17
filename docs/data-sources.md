@@ -66,15 +66,19 @@ Trailforks is the source of truth for **trail metadata**:
 
 ### Access method
 
-The Trailforks REST API requires an API key. During development, a **mock fixture** (`fixtures/trailforks_mock.json`) is provided to simulate API responses without a key.
+**There is no working live path, by design.** Trailforks data may be used only via their API with a granted access key, and their terms require prior written consent for commercial, in-software and AI use — all three of which describe VaiVia. See `docs/licensing.md` for the quoted terms and `docs/fragilities.md` §4.
+
+`--mock` is therefore the only usable path. It reads `fixtures/trailforks_mock.json`, which is **synthetic**: hand-authored metadata over geometry traced from ingested OSM ways by `scripts/make_trailforks_fixture.py`. It simulates the shape of an API response; it contains no Trailforks content.
 
 ```python
-# Production (requires TRAILFORKS_API_KEY in .env)
-python ingestion/trailforks_ingest.py --bbox 45.8,9.3,46.0,9.6
+# The only working path (synthetic fixture, no network)
+python -m ingestion.trailforks_ingest --mock
 
-# Development (uses local mock)
-python ingestion/trailforks_ingest.py --mock
+# Raises NotImplementedError until licensing is resolved
+python -m ingestion.trailforks_ingest --bbox 45.8,9.3,46.0,9.6
 ```
+
+`TRAILFORKS_API_KEY` and `TRAILFORKS_BASE_URL` exist in `core/config.py` and `.env.example` as placeholders for that future path; nothing reads them today.
 
 ### Mock fixture format
 
@@ -96,8 +100,10 @@ python ingestion/trailforks_ingest.py --mock
 
 ### Limitations
 
-- API rate limits apply on the free tier.
+- **Licensing is the binding constraint, not quota** — see `docs/licensing.md`.
+- Rate limits will apply once access is granted; backoff and caching are not built yet.
 - Trailforks coverage is excellent for mountain bike trails but thinner for hiking-only routes.
+- If Trailforks proves unavailable, OSM itself carries `mtb:scale`, `sac_scale`, `surface`, `trail_visibility` and `route=hiking/mtb` relations, which cover part of what we would take from Trailforks. Unquantified — worth a spike before assuming the curated layer is irreplaceable.
 
 ---
 

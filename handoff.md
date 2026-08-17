@@ -166,10 +166,21 @@ the `next` 14→16 upgrade and deploy plumbing.
    The OpenAI key in `backend/.env`, and the Supabase database password, have
    both been pasted into chat transcripts. They work today and are gitignored;
    treat both as compromised.
-2. **Real Trailforks data still needs licensing review.** The mock fixture now
-   traces real OSM ways (so matching, `COMPOSED_OF`, and routing are all
-   exercised), but the three trails themselves remain synthetic until live
-   Trailforks data clears review (docs/fragilities.md #4).
+2. **Trailforks licensing is a product constraint, not a data-plumbing task.**
+   Reviewed 2026-08-17 against the primary sources; full brief in
+   `docs/licensing.md`. Their Data Use Policy permits use only via the API with
+   a granted key, and the Outside Terms of Use (Trailforks is Outside-owned)
+   restrict the Services to "personal, noncommercial use" while separately
+   naming "development of any software program" and AI use as requiring prior
+   written consent. VaiVia is all three. Approval is discretionary and
+   explicitly "not guaranteed".
+
+   The good news: **nothing has ever been fetched from Trailforks.**
+   `fetch_live()` raises `NotImplementedError`, there is no HTTP client, and the
+   fixture is synthetic prose over OSM-traced geometry — so there is no exposure
+   to remediate, only a decision to make. Either pursue API access and written
+   consent (draft request in the brief), or scope an OSM-only product. Do not
+   assume approval in the roadmap.
 3. **The account password is `12345678`.** It is eight characters, entirely
    numeric, and has been pasted into a chat transcript. Fine for a scratch
    login today; it must not survive contact with a deployed service.
@@ -362,18 +373,23 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-17", "text": "Renaming the root folder invalidates every console-script shim in backend/.venv, because Windows .exe launchers hardcode the absolute interpreter path; uv run black failed with 'Failed to canonicalize script path' until .venv was deleted and uv sync re-run" },
         { "date": "2026-08-17", "text": "@fastify/http-proxy upgraded 10 to 11.6.0 for GHSA-gwhp-pf74-vj37 (Connection-header abuse strips proxy-added headers, which is exactly how the gateway injects x-gateway-secret and x-user-id). Impact was bounded because both consumers fail closed: the trust middleware 401s on a bad secret and /chat 401s on an empty x-user-id, so the attack denied the caller's own request rather than forging identity" },
         { "date": "2026-08-17", "text": "next 14 to 16 deferred rather than taken as an audit fix: postcss and sharp are reachable only through next, the CSS is authored in-repo rather than attacker-supplied, and nothing imports next/image, so a two-major framework migration is not justified by these advisories" },
-        { "date": "2026-08-17", "text": "chore/dep-audit merged to main on a manual browser verification of the SSE-proxied chat turn rather than the Playwright suite, since credentials for the automated run were not available in-session; sign-in, streaming and the map all worked through the new @fastify/http-proxy major" }
+        { "date": "2026-08-17", "text": "chore/dep-audit merged to main on a manual browser verification of the SSE-proxied chat turn rather than the Playwright suite, since credentials for the automated run were not available in-session; sign-in, streaming and the map all worked through the new @fastify/http-proxy major" },
+        { "date": "2026-08-17", "text": "An unstated activity was silently over-constraining every search: under strict structured outputs the model must fill the field, and it reached for 'mixed' to mean 'no preference'. The template already matches 'mixed' trails against any activity, so a 'mixed' filter is strictly narrower than null and often returned nothing. Fixed in the prompt and, independently, by mapping it to None in composer.sanitize so the boundary does not depend on model compliance. Live golden retrieval 16/21 to 18/21" },
+        { "date": "2026-08-17", "text": "Trailforks licensing re-triaged from low to high after reading the primary sources: use is API-only with a granted key, and the Outside ToU restricts the Services to personal noncommercial use while separately naming software development and AI use as needing prior written consent. Nothing has ever been fetched (fetch_live is a stub, the fixture is synthetic), so the position is clean and the choice is consent-or-OSM-only. docs/fragilities.md #4 and docs/data-sources.md were also corrected: both described live-API backoff, bbox chunking and a response cache that do not exist" }
       ] }
   ],
   "blockers": [
     { "text": "OpenAI API key was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
     { "text": "Supabase database password was shared in plaintext and must be rotated before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" },
-    { "text": "Real Trailforks data is pending licensing review; the fixture now traces real OSM ways but the three trails are synthetic", "severity": "low", "owner": "oscar", "since": "2026-08-15" },
+    { "text": "Trailforks data cannot be used without an approved API key and prior written consent from Outside: their terms restrict use to personal and noncommercial, and separately name software development and AI use. VaiVia is commercial, a software program and AI-driven. Approval is discretionary and not guaranteed. Nothing has been fetched to date (fetch_live is a stub, fixture is synthetic), so the decision is whether to pursue consent or ship OSM-only. See docs/licensing.md", "severity": "high", "owner": "oscar", "since": "2026-08-15" },
+    { "text": "OSM data attribution is inadequate: the only credit is a collapsed tile-layer string, while OSM-derived geometry, POI names and routing are shown to users. ODbL requires attribution for produced works. Independent of Trailforks and fixable now", "severity": "medium", "owner": "oscar", "since": "2026-08-17" },
     { "text": "The Supabase account password is 12345678 and was shared in plaintext; it must be changed before any deployment", "severity": "high", "owner": "oscar", "since": "2026-08-16" }
   ],
   "nextSteps": [
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Triage poor retrieval quality found in manual testing: identify whether the cause is ranking, template coverage, embedding input, or the mock data itself", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Add OSM data attribution visible to end users (not just the collapsed tile-layer credit); required by ODbL and not blocked on anything", "est": 0.25, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Decide Trailforks: send the API access request in docs/licensing.md, or scope an OSM-only product. Spike what OSM's mtb:scale / sac_scale / surface tags replace before pricing the loss", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Upgrade next 14 to 16 as its own piece of work, clearing the deferred postcss and sharp advisories", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],

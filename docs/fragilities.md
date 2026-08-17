@@ -43,16 +43,15 @@ This document is a candid record of known failure modes, edge cases, and the pra
 
 ---
 
-## 4. Trailforks API Rate Limits
+## 4. Trailforks Access Is Licensing-Blocked, Not Just Rate-Limited
 
-**The issue:** The Trailforks API enforces rate limits. Bulk ingestion of a large region (e.g., all of Northern Italy) can exhaust the daily quota in a single run.
+**The issue:** Trailforks data cannot be used at all without an approved API key and, because VaiVia is commercial and AI-driven, prior written consent from Outside. Their Data Use Policy allows access only via the API; the Outside Terms of Use restrict the Services to personal, noncommercial use and separately name "development of any software program" and AI use as requiring written consent. Rate limits are a real but *secondary* concern — they only start to matter after the licensing question is answered. See `docs/licensing.md` for the quoted terms and the options.
 
-**Our mitigation:**
+**Current state (verified 2026-08-17):** nothing has ever been fetched from Trailforks. `ingestion/trailforks_ingest.py::fetch_live()` raises `NotImplementedError`, there is no Trailforks HTTP client, and `fixtures/trailforks_cache/` does not exist. `fixtures/trailforks_mock.json` is synthetic — hand-authored prose over geometry traced from ingested OSM ways — so it carries no Trailforks content.
 
-- The ingestion script uses exponential backoff on 429 responses.
-- Region ingestion is chunked by bounding box grid cells with configurable cell size.
-- A local cache layer (`fixtures/trailforks_cache/`) stores raw API responses so re-runs do not re-fetch unchanged data.
-- The `--mock` flag bypasses the API entirely for development.
+**Our mitigation:** `--mock` is the only working path and must stay that way until licensing is resolved. Note that the Outside ToU also prohibits automated collection, so scraping is not a fallback.
+
+**Not yet built** (deliberately, pending that decision): rate-limit backoff, bbox-chunked region ingestion, and the response cache. Earlier revisions of this document described all three as existing mitigations; they do not exist.
 
 ---
 
