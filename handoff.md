@@ -147,11 +147,18 @@ app is built: the CSS is authored in-repo rather than attacker-supplied, and
 nothing imports `next/image`, which is what pulls `sharp` into a running server.
 Do the Next upgrade as its own piece of work, not as an audit drive-by.
 
-**This work sits on `chore/dep-audit`, pushed but not merged.** One check is
-outstanding before it should be: the 34 gateway tests cover auth, limits, quota
-and routing, but nothing offline exercises a *streamed* reply through the new
-proxy major, and SSE is the one behaviour a proxy upgrade is most likely to
-change. Run the e2e suite with `E2E_LIVE=1` against a live stack before merging.
+**Merged 2026-08-17.** The full stack (vaivia-neo4j, backend, gateway, frontend)
+was brought up locally and the SSE-proxied chat turn was verified by hand
+through the browser rather than the Playwright suite — sign-in, streaming
+reply, and the trail drawn on the map all worked through the new
+`@fastify/http-proxy` major. `chore/dep-audit` merged to `main` on that basis.
+
+**New finding from that manual pass: retrieval quality is poor.** The pipeline
+mechanics work (decomposition, composer, templates, SSE), but the answers
+returned for open-ended questions were weak. Not yet triaged — no root cause
+identified (ranking, template coverage, embedding input, or the mock data
+itself are all candidates). This is now the top item to investigate, ahead of
+the `next` 14→16 upgrade and deploy plumbing.
 
 ## What blocks progress
 
@@ -354,7 +361,8 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-17", "text": "Project renamed get-out-door to VaiVia: remote is github.com/ai-safe-earth/VaiVia.git, packages are vaivia / vaivia-gateway / vaivia-frontend, container is vaivia-neo4j. The compose volumes keep their names so the ingested graph survives the rename; only the container is recreated" },
         { "date": "2026-08-17", "text": "Renaming the root folder invalidates every console-script shim in backend/.venv, because Windows .exe launchers hardcode the absolute interpreter path; uv run black failed with 'Failed to canonicalize script path' until .venv was deleted and uv sync re-run" },
         { "date": "2026-08-17", "text": "@fastify/http-proxy upgraded 10 to 11.6.0 for GHSA-gwhp-pf74-vj37 (Connection-header abuse strips proxy-added headers, which is exactly how the gateway injects x-gateway-secret and x-user-id). Impact was bounded because both consumers fail closed: the trust middleware 401s on a bad secret and /chat 401s on an empty x-user-id, so the attack denied the caller's own request rather than forging identity" },
-        { "date": "2026-08-17", "text": "next 14 to 16 deferred rather than taken as an audit fix: postcss and sharp are reachable only through next, the CSS is authored in-repo rather than attacker-supplied, and nothing imports next/image, so a two-major framework migration is not justified by these advisories" }
+        { "date": "2026-08-17", "text": "next 14 to 16 deferred rather than taken as an audit fix: postcss and sharp are reachable only through next, the CSS is authored in-repo rather than attacker-supplied, and nothing imports next/image, so a two-major framework migration is not justified by these advisories" },
+        { "date": "2026-08-17", "text": "chore/dep-audit merged to main on a manual browser verification of the SSE-proxied chat turn rather than the Playwright suite, since credentials for the automated run were not available in-session; sign-in, streaming and the map all worked through the new @fastify/http-proxy major" }
       ] }
   ],
   "blockers": [
@@ -365,7 +373,7 @@ cost through Phase 5 was roughly $62.
   ],
   "nextSteps": [
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
-    { "title": "Run the e2e suite with E2E_LIVE=1 against a live stack, then merge chore/dep-audit; SSE through the new @fastify/http-proxy major is the one path no offline test covers", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Triage poor retrieval quality found in manual testing: identify whether the cause is ranking, template coverage, embedding input, or the mock data itself", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Upgrade next 14 to 16 as its own piece of work, clearing the deferred postcss and sharp advisories", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
