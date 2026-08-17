@@ -1,6 +1,13 @@
-# Handoff — get-out-door
+# Handoff — VaiVia
 
 Last updated 2026-08-17.
+
+The project was renamed from `get-out-door` to **VaiVia** on 2026-08-17. The
+GitHub remote is now `https://github.com/ai-safe-earth/VaiVia.git` and the local
+root folder is `A02_VaiVia`. README, LICENSE and CONTRIBUTING have been rewritten
+under the new name; the in-code identifiers (package names, the compose container
+name, page titles, the Overpass User-Agent, the `graph-model` skill description)
+still say `get-out-door` and are a separate follow-up.
 
 ## Where the project stands
 
@@ -205,7 +212,7 @@ cost through Phase 5 was roughly $62.
 <!-- pmctl:handoff v1 -->
 ```json
 {
-  "project": "get-out-door",
+  "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
   "updated": "2026-08-17",
