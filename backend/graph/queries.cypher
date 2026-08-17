@@ -262,26 +262,34 @@ LIMIT $limit
 UNWIND range(0, size($node_ids) - 2) AS i
 MATCH (a:Intersection)-[c:CONNECTS_TO]->(b:Intersection)
 WHERE a.osm_node_id = $node_ids[i] AND b.osm_node_id = $node_ids[i + 1]
-WITH i, c ORDER BY i, c.distance_m
+WITH i, c ORDER BY i, c.cost_m
 WITH i, collect(c)[0] AS edge
 RETURN i,
        edge.osm_way_id AS osm_way_id,
        edge.surface AS surface,
+       edge.highway_type AS highway_type,
+       edge.distance_m AS distance_m,
        coalesce(edge.elevation_gain_m, 0.0) AS gain_m
 ORDER BY i
 
 // name: route_gds_dijkstra
-// Cost-weighted routing over a named GDS projection. The projection is created
-// by graph_project_routing (below) and dropped after use.
+// Comfort-weighted routing over a named GDS projection. The projection is
+// created by graph_project_routing (below) and dropped after use.
+//
+// Weighted on cost_m, NOT distance_m: roads are straighter than trails, so
+// minimising raw distance returns road walks (docs/fragilities.md #10).
+// totalCost is therefore a penalised cost in no real unit — it is returned as
+// total_cost and must never be shown to a user or treated as a length. Real
+// distance comes from summing distance_m over route_edge_details.
 MATCH (src:Intersection {osm_node_id: $start_node}),
       (dst:Intersection {osm_node_id: $end_node})
 CALL gds.shortestPath.dijkstra.stream($graph_name, {
   sourceNode: src,
   targetNode: dst,
-  relationshipWeightProperty: 'distance_m'
+  relationshipWeightProperty: 'cost_m'
 })
 YIELD totalCost, nodeIds
-RETURN totalCost AS total_m,
+RETURN totalCost AS total_cost,
        [nodeId IN nodeIds |
          [gds.util.asNode(nodeId).location.longitude,
           gds.util.asNode(nodeId).location.latitude]] AS coordinates,
@@ -295,8 +303,17 @@ WHERE source.location.latitude >= $min_lat
   AND source.location.latitude <= $max_lat
   AND source.location.longitude >= $min_lon
   AND source.location.longitude <= $max_lon
+// cost_m is coalesced, not read raw: regions ingested before a property is
+// added keep NULL for it, and neighbouring region bboxes overlap, so a
+// re-ingested region's projection can still pick up stale edges from one that
+// was not. A missing weight is worse than a wrong one — it can read as zero and
+// make exactly the untreated edges look free. The fallback is a mid-range
+// penalty, matching DEFAULT_HIGHWAY_PENALTY in core/comfort.py.
 WITH gds.graph.project($graph_name, source, target,
-  {relationshipProperties: r {.distance_m}}) AS g
+  {relationshipProperties: r {
+     .distance_m,
+     cost_m: coalesce(r.cost_m, r.distance_m * 2.0)
+   }}) AS g
 RETURN g.graphName AS graph_name, g.nodeCount AS nodes, g.relationshipCount AS rels
 
 // name: graph_drop_routing

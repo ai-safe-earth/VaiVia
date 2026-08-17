@@ -49,6 +49,7 @@ UNWIND $rows AS row
 MATCH (a:Intersection {osm_node_id: row.from}), (b:Intersection {osm_node_id: row.to})
 MERGE (a)-[c:CONNECTS_TO {osm_way_id: row.osm_way_id}]->(b)
 SET c.distance_m = row.distance_m,
+    c.cost_m = row.cost_m,
     c.surface = row.surface,
     c.highway_type = row.highway_type,
     c.elevation_gain_m = row.elevation_gain_m,

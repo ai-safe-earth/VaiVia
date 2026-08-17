@@ -108,7 +108,7 @@ the single Trail→Segment relationship — the sources stay linked, never merge
 ---
 
 ```
-(:Intersection)-[:CONNECTS_TO {distance_m: FLOAT,
+(:Intersection)-[:CONNECTS_TO {distance_m: FLOAT, cost_m: FLOAT,
                                elevation_gain_m: FLOAT, elevation_loss_m: FLOAT,
                                osm_way_id: STRING, surface: STRING,
                                highway_type: STRING}]->(:Intersection)
@@ -121,6 +121,19 @@ routing can cost real climbing effort. This is the graph GDS
 projects for Dijkstra — `(:Segment)` nodes are NOT part of the routing
 traversal; they exist for trail composition (`COMPOSED_OF`) and POI proximity
 (`PASSES_BY`).
+
+**`distance_m` and `cost_m` are not interchangeable, and confusing them is a
+user-visible bug.** `distance_m` is the true length of the edge in metres.
+`cost_m` is that length multiplied by how unpleasant the way is for a walker or
+rider (`core/comfort.py`: `path` 1.0, `residential` 2.4, `secondary` 4.5, with
+a smaller surface factor on top). Routing minimises `cost_m`, because the
+network includes roads for connectivity and minimising raw distance returns
+road walks — roads are straighter (see `docs/fragilities.md` #9, #10). It
+follows that GDS's `totalCost` is a penalised figure in no real unit: **every
+distance shown to a user must be summed from `distance_m` over the resolved
+edges**, which is what `route_edge_details` is for. The network ingests
+walkable ways only; `motorway`/`trunk`/`primary` are excluded outright rather
+than priced.
 
 ---
 
@@ -190,7 +203,7 @@ Defined in [`graph/schema.cypher`](../graph/schema.cypher). Summary:
 
 Neo4j's graph traversal excels at semantic multi-hop queries (Trail → Segment → POI). For pure shortest-path routing on the full segment graph, two approaches are available:
 
-1. **Neo4j GDS (Graph Data Science)** — `gds.shortestPath.dijkstra` projected over `(:Intersection)-[:CONNECTS_TO]->(:Intersection)` with `distance` as cost property. Best for on-demand queries.
+1. **Neo4j GDS (Graph Data Science)** — `gds.shortestPath.dijkstra` projected over `(:Intersection)-[:CONNECTS_TO]->(:Intersection)` weighted on `cost_m` (comfort, not raw distance — see above). Best for on-demand queries.
 
 2. **Pre-computed `(:CuratedRoute)` nodes** — For common loops, run GDS offline and store results as a node. Query becomes a simple lookup. Best for performance-critical endpoints.
 

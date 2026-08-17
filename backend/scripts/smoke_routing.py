@@ -127,10 +127,29 @@ async def main() -> int:
             ok &= check("GDS Dijkstra finds a route", bool(gds_rows))
             if gds_rows:
                 gds = gds_rows[0]
+                # Dijkstra now minimises cost_m (comfort), not distance, so it
+                # may deliberately return a LONGER route that avoids roads. The
+                # old "GDS beats shortestPath on metres" assertion no longer
+                # holds. What must still hold: the reported distance comes from
+                # distance_m, and totalCost is >= it, since every penalty >= 1.
+                gds_details = await db.run_named(
+                    "route_edge_details", node_ids=gds["node_ids"]
+                )
+                gds_m = sum(d["distance_m"] for d in gds_details)
                 ok &= check(
-                    "Dijkstra total <= shortestPath total (it minimizes metres)",
-                    gds["total_m"] <= baseline_m + 1.0,
-                    f"{gds['total_m']:.0f} m vs {baseline_m:.0f} m",
+                    "comfort cost >= true distance (penalties never shrink a way)",
+                    gds["total_cost"] >= gds_m - 1.0,
+                    f"cost {gds['total_cost']:.0f} vs {gds_m:.0f} m",
+                )
+                off_road = sum(
+                    d["distance_m"]
+                    for d in gds_details
+                    if d["highway_type"] in {"path", "track", "bridleway", "footway"}
+                )
+                print(
+                    f"        comfort route: {gds_m:.0f} m, "
+                    f"{off_road / gds_m:.0%} off-road "
+                    f"(baseline {baseline_m:.0f} m)"
                 )
                 ok &= check(
                     "path endpoints are the requested nodes",

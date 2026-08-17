@@ -116,9 +116,32 @@ Trail-to-segment matching is unaffected: `COMPATIBLE_HIGHWAYS` in `spatial_match
 
 **The issue:** With the network repaired (#9), `route_gds_dijkstra` weights purely on `distance_m`. Roads are straighter than trails, so they win almost every time. The loop spike now returns loops of the requested length whose surface mix is roughly **83% asphalt** (10 km loop: `asphalt=171` against ~205 edges). A trail app that answers "a 10 km loop" with a road walk is worse than one that answers "no route found" — the failure is now silent and plausible instead of loud.
 
-**Not yet fixed.** The shape of the fix is a comfort cost rather than raw distance: store a `cost_m` on `CONNECTS_TO` equal to `distance_m` multiplied by a per-`highway_type`/`surface` penalty (path and track cheap, residential dearer, secondary dearest), and point the GDS projection's `relationshipWeightProperty` at it. Everything needed is already on the edge — `highway_type` and `surface` are stored at ingestion. Reported distances must keep using `distance_m`; only the routing weight changes, or the app will quote inflated lengths to users.
+**FIXED 2026-08-17.** `CONNECTS_TO` now carries `cost_m = distance_m * highway_penalty * surface_penalty` (`core/comfort.py`), and `route_gds_dijkstra` weights on it. Measured on the same Lecco loops:
 
-**Related and still open:** `elevation_gain_m` came back as 0 on every edge in both spike runs, so climb-aware routing and any "how hard is this loop" answer cannot work until fragility #6 (elevation) is addressed. That also means the difficulty tags OSM does carry (`sac_scale`, `mtb:scale` — see `docs/licensing.md`) are not yet reaching the routing graph at all.
+| | distance-weighted | comfort-weighted |
+|---|---|---|
+| Mean off-road share (10 km) | ~17% | **61.0%** |
+| Mean off-road share (20 km) | — | **64.1%** |
+| Loops on target (15 km) | 6/8 | **8/8** |
+| Best 20 km loop composition | mostly asphalt | path 5.2 km, footway 3.3 km, track 2.8 km, residential 2.7 km |
+
+Route quality improved without costing success rate. Retrace rose (9.3% → ~22% on the best 10 km loop) because avoiding roads leaves fewer distinct options, but stays well under the 50% that means out-and-back.
+
+**The trap this creates:** GDS's `totalCost` is now a penalised figure in no real unit. Every distance shown to a user must be summed from `distance_m` over `route_edge_details`. `test_reported_distance_never_comes_from_the_comfort_weight` guards this with a fixture whose cost and distance differ by 2.6x. The same change invalidated the old `smoke_routing` assertion that "Dijkstra beats shortestPath on metres" — deliberately false now — and `/routes`' over-cap branch, which used to assume the comfort route was also the shortest.
+
+**Calibration is unfinished.** `footway` at 1.4 still dominates short loops from a town start (5.5 km of the best 10 km loop), because urban pavement is cheap and plentiful. That may be right for a lakeside stroll and wrong for a mountain ride; it wants tuning against real routes, and eventually per-activity penalties (`steps` should be near-prohibitive for MTB, not 1.8).
+
+**Related and still open:** `elevation_gain_m` is 0 on every edge, so climb-aware routing and any "how hard is this loop" answer cannot work until fragility #6 (elevation) is addressed. That also means the difficulty tags OSM does carry (`sac_scale`, `mtb:scale` — see `docs/licensing.md`) are not yet reaching the routing graph at all.
+
+---
+
+## 11. Re-segmentation Orphans CONNECTS_TO Edges
+
+**The issue:** Segment ids are `{way_id}#{piece_num}`, and pieces are cut wherever a node is shared by two or more ways. Widening the ingestion filter (#9) changed those cut points, so a way previously stored as one edge `123#0` spanning A→C became `123#0` (A→B) plus `123#1` (B→C). `MERGE_CONNECTS_TO` matches on both endpoints *and* `osm_way_id`, so it created the new A→B edge rather than updating the old A→C one — which survived, unreferenced and never rewritten.
+
+Re-ingesting both regions left **5,489 stale edges**. They were invisible until `cost_m` was added, because a stale edge looks exactly like a fresh one apart from the properties it never received. Given the projection coalesces a missing `cost_m` to a mid-range penalty, those stale *path* edges were being priced at 2.0 instead of 1.0 — biasing routing against precisely the trails the app exists to find.
+
+**Cleaned, not fixed.** The stale edges were deleted (`cost_m IS NULL` identified them exactly) and connectivity was unchanged before and after — 171 components, 98.1% largest — confirming they were pure redundancy. But ingestion is supposed to be idempotent, and this makes it so only while the filter is stable. A proper fix removes a way's existing `CONNECTS_TO` edges before writing its new ones. Until then, **any change to the ingestion filter or the segmentation rule must be followed by deleting orphaned edges**, and the general lesson holds for any property added to `CONNECTS_TO`: regions not re-ingested keep NULL for it, and because region bboxes overlap, a re-ingested region's projection still picks up its neighbour's stale edges.
 
 ---
 

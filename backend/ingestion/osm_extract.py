@@ -13,6 +13,7 @@ Topology model (see graph/schema.cypher):
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.comfort import comfort_cost_m
 from core.geo import (
     LatLon,
     in_bbox,
@@ -139,6 +140,9 @@ def connects_to_rows(segments: list[SegmentRow]) -> list[dict[str, Any]]:
         backward = s.oneway not in ("yes", "true", "1")
         base = {
             "distance_m": s.length_m,
+            # What routing minimises, so trails beat roads. Distances shown to
+            # users always come from distance_m — see core/comfort.py.
+            "cost_m": comfort_cost_m(s.length_m, s.highway_type, s.surface),
             "osm_way_id": s.osm_way_id,
             "surface": s.surface,
             "highway_type": s.highway_type,

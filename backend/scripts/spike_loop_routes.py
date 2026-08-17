@@ -51,6 +51,9 @@ BEARING_BUCKETS = 12  # 30-degree sectors
 LENGTH_TOLERANCE = 0.25  # a loop counts as "on target" within +/- this
 MAX_PAIRS_PER_TARGET = 10
 
+# What counts as "not a road walk" when scoring a loop.
+OFF_ROAD_TYPES = {"path", "track", "bridleway", "footway", "steps", "cycleway"}
+
 
 def bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Initial bearing in degrees, 0-360."""
@@ -95,7 +98,6 @@ async def build_loop(
             return None
         legs.append(leg)
 
-    total_m = sum(leg["total_m"] for leg in legs)
     coordinates: list[list[float]] = []
     node_ids: list[str] = []
     for index, leg in enumerate(legs):
@@ -109,11 +111,23 @@ async def build_loop(
     # 0.0 = every edge walked once; 0.5 = half the loop is retraced.
     overlap = 1 - (len(all_edges) / total_edge_count) if total_edge_count else 1.0
 
+    # Real length and surface mix come from the edges, never from Dijkstra's
+    # totalCost — that is a comfort-penalised figure in no real unit.
+    details = await db.run_named("route_edge_details", node_ids=node_ids)
+    if not details:
+        return None
+    total_m = sum(d["distance_m"] for d in details)
+    off_road_m = sum(
+        d["distance_m"] for d in details if d["highway_type"] in OFF_ROAD_TYPES
+    )
+
     return {
         "total_m": total_m,
+        "off_road": off_road_m / total_m if total_m else 0.0,
         "overlap": overlap,
         "coordinates": coordinates,
         "node_ids": node_ids,
+        "details": details,
     }
 
 
@@ -233,28 +247,29 @@ async def main() -> tuple[str | None, list[dict[str, Any]]]:
             loops.sort(
                 key=lambda x: (abs(x["total_m"] - target_m) / target_m, x["overlap"])
             )
+            mean_off_road = sum(loop["off_road"] for loop in loops) / len(loops)
+            print(f"  mean off-road share: {mean_off_road:.1%}")
             for loop in loops[:5]:
                 flag = "  <- best" if loop is loops[0] else ""
                 print(
                     f"    {loop['total_m'] / 1000:6.1f} km  "
                     f"retraced {loop['overlap']:5.1%}  "
+                    f"off-road {loop['off_road']:5.1%}  "
                     f"{len(loop['node_ids']):>4} nodes{flag}"
                 )
 
             best = loops[0]
-            details = await db.run_named(
-                "route_edge_details", node_ids=best["node_ids"]
+            details = best["details"]
+            gain = sum(d["gain_m"] for d in details)
+            ways = defaultdict(float)
+            for d in details:
+                ways[d["highway_type"] or "unknown"] += d["distance_m"]
+            top = ", ".join(
+                f"{k}={v / 1000:.1f}km"
+                for k, v in sorted(ways.items(), key=lambda kv: -kv[1])[:5]
             )
-            if details:
-                gain = sum(d["gain_m"] for d in details)
-                surfaces = defaultdict(int)
-                for d in details:
-                    surfaces[d["surface"] or "unknown"] += 1
-                top = ", ".join(
-                    f"{k}={v}"
-                    for k, v in sorted(surfaces.items(), key=lambda kv: -kv[1])[:4]
-                )
-                print(f"  best loop climb: {gain:.0f} m; surfaces: {top}")
+            print(f"  best loop climb: {gain:.0f} m")
+            print(f"  best loop ways: {top}")
 
             features.append(
                 {
@@ -262,6 +277,7 @@ async def main() -> tuple[str | None, list[dict[str, Any]]]:
                     "properties": {
                         "target_km": target_m / 1000,
                         "actual_km": round(best["total_m"] / 1000, 2),
+                        "off_road": round(best["off_road"], 3),
                         "retraced": round(best["overlap"], 3),
                     },
                     "geometry": {
