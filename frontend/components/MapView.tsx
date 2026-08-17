@@ -8,10 +8,18 @@ import { useEffect, useRef } from 'react';
 const LECCO: [number, number] = [9.39, 45.86];
 
 /**
- * Raster style using OSM tiles directly — no API key, and the right attribution
- * for a project built on OSM data. Swap for a vector style when the beta needs
- * one.
+ * Raster style using OSM tiles directly — no API key. Swap for a vector style
+ * when the beta needs one.
+ *
+ * The attribution covers BOTH the tiles and the data: every line we draw is
+ * OSM-derived geometry, not just the basemap under it. ODbL asks for
+ * attribution on produced works, so it is rendered expanded rather than behind
+ * the collapsed ⓘ toggle. The app-level credit in the chat column covers the
+ * answers, which carry the same data without a map in view.
  */
+const OSM_ATTRIBUTION =
+  'Map data and trails © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors, under <a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noreferrer">ODbL</a>';
+
 const STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
@@ -19,7 +27,7 @@ const STYLE: maplibregl.StyleSpecification = {
       type: 'raster',
       tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      attribution: OSM_ATTRIBUTION,
     },
   },
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
@@ -40,7 +48,7 @@ export function MapView({ geometry }: Props) {
       style: STYLE,
       center: LECCO,
       zoom: 11,
-      attributionControl: { compact: true },
+      attributionControl: { compact: false },
     });
     map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
 

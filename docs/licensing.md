@@ -165,14 +165,23 @@ Each of these would need to be true, and none is today:
 - Confirmation that no restricted content (e.g. hidden trail GPS tracks) is
   exposed, per the Data Use Policy.
 
-### Present-tense, regardless of Trailforks: our OSM attribution is thin
+### Present-tense, regardless of Trailforks: OSM attribution — FIXED 2026-08-17
 
-The app ships OSM-derived segment geometry, POI names and routing results to end
-users. The single tile-layer attribution credits the **tiles**, not the
-**data**, and it is collapsed by default. ODbL requires attribution for Produced
-Works. This is the clearest and cheapest thing to fix on this page, it is
-entirely within our control, and it is required today — not contingent on any
-Trailforks outcome.
+Previously the app shipped OSM-derived segment geometry, POI names and routing
+results to end users while the only credit was a tile-layer string, rendered
+collapsed, that attributed the **tiles** rather than the **data**.
+
+Now:
+
+- `frontend/components/MapView.tsx` credits map data *and* trails, links to
+  `openstreetmap.org/copyright` and to the ODbL text, and the control renders
+  expanded (`compact: false`) rather than behind the ⓘ toggle.
+- `frontend/app/page.tsx` carries a persistent `.data-credit` footer in the chat
+  column. This matters because OSM-derived facts reach the user through the
+  written answers too — a user who never opens the map still sees the credit.
+
+Still open: nothing here covers Trailforks, which requires its own attribution
+the moment any of their data lands.
 
 The good news on the OSM side: because ingestion never merges OSM and Trailforks
 nodes — they stay separate node types joined by `COMPOSED_OF` — the graph is
@@ -226,17 +235,19 @@ if the answer is slow or no.
 
 ## 6. Recommended next actions
 
-1. **Fix the OSM data attribution now.** Not blocked on anything or anyone.
-2. **Re-triage the handoff blocker.** It is currently logged `severity: low`
-   with the framing "fixture is synthetic". Given the terms, this is a
-   strategy-level constraint on the product, not a data-plumbing task.
-3. **Correct `docs/data-sources.md` and `docs/fragilities.md` §4**, which
-   document a live API integration, rate-limit backoff, bbox chunking and a
-   cache layer — none of which exist. A reader would reasonably conclude the
-   live path is nearly ready.
+1. ~~Fix the OSM data attribution.~~ **Done 2026-08-17** — see §3. Not yet
+   visually verified in a signed-in browser session; build and unit tests pass.
+2. ~~Re-triage the handoff blocker~~ (was `severity: low`). **Done** — now
+   `high`, reframed as a product constraint rather than a data-plumbing task.
+3. ~~Correct `docs/data-sources.md` and `docs/fragilities.md` §4~~, which
+   documented a live API integration, rate-limit backoff, bbox chunking and a
+   cache layer — none of which exist. **Done.**
 4. **Decide between A and B before Phase 6 closes**, since deploy plumbing and
    GTM messaging both depend on which data story is true.
 5. If A: send the appendix request, and expect to wait.
+6. Spike what OSM's own `mtb:scale` / `sac_scale` / `surface` /
+   `trail_visibility` tags actually cover, so option B is priced on evidence
+   rather than assumption.
 
 ---
 

@@ -345,6 +345,27 @@ button.primary:disabled {
   min-height: 0;
 }
 
+/* ODbL attribution for the OSM data behind every answer. Quiet, but always
+   present and never behind a toggle — flex-shrink: 0 keeps it on screen when
+   the conversation grows. */
+.data-credit {
+  flex-shrink: 0;
+  padding: 8px 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.data-credit a {
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.data-credit a:hover {
+  color: var(--text);
+}
+
 .session-bar {
   display: flex;
   justify-content: space-between;
