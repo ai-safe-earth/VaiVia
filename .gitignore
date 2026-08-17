@@ -41,6 +41,9 @@ neo4j/logs/
 .idea/
 *.swp
 *.swo
+# Local History extension: a full copy of every edit, one git add -A from
+# being committed.
+.history/
 
 # macOS
 .DS_Store
