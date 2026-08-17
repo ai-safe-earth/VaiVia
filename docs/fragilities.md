@@ -98,7 +98,27 @@ Measured on Lecco, 2026-08-17 (`scripts/check_graph_connectivity.py`):
 
 **Consequences:** routing between arbitrary points usually fails; loop construction fails almost entirely (`scripts/spike_loop_routes.py` routed 0/10 candidates from the Lecco waterfront, and 3/10 from inside the largest component, all at ~50% retraced — out-and-backs rather than loops). A user reading "no route found" is being told their request was unreasonable when the truth is the graph is missing its middle.
 
-**Not yet fixed.** The fix is to widen the ingestion filter to include road ways and re-ingest, which is cheap to do but changes graph size and needs its own verification. `steps` matters more than it looks in an Alpine town. Note also that `elevation_gain_m` came back as 0 on every edge in the spike, so difficulty- or climb-weighted routing cannot work until fragility #6 (elevation) is also addressed.
+**FIXED 2026-08-17.** `WALKABLE_HIGHWAYS` in `ingestion/overpass_client.py` now also ingests `steps|pedestrian|living_street|residential|unclassified|service|tertiary|secondary`, anchored so `service` cannot match `services` nor `secondary` match `secondary_link`. `motorway|trunk|primary` stay excluded — routing a walker onto those is wrong and often illegal. Re-ingesting Lecco:
+
+| | before | after |
+|---|---|---|
+| Routing edges | 31,676 | 71,593 |
+| Connected components | 1,627 | **171** |
+| Largest component | 31.7% | **98.1%** |
+| Loops routed (10 km, from the waterfront) | 0/10 | **10/10** |
+| Retraced fraction of best loop | n/a (none) | **9.3%** |
+
+Trail-to-segment matching is unaffected: `COMPATIBLE_HIGHWAYS` in `spatial_match.py` still refuses to compose a `(:Trail)` out of residential streets.
+
+---
+
+## 10. Routing Optimises For Distance, So It Prefers Roads
+
+**The issue:** With the network repaired (#9), `route_gds_dijkstra` weights purely on `distance_m`. Roads are straighter than trails, so they win almost every time. The loop spike now returns loops of the requested length whose surface mix is roughly **83% asphalt** (10 km loop: `asphalt=171` against ~205 edges). A trail app that answers "a 10 km loop" with a road walk is worse than one that answers "no route found" — the failure is now silent and plausible instead of loud.
+
+**Not yet fixed.** The shape of the fix is a comfort cost rather than raw distance: store a `cost_m` on `CONNECTS_TO` equal to `distance_m` multiplied by a per-`highway_type`/`surface` penalty (path and track cheap, residential dearer, secondary dearest), and point the GDS projection's `relationshipWeightProperty` at it. Everything needed is already on the edge — `highway_type` and `surface` are stored at ingestion. Reported distances must keep using `distance_m`; only the routing weight changes, or the app will quote inflated lengths to users.
+
+**Related and still open:** `elevation_gain_m` came back as 0 on every edge in both spike runs, so climb-aware routing and any "how hard is this loop" answer cannot work until fragility #6 (elevation) is addressed. That also means the difficulty tags OSM does carry (`sac_scale`, `mtb:scale` — see `docs/licensing.md`) are not yet reaching the routing graph at all.
 
 ---
 

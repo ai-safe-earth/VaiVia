@@ -28,10 +28,31 @@ MAX_RETRIES = 5
 # a contact address before running anything high-volume.
 USER_AGENT = os.environ.get("OVERPASS_USER_AGENT", "VaiVia/0.1 (trail data ingestion)")
 
+# Trail ways alone do not form a connected network: a path ends at a lane, you
+# walk 200 m, the next path starts. Ingesting only path/track/cycleway/footway
+# shattered Lecco into 1,627 components with the largest holding 31.7% of
+# intersections (docs/fragilities.md #9), which made routing between arbitrary
+# points fail and loop construction impossible.
+#
+# So the walkable connective types are included too. motorway/trunk/primary and
+# their _link ramps are deliberately excluded: routing a walker or rider onto
+# those is wrong, and often illegal. Anchored so `service` cannot also match
+# `services` (motorway service areas) or `secondary_link` ramps.
+#
+# Caveat this does NOT fix: Dijkstra still weights by raw distance, so a
+# straight road can now beat a winding trail. Comfort weighting is the
+# follow-up — highway_type is already stored on every CONNECTS_TO edge.
+# Trail-to-segment matching is unaffected: COMPATIBLE_HIGHWAYS in
+# spatial_match.py still refuses to compose a trail out of residential streets.
+WALKABLE_HIGHWAYS = (
+    "path|track|cycleway|footway|bridleway|steps|pedestrian"
+    "|living_street|residential|unclassified|service|tertiary|secondary"
+)
+
 OSM_QUERY_TEMPLATE = """
 [out:json][timeout:{timeout}];
 (
-  way["highway"~"path|track|cycleway|footway"]({bbox});
+  way["highway"~"^({highways})$"]({bbox});
   node["natural"="water"]({bbox});
   node["tourism"~"alpine_hut|wilderness_hut"]({bbox});
   node["tourism"="camp_site"]({bbox});
@@ -47,7 +68,11 @@ out body geom;
 def build_query(bbox: tuple[float, float, float, float]) -> str:
     settings = get_settings()
     bbox_str = ",".join(f"{c}" for c in bbox)
-    return OSM_QUERY_TEMPLATE.format(timeout=settings.overpass_timeout_s, bbox=bbox_str)
+    return OSM_QUERY_TEMPLATE.format(
+        timeout=settings.overpass_timeout_s,
+        bbox=bbox_str,
+        highways=WALKABLE_HIGHWAYS,
+    )
 
 
 async def fetch(query: str, use_cache: bool = True) -> dict[str, Any]:
