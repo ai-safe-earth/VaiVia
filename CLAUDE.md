@@ -52,7 +52,7 @@ Update it at the end of every working session: write it however you like for hum
 <!-- pmctl:handoff v1 -->
 ```json
 {
-  "project": "Solar Forge",
+  "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
   "updated": "2026-08-15",
