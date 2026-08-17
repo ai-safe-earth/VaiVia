@@ -66,6 +66,25 @@ class FakeEmbedder:
         return [[1.0] + [0.0] * 1535 for _ in texts]
 
 
+class UnusableLLM:
+    """Placeholder LLM so startup never constructs a real OpenAI client.
+
+    Without this the app builds ``OpenAIClient()`` at startup and the whole
+    suite fails wherever ``OPENAI_API_KEY`` is unset (CI). Tests that exercise
+    the chat pipeline replace ``app.state.llm`` with their own stub; anything
+    that reaches this one is a wiring bug, so it fails loudly.
+    """
+
+    async def extract_plan(self, message: Any, history: Any) -> Any:
+        raise AssertionError("test reached the real LLM seam; inject a stub")
+
+    async def stream_answer(self, message: Any, results_json: Any, history: Any) -> Any:
+        raise AssertionError("test reached the real LLM seam; inject a stub")
+
+    def last_answer_usage(self) -> Any:
+        raise AssertionError("test reached the real LLM seam; inject a stub")
+
+
 @pytest.fixture
 def db() -> FakeDb:
     return FakeDb()
@@ -86,6 +105,7 @@ def client(db: FakeDb, embedder: FakeEmbedder) -> TestClient:
     app.dependency_overrides[get_embedder] = lambda: embedder
     app.state.db = db
     app.state.embedder = embedder
+    app.state.llm = UnusableLLM()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
