@@ -264,7 +264,7 @@ cd gateway  && npm test
 cd frontend && npm test
 ```
 
-148 backend, 28 gateway, 33 frontend unit tests, plus 4 Playwright e2e. CI runs
+148 backend, 34 gateway, 33 frontend unit tests, plus 4 Playwright e2e. CI runs
 the three unit suites and stays **fully offline**; the e2e suite skips itself
 without credentials.
 

@@ -5,9 +5,21 @@ Last updated 2026-08-17.
 The project was renamed from `get-out-door` to **VaiVia** on 2026-08-17. The
 GitHub remote is now `https://github.com/ai-safe-earth/VaiVia.git` and the local
 root folder is `A02_VaiVia`. README, LICENSE and CONTRIBUTING have been rewritten
-under the new name; the in-code identifiers (package names, the compose container
-name, page titles, the Overpass User-Agent, the `graph-model` skill description)
-still say `get-out-door` and are a separate follow-up.
+under the new name, and the in-code identifiers followed on branch
+`docs/rename-vaivia`: package names (`vaivia`, `vaivia-gateway`,
+`vaivia-frontend`, both lockfiles relocked), the compose container
+(`vaivia-neo4j`), page title and headings, the Overpass User-Agent default, the
+FastAPI title, the `graph-model` skill description, and the doc and
+`.env.example` headers. All three unit suites pass after the rename (148 / 34 /
+33).
+
+Two things the rename touched that are worth knowing. The compose **volumes**
+(`neo4j_data`, `neo4j_logs`) are unchanged, so the ingested graph survives; only
+the container is renamed and `up -d` recreates it. And renaming the root folder
+broke every console-script shim in `backend/.venv` (Windows `.exe` launchers
+hardcode the absolute interpreter path, so `uv run black` failed with "Failed to
+canonicalize script path"); deleting `.venv` and re-running `uv sync` fixes it.
+Anyone else who pulls after the folder rename will hit the same thing.
 
 ## Where the project stands
 
@@ -300,7 +312,9 @@ cost through Phase 5 was roughly $62.
         { "date": "2026-08-16", "text": "Grouping variables cannot appear inside an aggregation expression in one WITH (direct + collect(x) is a syntax error live); offline FakeDb cannot catch Cypher syntax, only the live run did" },
         { "date": "2026-08-16", "text": "Hazards are season-scoped (hazards_spring/summer/autumn/winter; seasonal_hazards stays the union for display); a hazard filter with a season checks that season only, and unscoped source records put the union in every season as the conservative reading" },
         { "date": "2026-08-16", "text": "Coverage is multi-region via the REGIONS setting (Lecco, Bergamo); Bergamo's bbox starts at the city and runs north into the hills so the plains' road grid stays out of the graph; trail-region links recompute from geometry each run, deleted first so a moved trail drops its stale region" },
-        { "date": "2026-08-16", "text": "Fixture anchors carry an optional near-point: with Bergamo data present, a type-only 'nearest hut' anchor silently relocated the Lecco traverse onto a Bergamo bivouac, so anchors that mean a specific area must say so" }
+        { "date": "2026-08-16", "text": "Fixture anchors carry an optional near-point: with Bergamo data present, a type-only 'nearest hut' anchor silently relocated the Lecco traverse onto a Bergamo bivouac, so anchors that mean a specific area must say so" },
+        { "date": "2026-08-17", "text": "Project renamed get-out-door to VaiVia: remote is github.com/ai-safe-earth/VaiVia.git, packages are vaivia / vaivia-gateway / vaivia-frontend, container is vaivia-neo4j. The compose volumes keep their names so the ingested graph survives the rename; only the container is recreated" },
+        { "date": "2026-08-17", "text": "Renaming the root folder invalidates every console-script shim in backend/.venv, because Windows .exe launchers hardcode the absolute interpreter path; uv run black failed with 'Failed to canonicalize script path' until .venv was deleted and uv sync re-run" }
       ] }
   ],
   "blockers": [

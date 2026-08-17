@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="get-out-door backend",
+    title="VaiVia backend",
     version="0.1.0",
     summary="Graph query service for trail search and routing",
     lifespan=lifespan,

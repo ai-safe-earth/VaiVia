@@ -9,7 +9,7 @@
 services:
   neo4j:
     image: neo4j:5-community
-    container_name: get-out-door-neo4j
+    container_name: vaivia-neo4j
     # Host ports are configurable so this stack can coexist with another Neo4j
     # already bound to the defaults. Override in the root .env and keep
     # NEO4J_URI in backend/.env pointing at the same bolt port.

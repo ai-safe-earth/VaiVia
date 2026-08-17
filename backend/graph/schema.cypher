@@ -1,4 +1,4 @@
-// get-out-door — graph schema (owner-validated 2026-08-15, see docs/plan.md)
+// VaiVia — graph schema (owner-validated 2026-08-15, see docs/plan.md)
 //
 // Conventions:
 //   * All distances/elevations are METRES (properties suffixed _m); durations are MINUTES.
