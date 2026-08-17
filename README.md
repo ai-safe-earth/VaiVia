@@ -72,9 +72,8 @@ See [`docs/architecture.md`](docs/architecture.md) for the full graph data model
 
 ```bash
 git clone https://github.com/your-org/get-out-door.git
-cd get-out-door
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+cd get-out-door/backend
+uv sync
 ```
 
 ### 2. Configure environment
@@ -111,44 +110,24 @@ uvicorn api.main:app --reload
 
 ## Repository Structure
 
+Monorepo — see [`docs/plan.md`](docs/plan.md) for the full architecture and delivery phases.
+
 ```
 get-out-door/
-├── api/                    # FastAPI application
-│   ├── main.py
-│   ├── routes/
-│   │   ├── trails.py
-│   │   └── routing.py
-│   └── models.py
+├── backend/                # FastAPI + graph layer (Python, uv-managed)
+│   ├── api/                #   REST + /chat orchestration (LLM intent → query templates)
+│   ├── ingestion/          #   OSM + Trailforks ETL, spatial matching
+│   ├── graph/              #   schema.cypher, queries.cypher, async Neo4j client
+│   ├── scripts/            #   init_schema.py, embed_trails.py
+│   ├── tests/
+│   ├── fixtures/           #   trailforks_mock.json (offline dev/CI)
+│   └── pyproject.toml
 │
-├── ingestion/              # ETL pipeline
-│   ├── osm_ingest.py       # OSM → Neo4j (Segments, POIs, Intersections)
-│   ├── trailforks_ingest.py# Trailforks → Neo4j (Trail nodes + COMPOSED_OF)
-│   └── spatial_match.py    # Proximity matching logic
-│
-├── graph/                  # Graph layer
-│   ├── schema.cypher       # Constraints, indexes, spatial indexes
-│   ├── queries.cypher      # Named Cypher query library
-│   └── neo4j_client.py     # Async driver wrapper
-│
-├── scripts/
-│   └── init_schema.py      # Runs schema.cypher against Neo4j
-│
-├── tests/
-│   ├── test_ingestion.py
-│   └── test_queries.py
-│
-├── docs/
-│   ├── architecture.md     # Graph data model deep-dive
-│   ├── data-sources.md     # OSM + Trailforks integration notes
-│   ├── query-examples.md   # Cypher query cookbook
-│   └── fragilities.md      # Known limitations & mitigations
-│
-├── fixtures/               # Mock data for local dev / CI
-│   └── trailforks_mock.json
-│
+├── gateway/                # Fastify (Node/TS) — auth, rate limits, origin control, SSE proxy
+├── frontend/               # Next.js — chat UI + MapLibre map
+├── infra/                  # docker-compose, Supabase migrations, deploy
+├── docs/                   # architecture, data sources, query cookbook, fragilities, plan
 ├── .env.example
-├── requirements.txt
-├── docker-compose.yml      # Neo4j + API stack
 └── README.md
 ```
 
@@ -158,7 +137,7 @@ get-out-door/
 
 ### The Matching Problem
 
-Trailforks geometries rarely align perfectly with OSM geometries. **get-out-door does not attempt to merge them.** Instead, it links them via a `[:MAPS_TO]` relationship when a Trailforks route falls within ~20 metres of an OSM segment. See [`docs/fragilities.md`](docs/fragilities.md).
+Trailforks geometries rarely align perfectly with OSM geometries. **get-out-door does not attempt to merge them.** Instead, it links them via ordered `[:COMPOSED_OF {seq, match_confidence}]` relationships when a Trailforks route falls within ~20 metres of an OSM segment. See [`docs/fragilities.md`](docs/fragilities.md).
 
 ### Graph Data Model (Summary)
 
@@ -170,7 +149,7 @@ Trailforks geometries rarely align perfectly with OSM geometries. **get-out-door
 | `(:POI)` | `type` (lake, hut, station), `name` |
 | `(:Region)` | `name`, bounding box |
 
-Key relationships: `COMPOSED_OF`, `CONNECTS_TO`, `PASSES_BY`, `LOCATED_IN`, `MAPS_TO`.
+Key relationships: `COMPOSED_OF {seq}` (Trail→Segment, ordered), `CONNECTS_TO` (Intersection→Intersection routing graph), `PASSES_BY`, `LOCATED_IN`.
 
 Full schema: [`graph/schema.cypher`](graph/schema.cypher) · Full model: [`docs/architecture.md`](docs/architecture.md)
 

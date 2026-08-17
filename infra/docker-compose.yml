@@ -1,0 +1,46 @@
+# Development stack. Run from repo root:
+#   docker compose --env-file .env -f infra/docker-compose.yml up -d
+# (--env-file is required: compose otherwise looks for .env next to this file)
+#
+# Dev exposes Neo4j on localhost only. In production, nothing but the gateway
+# (behind Caddy) publishes a port; backend and Neo4j live on the internal
+# network — see docs/plan.md "Target architecture".
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: get-out-door-neo4j
+    # Host ports are configurable so this stack can coexist with another Neo4j
+    # already bound to the defaults. Override in the root .env and keep
+    # NEO4J_URI in backend/.env pointing at the same bolt port.
+    ports:
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474" # HTTP browser (dev only)
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687" # Bolt (dev only)
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
+      NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+      # Neo4j 5 names: the dbms.memory.* forms still work but log a deprecation
+      # warning on every boot.
+      NEO4J_server_memory_heap_initial__size: "512m"
+      NEO4J_server_memory_heap_max__size: "2g"
+      NEO4J_server_memory_pagecache_size: "1g"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # backend and gateway services are added when their Dockerfiles land
+  # (Phases 2 and 3 in docs/plan.md).
+
+networks:
+  internal:
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
