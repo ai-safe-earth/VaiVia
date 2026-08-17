@@ -5,8 +5,8 @@ Last updated 2026-08-17.
 The project was renamed from `get-out-door` to **VaiVia** on 2026-08-17. The
 GitHub remote is now `https://github.com/ai-safe-earth/VaiVia.git` and the local
 root folder is `A02_VaiVia`. README, LICENSE and CONTRIBUTING have been rewritten
-under the new name, and the in-code identifiers followed on branch
-`docs/rename-vaivia`: package names (`vaivia`, `vaivia-gateway`,
+under the new name, and the in-code identifiers followed and are **merged to
+`main`** (PRs #2 and #3): package names (`vaivia`, `vaivia-gateway`,
 `vaivia-frontend`, both lockfiles relocked), the compose container
 (`vaivia-neo4j`), page title and headings, the Overpass User-Agent default, the
 FastAPI title, the `graph-model` skill description, and the doc and
@@ -65,7 +65,7 @@ before anything deploys. Everything else that remains is Phase 6 hardening
 | Season-scoped hazards | Complete | `hazards_<season>` lists on Trail, `seasonal_hazards` stays the union; queries check the requested season's list (union when unseasoned); unscoped records get the union in every season |
 | Bergamo region | Complete, live-ingested | Multi-region config (`REGIONS`), `osm_ingest --region`; 24,859 intersections / 25,755 segments / 51,503 edges / 101 POIs from live Overpass; two new mock trails (Canto Alto Skyline hike, Colli di Bergamo Ride mtb) anchored on real Bergamo POIs |
 
-Totals: 148 backend, 28 gateway, 33 frontend unit tests plus 4 e2e, all
+Totals: 148 backend, 34 gateway, 33 frontend unit tests plus 4 e2e, all
 passing. CI runs the three unit suites and stays fully offline; the e2e suite
 is a local/pre-deploy check that skips itself without credentials.
 
@@ -146,6 +146,12 @@ fix is `next` 16 — a two-major framework migration. Neither is reachable as th
 app is built: the CSS is authored in-repo rather than attacker-supplied, and
 nothing imports `next/image`, which is what pulls `sharp` into a running server.
 Do the Next upgrade as its own piece of work, not as an audit drive-by.
+
+**This work sits on `chore/dep-audit`, pushed but not merged.** One check is
+outstanding before it should be: the 34 gateway tests cover auth, limits, quota
+and routing, but nothing offline exercises a *streamed* reply through the new
+proxy major, and SSE is the one behaviour a proxy upgrade is most likely to
+change. Run the e2e suite with `E2E_LIVE=1` against a live stack before merging.
 
 ## What blocks progress
 
@@ -359,6 +365,7 @@ cost through Phase 5 was roughly $62.
   ],
   "nextSteps": [
     { "title": "Rotate the exposed OpenAI API key, Supabase database password and account password, then update backend/.env and gateway/.env", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
+    { "title": "Run the e2e suite with E2E_LIVE=1 against a live stack, then merge chore/dep-audit; SSE through the new @fastify/http-proxy major is the one path no offline test covers", "est": 0.5, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Upgrade next 14 to 16 as its own piece of work, clearing the deferred postcss and sharp advisories", "est": 1, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" },
     { "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check", "est": 2, "owner": "oscar", "phase": "Phase 6 - Beta hardening", "plan": "redesign" }
   ],
@@ -366,7 +373,7 @@ cost through Phase 5 was roughly $62.
     { "date": "2026-08-15", "model": "fable-5", "credits": 69, "person": "oscar", "hours": null },
     { "date": "2026-08-16", "model": "opus-5", "credits": 175, "person": "oscar", "hours": null },
     { "date": "2026-08-16", "model": "fable-5", "credits": 61, "person": "oscar", "hours": null },
-    { "date": "2026-08-17", "model": "opus-5", "credits": 4, "person": "oscar", "hours": null }
+    { "date": "2026-08-17", "model": "opus-5", "credits": 7, "person": "oscar", "hours": null }
   ]
 }
 ```
