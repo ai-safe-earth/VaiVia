@@ -129,7 +129,7 @@ export function ChatPanel({
   return (
     <section className="chat">
       <header>
-        <h1>get-out-door</h1>
+        <h1>VaiVia</h1>
         <span>Lake Como · Lecco</span>
       </header>
 

@@ -1,6 +1,6 @@
 # Redesign & Delivery Plan
 
-Living roadmap for get-out-door. Ratified 2026-08-15 after an architecture review. Update this file as phases land.
+Living roadmap for VaiVia. Ratified 2026-08-15 after an architecture review. Update this file as phases land.
 
 ---
 

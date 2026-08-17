@@ -1,6 +1,6 @@
 # Data Sources
 
-get-out-door combines two data sources with complementary strengths and weaknesses.
+VaiVia combines two data sources with complementary strengths and weaknesses.
 
 ---
 

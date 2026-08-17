@@ -1,6 +1,6 @@
 # Architecture — Graph Data Model
 
-This document describes the Neo4j schema, node/relationship design decisions, and the two-source data strategy behind **get-out-door**.
+This document describes the Neo4j schema, node/relationship design decisions, and the two-source data strategy behind **VaiVia**.
 
 ---
 

@@ -1,5 +1,5 @@
 [project]
-name = "get-out-door"
+name = "vaivia"
 version = "0.1.0"
 description = "Multi-hop adventure chatbot backend: OSM + Trailforks knowledge graph on Neo4j"
 readme = "README.md"

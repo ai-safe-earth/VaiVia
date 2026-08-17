@@ -1,6 +1,6 @@
 ---
 name: graph-model
-description: Graph data-model and Cypher rules for the get-out-door Neo4j knowledge graph. Use when writing or reviewing Cypher queries, schema changes, ingestion code (OSM/Trailforks ETL), spatial matching, or routing/pathfinding logic.
+description: Graph data-model and Cypher rules for the VaiVia Neo4j knowledge graph. Use when writing or reviewing Cypher queries, schema changes, ingestion code (OSM/Trailforks ETL), spatial matching, or routing/pathfinding logic.
 ---
 
 Before writing Cypher or ingestion code, read the relevant doc:

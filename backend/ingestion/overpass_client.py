@@ -26,9 +26,7 @@ MAX_RETRIES = 5
 # default `python-httpx/x.y.z` gets 406 where this string gets 200. Identifying
 # the client is also what the OSM usage policy asks for. Override via env to add
 # a contact address before running anything high-volume.
-USER_AGENT = os.environ.get(
-    "OVERPASS_USER_AGENT", "get-out-door/0.1 (trail data ingestion)"
-)
+USER_AGENT = os.environ.get("OVERPASS_USER_AGENT", "VaiVia/0.1 (trail data ingestion)")
 
 OSM_QUERY_TEMPLATE = """
 [out:json][timeout:{timeout}];

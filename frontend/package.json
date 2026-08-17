@@ -1,5 +1,5 @@
 {
-  "name": "get-out-door-frontend",
+  "name": "vaivia-frontend",
   "version": "0.1.0",
   "private": true,
   "description": "Chat-first trail finder: Next.js + MapLibre, talks only to the gateway",

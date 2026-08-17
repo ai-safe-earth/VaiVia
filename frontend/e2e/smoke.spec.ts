@@ -23,7 +23,7 @@ const EMAIL = process.env.E2E_EMAIL;
 const PASSWORD = process.env.E2E_PASSWORD;
 const LIVE = process.env.E2E_LIVE === '1';
 
-test.describe('get-out-door smoke', () => {
+test.describe('VaiVia smoke', () => {
   test.skip(!EMAIL || !PASSWORD, 'set E2E_EMAIL and E2E_PASSWORD to run');
 
   test('rejects a wrong password with a human sentence', async ({ page }) => {
@@ -42,7 +42,7 @@ test.describe('get-out-door smoke', () => {
 
     // Signed-in chrome appears...
     await expect(page.getByText(EMAIL!)).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'get-out-door' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'VaiVia' })).toBeVisible();
     await expect(page.getByLabel('Your message')).toBeVisible();
 
     // ...and sign-out drops back to the auth gate.

@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'get-out-door',
+  title: 'VaiVia',
   description: 'Ask for a trail the way you would ask a local.',
 };
 

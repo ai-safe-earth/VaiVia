@@ -35,7 +35,7 @@ export function AuthPanel() {
   if (pendingConfirm) {
     return (
       <section className="auth">
-        <h1>get-out-door</h1>
+        <h1>VaiVia</h1>
         <p className="note">
           Almost there — we sent a confirmation link to <strong>{email}</strong>. Click
           it, then sign in here.
@@ -56,7 +56,7 @@ export function AuthPanel() {
 
   return (
     <section className="auth">
-      <h1>get-out-door</h1>
+      <h1>VaiVia</h1>
       <p className="note">Trail chat for Lake Como &amp; Lecco. Sign in to start.</p>
 
       <form
