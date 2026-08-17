@@ -138,6 +138,28 @@ def test_all_zero_search_is_not_actionable():
     assert plan.is_clarify
 
 
+def test_mixed_activity_is_dropped_as_no_preference():
+    """The template already matches 'mixed' trails against every activity, so a
+    "mixed" filter narrows to trails tagged both — the opposite of the "no
+    preference" the model reaches for it to mean. Null searches everything."""
+    plan = compose([TrailSearchIntent(activity="mixed", family_friendly=True)])
+    assert plan.search is not None
+    assert plan.search.activity is None
+    assert plan.search.family_friendly is True  # real constraints survive
+
+
+def test_named_activities_are_left_alone():
+    for activity in ("mtb", "hike"):
+        plan = compose([TrailSearchIntent(activity=activity)])
+        assert plan.search is not None and plan.search.activity == activity
+
+
+def test_mixed_only_search_is_not_actionable():
+    """Dropping the sole filter leaves nothing to search on, so ask rather
+    than return the whole catalogue."""
+    assert compose([TrailSearchIntent(activity="mixed")]).is_clarify
+
+
 def test_min_elevation_gain_merges_max_of_min():
     from chat.composer import merge_searches as merge
 

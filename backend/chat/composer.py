@@ -43,12 +43,22 @@ _FIRST_WINS = ("activity", "season", "region")
 
 
 def sanitize(intent: TrailSearchIntent) -> TrailSearchIntent:
-    """Drop vacuous bounds the model sometimes emits instead of null.
+    """Drop vacuous bounds and filters the model sometimes emits instead of null.
 
     Strict structured outputs require every field, and despite the prompt the
     model occasionally writes 0 where it means "no limit" — a 0-metre
     max_distance_m would silently filter out every trail. A non-positive max
     and a zero min carry no information, so both become None.
+
+    The same pressure makes it reach for activity="mixed" when the user implied
+    no activity at all. As a filter that is the opposite of what it looks like:
+    the template already matches 'mixed' trails against every activity, so
+    "mixed" narrows the search to trails explicitly tagged both, while null
+    matches those AND everything else. An unstated activity that arrives as
+    "mixed" therefore returns fewer results than no filter — often none — so it
+    becomes None. The cost is that a genuine "suitable for both" ask searches a
+    little wider; that degrades gracefully, where the alternative returns
+    nothing.
     """
     for name in _MIN_OF_MAX:
         value = getattr(intent, name)
@@ -58,6 +68,8 @@ def sanitize(intent: TrailSearchIntent) -> TrailSearchIntent:
         value = getattr(intent, name)
         if value is not None and value <= 0:
             setattr(intent, name, None)
+    if intent.activity == "mixed":
+        intent.activity = None
     return intent
 
 

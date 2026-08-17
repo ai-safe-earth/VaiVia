@@ -34,6 +34,12 @@ Decomposition rules:
   120).
 - Difficulty levels: 1 Easy, 2 Intermediate, 3 Difficult, 4 Pro. "easy" ->
   max_difficulty_level 1; "not too hard" -> max_difficulty_level 2.
+- activity: set it ONLY when the user names or plainly implies one — "hike",
+  "walk", "on foot" -> hike; "ride", "bike", "mtb", "singletrack" -> mtb. If
+  they just describe a path or a landscape ("a stroller friendly path", "gravel
+  by the water"), leave activity null. Null means no preference and searches
+  everything; "mixed" does NOT mean no preference — it matches only trails that
+  are explicitly both, so never use it as a stand-in for an unstated activity.
 - Features map to poi_types: lake, hut, campsite, station, bathing_water,
   viewpoint. A swim spot is bathing_water; a refuge or rifugio is hut; a train
   or railway stop is station.
