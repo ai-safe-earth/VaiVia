@@ -330,7 +330,8 @@ cost through Phase 5 was roughly $62.
   "sessions": [
     { "date": "2026-08-15", "model": "fable-5", "credits": 69, "person": "oscar", "hours": null },
     { "date": "2026-08-16", "model": "opus-5", "credits": 175, "person": "oscar", "hours": null },
-    { "date": "2026-08-16", "model": "fable-5", "credits": 61, "person": "oscar", "hours": null }
+    { "date": "2026-08-16", "model": "fable-5", "credits": 61, "person": "oscar", "hours": null },
+    { "date": "2026-08-17", "model": "opus-5", "credits": 4, "person": "oscar", "hours": null }
   ]
 }
 ```
