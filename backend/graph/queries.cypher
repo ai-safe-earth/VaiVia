@@ -303,6 +303,22 @@ RETURN g.graphName AS graph_name, g.nodeCount AS nodes, g.relationshipCount AS r
 CALL gds.graph.drop($graph_name, false) YIELD graphName
 RETURN graphName
 
+// name: intersections_in_ring
+// Loop seeding: intersections in an annulus around a start point. A loop of
+// perimeter L approximates a circle of radius L/(2*pi), so waypoints are drawn
+// from a ring at roughly that radius and spread by bearing (Python side) to
+// stop all three legs collapsing onto the same corridor. Point-indexed
+// distance predicate; no traversal.
+MATCH (i:Intersection)
+WHERE point.distance(
+        i.location, point({latitude: $lat, longitude: $lon})) >= $min_m
+  AND point.distance(
+        i.location, point({latitude: $lat, longitude: $lon})) <= $max_m
+RETURN i.osm_node_id AS osm_node_id,
+       i.location.latitude AS lat,
+       i.location.longitude AS lon
+LIMIT $limit
+
 // name: healthcheck
 RETURN 1 AS ok
 

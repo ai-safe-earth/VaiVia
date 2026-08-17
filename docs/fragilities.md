@@ -83,6 +83,25 @@ This document is a candid record of known failure modes, edge cases, and the pra
 
 **Our mitigation:** Embedding generation is a separate async job (`scripts/embed_trails.py`, Phase 3). The API will gracefully degrade — semantic search endpoints return a `503` with a clear message when the vector index is not yet populated, rather than returning empty or incorrect results.
 
+## 9. The Routing Network Is Fragmented (ingestion excludes roads)
+
+**The issue:** The Overpass ingestion query matches only `highway~path|track|cycleway|footway|bridleway`. Real trail networks connect *through* roads — a path ends at a lane, you walk 200 m, the next path starts. Without those ways the graph shatters into islands.
+
+Measured on Lecco, 2026-08-17 (`scripts/check_graph_connectivity.py`):
+
+- 15,438 intersections in **1,627 connected components**
+- Largest component holds **31.7%** of the network
+- The Lecco waterfront — where the frontend map opens — sits on an island of **14 intersections**
+- Ingested: 11,292 ways. Excluded by the filter: **11,326 ways** (`service` 4,097, `residential` 2,839, `unclassified` 2,112, `steps` 639, `secondary` 617, `tertiary` 597, `pedestrian` 344). Roughly half the network is missing, and it is the connective half.
+
+**Why it went unnoticed:** point-to-point routing was verified on a POI pair that happened to share a component (a 223 m route), and every trail in the mock fixture was *built* by tracing existing ways, so it was connected by construction. Nothing exercised two arbitrary points.
+
+**Consequences:** routing between arbitrary points usually fails; loop construction fails almost entirely (`scripts/spike_loop_routes.py` routed 0/10 candidates from the Lecco waterfront, and 3/10 from inside the largest component, all at ~50% retraced — out-and-backs rather than loops). A user reading "no route found" is being told their request was unreasonable when the truth is the graph is missing its middle.
+
+**Not yet fixed.** The fix is to widen the ingestion filter to include road ways and re-ingest, which is cheap to do but changes graph size and needs its own verification. `steps` matters more than it looks in an Alpine town. Note also that `elevation_gain_m` came back as 0 on every edge in the spike, so difficulty- or climb-weighted routing cannot work until fragility #6 (elevation) is also addressed.
+
+---
+
 ## 8. Over-Constrained Filters From Unstated Preferences
 
 **The issue:** Strict structured outputs require every intent field to be present, which pressures the model into inventing a value where the user implied none. `activity` is the sharp edge: the search template treats `mixed` trails as matching *any* activity (`$activity IS NULL OR t.activity = $activity OR t.activity = 'mixed'`), so a `mixed` **filter** is strictly narrower than null — it matches only trails tagged both, while null matches those and everything else. A model reaching for `mixed` to mean "no preference" therefore gets *fewer* results than no filter at all, often zero. Found by the golden eval: "stroller friendly path open year round" returned nothing, and "chestnut forest and gravel by the water" excluded the one trail whose description names chestnut forest, because an unstated activity had been guessed as `hike`.
