@@ -1,6 +1,6 @@
 # Handoff — get-out-door
 
-Last updated 2026-08-16.
+Last updated 2026-08-17.
 
 ## Where the project stands
 
@@ -208,7 +208,7 @@ cost through Phase 5 was roughly $62.
   "project": "get-out-door",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-16",
+  "updated": "2026-08-17",
   "deadline": null,
   "people": ["oscar"],
   "plans": [
@@ -309,7 +309,7 @@ cost through Phase 5 was roughly $62.
   "sessions": [
     { "date": "2026-08-15", "model": "fable-5", "credits": 69, "person": "oscar", "hours": null },
     { "date": "2026-08-16", "model": "opus-5", "credits": 175, "person": "oscar", "hours": null },
-    { "date": "2026-08-16", "model": "fable-5", "credits": 53, "person": "oscar", "hours": null }
+    { "date": "2026-08-16", "model": "fable-5", "credits": 61, "person": "oscar", "hours": null }
   ]
 }
 ```
