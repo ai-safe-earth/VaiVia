@@ -162,9 +162,39 @@ it represents.
 roughly 4,000 routes for Lecco, or ~2,900 if the urban trailheads are excluded.
 Reviewable.
 
-**2. Generate.** Round trips and point-to-point. Whether this is our own
-seed-and-stitch or GraphHopper is the open question in `docs/routing-engine.md`;
-the pipeline does not care, it consumes geometry either way.
+**2-5. Generate, score, dedup, enrich, persist — BUILT 2026-08-18**
+(`graph/route_generation.py`, `graph/route_scoring.py`, `scripts/build_routes.py`).
+
+First real catalogue, over the 46 trailheads at or above 60% off-road, four
+target distances, 6 seeds each, keeping the best 3:
+
+| | |
+|---|---|
+| Routes | **502** |
+| Trailheads that produced nothing | **0** |
+| Mean off-road share | **87%** |
+| Mean retrace | 25% |
+| Mean score | 0.72 |
+| POIs per route (mean) | 25 |
+| Routes with at least one named POI | 425 / 502 |
+| `PASSES` edges | 12,363 |
+
+And the thing the whole design exists for — a chat turn *selecting* instead of
+computing. "Under 16 km, mostly off-road, passing a peak" is now a filter:
+
+```cypher
+MATCH (r:Route)-[:PASSES]->(p:POI {type:'peak'})
+WHERE r.distance_m <= 16000 AND r.off_road_share > 0.8
+RETURN r, p ORDER BY r.score DESC
+```
+
+returning real answers — Corno Zuccone, Monte Castello, Zucco di Pralongone.
+
+**The 25% mean retrace is the known weakness of our own generator**, and it is
+the one number GraphHopper would transform (0.0-3.2% measured, see
+`docs/routing-engine.md`). The catalogue is good enough to build the rest of the
+product against; regenerating it from a better engine changes no schema and no
+query, which was the point of putting generation behind a seam.
 
 **3. Score and dedup.** Length accuracy, retrace, off-road share, climb, POIs
 passed, overlap with waymarked CAI routes. Candidates overlap heavily, so dedup
