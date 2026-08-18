@@ -45,6 +45,49 @@ def min_distance_to_polyline_m(point: LatLon, polyline: list[LatLon]) -> float:
     return min(haversine_m(point, p) for p in polyline)
 
 
+def distance_to_polyline_m(point: LatLon, polyline: list[LatLon]) -> float:
+    """Perpendicular distance from a point to a polyline, in metres.
+
+    Unlike min_distance_to_polyline_m, this projects onto each SEGMENT rather
+    than measuring to vertices. The difference only matters when edges are
+    long — which is exactly the case for a routing engine's output, where a
+    straight kilometre may be returned as two points. Vertex distance then
+    reports a POI 8 m off the line as 556 m away, and the map-back silently
+    loses it.
+
+    Uses a local equirectangular projection: metres per degree of latitude are
+    near-constant, and longitude is scaled by cos(lat) about the query point.
+    Error is negligible at the hundreds of metres this is used over, and it
+    keeps the module dependency-free.
+    """
+    if not polyline:
+        return float("inf")
+    if len(polyline) == 1:
+        return haversine_m(point, polyline[0])
+
+    lat_scale = 111_320.0
+    lon_scale = 111_320.0 * math.cos(math.radians(point[0]))
+
+    def to_local(p: LatLon) -> tuple[float, float]:
+        return ((p[1] - point[1]) * lon_scale, (p[0] - point[0]) * lat_scale)
+
+    best = float("inf")
+    for start, end in zip(polyline, polyline[1:], strict=False):
+        ax, ay = to_local(start)
+        bx, by = to_local(end)
+        dx, dy = bx - ax, by - ay
+        length_sq = dx * dx + dy * dy
+        if length_sq == 0.0:
+            best = min(best, math.hypot(ax, ay))
+            continue
+        # Projection of the origin (the query point) onto the segment, clamped
+        # to its ends so a perpendicular that falls outside still measures to
+        # the nearer endpoint.
+        t_clamped = max(0.0, min(1.0, -(ax * dx + ay * dy) / length_sq))
+        best = min(best, math.hypot(ax + t_clamped * dx, ay + t_clamped * dy))
+    return best
+
+
 def nearest_vertex_index(point: LatLon, polyline: list[LatLon]) -> int:
     return min(range(len(polyline)), key=lambda i: haversine_m(point, polyline[i]))
 

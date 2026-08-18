@@ -147,7 +147,21 @@ Two honest caveats:
 
 1. Port the comfort model to a GraphHopper `custom_model` and re-run `eval.py`;
    the gate is off-road share ≥ our 61–64% while retrace stays under 10%.
-2. Prove the spatial map-back: polyline → Neo4j POIs/trails passed.
+2. ~~Prove the spatial map-back: polyline → Neo4j POIs/trails passed.~~
+   **DONE 2026-08-18** — `graph/route_context.py`. Against a real 13.89 km
+   generated loop it returned 19 POIs within 150 m: three named saddles at
+   0.0 m (the route crosses them), Cima di Ferrera at 3.0 m, plus lakes,
+   parking and a chapel — one carrying Wikipedia prose and its CC-BY-SA
+   attribution. The missing `osm_way_id` is not a real cost.
+
+   It surfaced a genuine bug on the way. `core/geo.min_distance_to_polyline_m`
+   measures to *vertices*, not perpendicular — fine for OSM ingestion, where
+   polylines are vertex-dense, but wrong for engine output, where a straight
+   kilometre can be two points. It reported a POI 7.8 m off the line as 556 m
+   away, i.e. the map-back would have silently lost most of what a route
+   passes. `distance_to_polyline_m` (projected, clamped to segment ends) is the
+   correct primitive. The vertex-based one is left alone: changing it would
+   alter every `PASSES_BY` edge and needs its own verification.
 3. Move `/routes` behind an interface with both implementations, compare live.
 4. Delete the custom routing once the engine is proven.
 

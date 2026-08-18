@@ -1,3 +1,5 @@
+import pytest
+
 from core.geo import (
     haversine_m,
     in_bbox,
@@ -42,3 +44,28 @@ def test_in_bbox():
     assert in_bbox((45.9, 9.4), bbox)
     assert not in_bbox((45.7, 9.4), bbox)
     assert not in_bbox((45.9, 9.7), bbox)
+
+
+def test_perpendicular_distance_beats_vertex_distance_on_long_edges():
+    """A routing engine can return a straight kilometre as two points. Vertex
+    distance then reports a POI beside its middle as half a kilometre away,
+    which would silently drop it from the route map-back."""
+    from core.geo import distance_to_polyline_m, min_distance_to_polyline_m
+
+    line = [(45.856, 9.393), (45.866, 9.393)]
+    beside_the_middle = (45.861, 9.3931)
+
+    assert min_distance_to_polyline_m(beside_the_middle, line) > 500
+    assert distance_to_polyline_m(beside_the_middle, line) < 10
+
+
+def test_perpendicular_distance_clamps_past_the_ends():
+    """A point beyond a segment's end measures to the endpoint, not to an
+    infinite line — otherwise anything near the line's bearing looks close."""
+    from core.geo import distance_to_polyline_m, haversine_m
+
+    line = [(45.856, 9.393), (45.857, 9.393)]
+    beyond = (45.867, 9.393)
+    assert distance_to_polyline_m(beyond, line) == pytest.approx(
+        haversine_m(beyond, line[-1]), rel=0.01
+    )

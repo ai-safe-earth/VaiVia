@@ -336,6 +336,27 @@ RETURN i.osm_node_id AS osm_node_id,
        i.location.longitude AS lon
 LIMIT $limit
 
+// name: pois_near_points
+// Map-back: what does a route polyline pass? A routing engine returns geometry
+// and nothing else (GraphHopper does not even expose osm_way_id), so the join
+// back to meaning is spatial.
+//
+// This is the BOUNDING half — cheap, index-backed, deliberately generous. The
+// caller samples the polyline, asks for anything near those samples, then
+// filters exactly with core/geo.min_distance_to_polyline_m. Same two-step as
+// ingestion's PASSES_BY: a point index cannot measure distance to a line, so
+// bound in Cypher and be exact in Python.
+UNWIND $points AS pt
+MATCH (p:POI)
+WHERE point.distance(
+        p.location, point({latitude: pt[0], longitude: pt[1]})) <= $radius_m
+RETURN DISTINCT p.osm_id AS osm_id, p.name AS name, p.type AS type,
+       p.location.latitude AS lat, p.location.longitude AS lon,
+       p.description AS description,
+       p.description_source AS description_source,
+       p.description_license AS description_license,
+       p.description_url AS description_url
+
 // name: healthcheck
 RETURN 1 AS ok
 
