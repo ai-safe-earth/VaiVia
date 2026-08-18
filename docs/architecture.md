@@ -33,7 +33,7 @@ A curated, named trail loop sourced from Trailforks.
 | `landscape_description` | `STRING` | Landscape and path character (embedding source) |
 | `total_distance_m` | `FLOAT` | Total length in **metres** |
 | `elevation_gain_m` / `elevation_loss_m` | `FLOAT` | Total ascent / descent (null until backfill where source lacks it) |
-| `duration_hike_min` | `INTEGER` | DIN 33466 estimate; null if activity is mtb-only |
+| `duration_hike_min` | `INTEGER` | DIN 33466 shape with calibrated vertical rates (450 m/h up, 600 m/h down — see `core/durations.py`); null if activity is mtb-only |
 | `duration_mtb_min` | `INTEGER` | Speed-by-difficulty + climb estimate; null if hike-only |
 | `best_seasons` | `LIST<STRING>` | e.g. `['spring','summer','autumn']` |
 | `seasonal_hazards` | `LIST<STRING>` | e.g. `['snow','ice','mud_after_rain']` |
