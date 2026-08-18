@@ -62,6 +62,7 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     issuer: config.supabaseUrl ? `${config.supabaseUrl}/auth/v1` : undefined,
     audience: config.supabaseUrl ? 'authenticated' : undefined,
     keyResolver: options.keyResolver,
+    devNoAuth: config.devNoAuth,
   });
 
   // Identify before limiting so limits key on the verified user id. Registration
