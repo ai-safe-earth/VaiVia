@@ -74,6 +74,28 @@ Open substitutes for the description layer, in order of value:
    **Operational gotcha:** Wikimedia returns **403** to any User-Agent without a
    contact URL. Our Overpass UA has none, so the first run silently produced
    nothing rather than failing loudly.
+
+   **Built and run 2026-08-18** (`scripts/enrich_pois_wiki.py`). Of 3,195 Lecco
+   POIs, 152 carry a wiki tag and 116 resolved to text:
+
+   | source | count | avg length | verdict |
+   |---|---|---|---|
+   | Wikipedia (CC-BY-SA) | 48 | 160-475 chars | real prose, worth embedding |
+   | Wikidata (CC0) | 68 | 24-33 chars | a label, not a description |
+   | unresolved | 36 | — | no article, no description |
+
+   The Wikipedia text lands where you would expect: 27 peaks, 8 stations, 4
+   saddles, 4 lakes, 3 castles. That is the marquee layer working as intended.
+
+   **The Wikidata one-liners should NOT go into the embedding.** At ~27
+   characters they are category labels — "montagna delle Prealpi Lombarde" —
+   and embedding them would add noise a vector search then has to overcome,
+   while making a POI look described when it is not. Keep them for display and
+   disambiguation; embed only `description_source = 'wikipedia'`.
+
+   Resolving Wikidata entities to their Wikipedia sitelinks was expected to
+   multiply coverage and did not: it added 7 articles over the 41 direct
+   `wikipedia` tags. Most tagged entities simply have no it/en article.
 3. **OSM `description` on route relations** — real but thin (21% Lecco, 11%
    Bergamo).
 4. **Our own curation**, which is the only one that compounds into an asset

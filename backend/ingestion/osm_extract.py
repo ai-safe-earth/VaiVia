@@ -160,6 +160,11 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
                 "type": poi_type,
                 "lat": node["lat"],
                 "lon": node["lon"],
+                # Kept so scripts.enrich_pois_wiki can look the place up later.
+                # Only ~12% of destinations carry either, but where they do the
+                # prose is the best open description we have.
+                "wikidata": tags.get("wikidata"),
+                "wikipedia": tags.get("wikipedia"),
             }
         )
 
@@ -179,6 +184,8 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
                 "type": poi_type,
                 "lat": center["lat"],
                 "lon": center["lon"],
+                "wikidata": tags.get("wikidata"),
+                "wikipedia": tags.get("wikipedia"),
             }
         )
 

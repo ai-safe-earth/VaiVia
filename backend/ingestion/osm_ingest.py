@@ -41,7 +41,9 @@ UNWIND $rows AS row
 MERGE (p:POI {osm_id: row.osm_id})
 SET p.name = row.name,
     p.type = row.type,
-    p.location = point({latitude: row.lat, longitude: row.lon})
+    p.location = point({latitude: row.lat, longitude: row.lon}),
+    p.wikidata = row.wikidata,
+    p.wikipedia = row.wikipedia
 """
 
 MERGE_CONNECTS_TO = """
