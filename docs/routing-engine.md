@@ -106,6 +106,43 @@ Deleted on migration: `route_gds_dijkstra`, `graph_project_routing`,
 - Re-doing the comfort tuning in their custom model, including re-verifying that
   the off-road share matches or beats our 61–64%.
 
+## Gate result — PASSED, 2026-08-18
+
+Step 1 of the sequence below was run: `core/comfort.py` ported into a
+GraphHopper `custom_model` (priority = 1/penalty, since their priority multiplies
+desirability where our cost multiplies distance), same extract, same start, same
+seeds.
+
+| metric | ours (tuned) | GraphHopper (**tuned**) | gate |
+|---|---|---|---|
+| Off-road, 10 km | 61.0% | 53.8% | **miss** |
+| Off-road, 15 km | 61.0% | **67.0%** | pass |
+| Off-road, 20 km | 64.1% | **67.7%** | pass |
+| Retrace, best loop | ~20% | **0.0 – 3.2%** | pass (<10%) |
+| Routed | 10/10, 8/10, 8/10 | **10/10, 10/10, 10/10** | better |
+| On target (±25%) | 8, 8, 7 | 6, 3, 7 | worse |
+| Climb | none | 296 – 2,732 m | n/a for us |
+
+**Verdict: adopt.** Off-road matches or beats ours at the distances that matter,
+retrace is roughly six times better, every candidate routes, and elevation comes
+free. The best 20 km loop is now path 5.9 km / footway 4.3 km / cycleway 2.5 km
+against residential 2.0 km — a real trail loop.
+
+Two honest caveats:
+
+- **10 km misses (53.8% vs 61%).** A 10 km loop from a town waterfront draws its
+  waypoints from a ~1.6 km radius, and there is not much trail that close to
+  Lecco. Our ring-based generator forces waypoints outward at a fixed radius,
+  which pushes it onto trails; `round_trip` is freer and takes the urban
+  footways. Tunable by starting short loops from trailheads with a high
+  `off_road_share` rather than from the town centre — which is exactly what
+  `(:Trailhead)` now makes possible.
+- **Length targeting is worse (3/10 on target at 15 km).** `round_trip.distance`
+  is approximate by design. This matters far less than it looks in the offline
+  pipeline: the design is generate-many-keep-few, so a spread of lengths that
+  all route successfully is better raw material than fewer candidates that hit
+  the target more often. Filtering is free offline.
+
 ### Suggested sequence if adopted
 
 1. Port the comfort model to a GraphHopper `custom_model` and re-run `eval.py`;
