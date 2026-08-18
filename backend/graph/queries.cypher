@@ -394,6 +394,14 @@ WHERE r.activity IS NOT NULL
   AND ($max_hike_rating IS NULL OR coalesce(r.hike_rating, 0) <= $max_hike_rating)
   AND ($max_mtb_rating IS NULL OR coalesce(r.mtb_rating, 0) <= $max_mtb_rating)
   AND ($max_ascent_m IS NULL OR coalesce(r.ascent_m, 0) <= $max_ascent_m)
+  // Duration for the activity being asked about. With no activity stated the
+  // walking figure is used: it is the slower of the two, so a route that fits
+  // the time on foot fits it on a bike, and the answer never overpromises.
+  AND ($max_duration_min IS NULL
+       OR coalesce(
+            CASE $activity WHEN 'mtb' THEN r.duration_mtb_min
+                           ELSE r.duration_hike_min END,
+            0) <= $max_duration_min)
   AND ($near_lat IS NULL
        OR point.distance(th.location,
                          point({latitude: $near_lat, longitude: $near_lon}))
@@ -412,8 +420,14 @@ WHERE size($poi_types) = 0
    OR all(wanted IN $poi_types WHERE wanted IN found_types)
 RETURN r.route_id AS id,
        r.activity AS activity,
+       // Named after the best feature it passes (scripts/name_routes.py).
+       // Null where there is nothing worth naming it after; the client shows
+       // the distance instead rather than inventing something.
+       r.name AS name,
        r.distance_m AS distance_m,
        r.ascent_m AS ascent_m,
+       r.duration_hike_min AS duration_hike_min,
+       r.duration_mtb_min AS duration_mtb_min,
        r.hike_rating AS hike_rating,
        r.mtb_rating AS mtb_rating,
        r.off_road_share AS off_road_share,

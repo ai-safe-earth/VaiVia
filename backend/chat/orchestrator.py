@@ -252,6 +252,7 @@ class ChatOrchestrator:
             max_hike_rating=hike_ceiling,
             max_mtb_rating=mtb_ceiling,
             max_ascent_m=intent.max_ascent_m,
+            max_duration_min=intent.max_duration_min,
             min_distance_m=intent.min_distance_m,
             max_distance_m=intent.max_distance_m,
             # "on trails, off the roads" as a floor rather than a hard filter:

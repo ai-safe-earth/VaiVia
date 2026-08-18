@@ -177,3 +177,43 @@ def test_gds_route_over_cap_falls_back_then_404s(client, db):
         "/routes", json={"start": "Station A", "end": "Hut B", "max_distance_m": 5000}
     )
     assert response.status_code == 404
+
+
+# ── catalogue route geometry (GET /routes/{id}/geojson) ──────────────────────
+
+ROUTE_ID = "1461822581:hike:15000:0"
+ROUTE_GEOM = [{"id": ROUTE_ID, "coordinates": [[9.4, 45.9], [9.41, 45.91]]}]
+
+
+def test_route_geojson_returns_a_linestring_feature(client, db):
+    """A catalogue route is one continuous ring, unlike a trail, which is a
+    MultiLineString of the segments it is composed of."""
+    db.when("route_geometry", ROUTE_GEOM)
+    response = client.get(f"/routes/{ROUTE_ID}/geojson")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == "Feature"
+    assert body["geometry"]["type"] == "LineString"
+    assert body["geometry"]["coordinates"] == [[9.4, 45.9], [9.41, 45.91]]
+    assert body["properties"]["route_id"] == ROUTE_ID
+
+
+def test_route_geojson_survives_the_colons_in_a_route_id(client, db):
+    """Route ids are "{trailhead}:{activity}:{distance}:{rank}". Colons are
+    legal in a path segment, but that is worth proving rather than assuming."""
+    db.when("route_geometry", ROUTE_GEOM)
+    response = client.get(f"/routes/{ROUTE_ID}/geojson")
+    assert response.status_code == 200
+    assert db.params_for("route_geometry")["route_id"] == ROUTE_ID
+
+
+def test_route_geojson_404s_for_an_unknown_route(client, db):
+    db.when("route_geometry", [])
+    assert client.get("/routes/nope:hike:1:0/geojson").status_code == 404
+
+
+def test_route_geojson_404s_when_the_route_has_empty_geometry(client, db):
+    """A row with no coordinates is not a usable map payload, and returning an
+    empty Feature would blank the map with no explanation."""
+    db.when("route_geometry", [{"id": ROUTE_ID, "coordinates": []}])
+    assert client.get(f"/routes/{ROUTE_ID}/geojson").status_code == 404

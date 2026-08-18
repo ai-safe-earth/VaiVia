@@ -24,6 +24,32 @@ export interface Trail {
   pois: PoiRef[];
 }
 
+/** One circular route from the precomputed catalogue. Note the field names
+ *  differ from Trail: a Route is generated, not curated. */
+export interface Loop {
+  id: string;
+  activity: string;
+  /** The best feature it passes, or null when there is nothing worth naming it
+   *  after — the card shows its distance instead of inventing a name. */
+  name: string | null;
+  distance_m: number;
+  ascent_m: number | null;
+  duration_hike_min: number | null;
+  duration_mtb_min: number | null;
+  /** OSM sac_scale and mtb:scale as GraphHopper decoded them. */
+  hike_rating: number | null;
+  mtb_rating: number | null;
+  /** Computed from map tags, never a promise about the surface underfoot. */
+  off_road_share: number;
+  score: number;
+  named_pois: string[];
+  trailhead_id: string;
+  trailhead_name: string | null;
+  start_lat: number;
+  start_lon: number;
+  pois: PoiRef[];
+}
+
 export interface RouteResult {
   total_distance_m: number;
   elevation_gain_m: number | null;
@@ -41,8 +67,11 @@ export interface RouteBlock {
 }
 
 export interface ChatResults {
-  kind: 'trail_search' | 'route' | 'clarify';
+  kind: 'trail_search' | 'loop_search' | 'route' | 'clarify';
   trails?: Trail[];
+  /** Circular routes selected from the catalogue. Render on presence, not
+   *  on `kind`: a loops+theme turn is still labelled trail_search. */
+  loops?: Loop[];
   /** Every route in the plan; `route`/`geometry` mirror the first resolved one. */
   routes?: RouteBlock[];
   route?: RouteResult | null;

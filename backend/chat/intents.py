@@ -55,6 +55,9 @@ class LoopSearchIntent(BaseModel):
     activity: Literal["hike", "mtb"] | None = None
     min_distance_m: Annotated[float, Field(ge=0)] | None = None
     max_distance_m: Annotated[float, Field(ge=0)] | None = None
+    #: "a two hour loop". Durations are estimates from a cautious model, so
+    #: this filters on our figure, not on a promise.
+    max_duration_min: Annotated[int, Field(ge=0)] | None = None
     #: "nothing too steep", "under 800 m of climbing".
     max_ascent_m: Annotated[float, Field(ge=0)] | None = None
     #: 1 easy .. 4 hardest, mapped to sac_scale / mtb:scale by the orchestrator.

@@ -97,6 +97,7 @@ def test_the_intent_carries_nothing_a_query_could_be_steered_with():
         "min_distance_m",
         "max_distance_m",
         "max_ascent_m",
+        "max_duration_min",
         "max_difficulty_level",
         "poi_types",
         "near",
@@ -228,3 +229,26 @@ def test_a_mixed_turn_still_reads_as_a_trail_search():
         [LoopSearchIntent(max_distance_m=15000), SemanticThemeIntent(text="ridge")]
     )
     assert ChatOrchestrator._result_kind(plan) == "trail_search"  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_duration_is_filterable_now_that_routes_have_one(db):
+    """ "back by lunch" is the natural way to ask, and durations exist on every
+    route, so the filter should reach the query."""
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("search_loops", [])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    await orchestrator._loops(  # noqa: SLF001
+        LoopSearchIntent(max_duration_min=180, activity="mtb")
+    )
+    _, params = next(c for c in db.calls if c[0] == "search_loops")
+    assert params["max_duration_min"] == 180
+    assert params["activity"] == "mtb"
+
+
+def test_a_zero_duration_is_dropped_as_vacuous():
+    """Same trap as every other bound: 0 means 'no limit' to the model and
+    'nothing matches' to the query."""
+    merged = merge_loops([LoopSearchIntent(max_duration_min=0)])
+    assert merged.max_duration_min is None

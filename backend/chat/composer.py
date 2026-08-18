@@ -138,7 +138,12 @@ def merge_loops(loops: list[LoopSearchIntent]) -> LoopSearchIntent:
     """Tightest-wins merge, mirroring merge_searches."""
     merged = LoopSearchIntent()
     for loop in loops:
-        for name in ("max_distance_m", "max_ascent_m", "max_difficulty_level"):
+        for name in (
+            "max_distance_m",
+            "max_ascent_m",
+            "max_difficulty_level",
+            "max_duration_min",
+        ):
             values = [
                 v for v in (getattr(merged, name), getattr(loop, name)) if v is not None
             ]
@@ -161,6 +166,8 @@ def merge_loops(loops: list[LoopSearchIntent]) -> LoopSearchIntent:
         merged.min_distance_m = None
     if merged.max_ascent_m is not None and merged.max_ascent_m <= 0:
         merged.max_ascent_m = None
+    if merged.max_duration_min is not None and merged.max_duration_min <= 0:
+        merged.max_duration_min = None
     return widen_narrow_band(merged)
 
 
