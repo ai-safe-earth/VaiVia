@@ -39,11 +39,41 @@ Open substitutes for the description layer, in order of value:
    from `sac_scale`/`mtb:scale`, elevation profile, surface mix, POIs passed,
    region. Factual rather than evocative, but embeddable — and the current
    embedding input already appends POI names, so the pattern exists.
-2. **Wikipedia / Wikidata.** OSM POIs carry `wikidata` and `wikipedia` tags, and
-   peaks, lakes, ermitas and castles frequently have articles. Wikipedia is
-   CC-BY-SA: usable with attribution, unlike every commercial source we have
-   looked at. This is the most promising route to genuine prose and has not been
-   explored yet.
+2. **Wikipedia / Wikidata — measured 2026-08-18, and it is a supplement, not a
+   foundation.** `scripts/spike_wiki_descriptions.py`, run over the 3,095 POIs
+   in the Lecco bbox.
+
+   | type | total | has `wikidata` | has `wikipedia` |
+   |---|---|---|---|
+   | peak | 281 | 27% | 8% |
+   | saddle | 127 | 10% | 2% |
+   | chapel | 569 | 6% | 0% |
+   | lake | 155 | 4% | 3% |
+   | castle | 5 | 60% | 40% |
+   | station | 8 | 62% | 100% |
+   | **all destinations** | **1,179** | **12%** | — |
+
+   The prose where it exists is genuinely good — real, evocative Italian about
+   real places ("Il Culmine di San Pietro è un valico situato a 1.258 m di
+   altitudine... utilizzato dai pastori della Val Taleggio"). But it exists for
+   roughly **one destination in eight**, and for the ermitas that motivated this
+   — 569 chapels — Wikipedia coverage is effectively zero.
+
+   So this does NOT solve the description problem. It enriches the marquee
+   destinations (famous peaks, castles, notable lakes) and leaves the long tail
+   untouched. Treat it as a bonus layer over composed-from-facts, never as the
+   primary source.
+
+   **Licence asymmetry matters here.** Wikidata is CC0 — no obligations, but
+   only one-line descriptions ("montagna delle Prealpi Lombarde"), too thin to
+   embed usefully. Wikipedia is CC-BY-SA — real prose, but share-alike is a
+   heavier obligation than anything else we ingest, and storing it, embedding it
+   and serving it are three separate questions. Decide deliberately; do not
+   drift into it.
+
+   **Operational gotcha:** Wikimedia returns **403** to any User-Agent without a
+   contact URL. Our Overpass UA has none, so the first run silently produced
+   nothing rather than failing loudly.
 3. **OSM `description` on route relations** — real but thin (21% Lecco, 11%
    Bergamo).
 4. **Our own curation**, which is the only one that compounds into an asset
