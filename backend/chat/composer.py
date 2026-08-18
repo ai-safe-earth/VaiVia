@@ -138,7 +138,7 @@ def merge_loops(loops: list[LoopSearchIntent]) -> LoopSearchIntent:
     """Tightest-wins merge, mirroring merge_searches."""
     merged = LoopSearchIntent()
     for loop in loops:
-        for name in ("max_distance_m",):
+        for name in ("max_distance_m", "max_ascent_m", "max_difficulty_level"):
             values = [
                 v for v in (getattr(merged, name), getattr(loop, name)) if v is not None
             ]
@@ -152,12 +152,15 @@ def merge_loops(loops: list[LoopSearchIntent]) -> LoopSearchIntent:
             if poi_type not in merged.poi_types:
                 merged.poi_types.append(poi_type)
         merged.near = merged.near or loop.near
+        merged.activity = merged.activity or loop.activity
         merged.avoid_roads = merged.avoid_roads or loop.avoid_roads
     # Same trap as the searches: a 0-metre max silently matches nothing.
     if merged.max_distance_m is not None and merged.max_distance_m <= 0:
         merged.max_distance_m = None
     if merged.min_distance_m is not None and merged.min_distance_m <= 0:
         merged.min_distance_m = None
+    if merged.max_ascent_m is not None and merged.max_ascent_m <= 0:
+        merged.max_ascent_m = None
     return widen_narrow_band(merged)
 
 

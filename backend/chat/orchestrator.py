@@ -36,6 +36,12 @@ from graph.neo4j_client import Neo4jClient
 logger = logging.getLogger(__name__)
 
 SEARCH_RESULT_LIMIT = 5
+
+# Our 1-4 difficulty onto the OSM scales GraphHopper decodes. sac_scale: 1
+# hiking, 2 mountain_hiking, 3 demanding_mountain_hiking, 4+ alpine. mtb:scale
+# is coarser at the easy end, so level 1 still admits a 1.
+HIKE_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 3, 4: 6}
+MTB_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 4, 4: 6}
 # The vector index scores this many candidates before the structured filters
 # cut them down, so a filtered semantic search still has enough to choose from.
 SEMANTIC_CANDIDATE_POOL = 25
@@ -226,9 +232,26 @@ class ChatOrchestrator:
             if rows:
                 near_lat, near_lon = rows[0]["lat"], rows[0]["lon"]
 
+        # Our 1-4 difficulty maps onto two different OSM scales. sac_scale runs
+        # T1-T6 and mtb:scale 0-6, so the same "moderate" is a different number
+        # on each; only the one matching the activity is applied, or a hiking
+        # ceiling would silently constrain a bike search.
+        hike_ceiling = mtb_ceiling = None
+        if intent.max_difficulty_level is not None:
+            hike_ceiling = HIKE_RATING_BY_LEVEL.get(intent.max_difficulty_level)
+            mtb_ceiling = MTB_RATING_BY_LEVEL.get(intent.max_difficulty_level)
+            if intent.activity == "mtb":
+                hike_ceiling = None
+            elif intent.activity == "hike":
+                mtb_ceiling = None
+
         settings = get_settings()
         return await self._db.run_named(
             "search_loops",
+            activity=intent.activity,
+            max_hike_rating=hike_ceiling,
+            max_mtb_rating=mtb_ceiling,
+            max_ascent_m=intent.max_ascent_m,
             min_distance_m=intent.min_distance_m,
             max_distance_m=intent.max_distance_m,
             # "on trails, off the roads" as a floor rather than a hard filter:

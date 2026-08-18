@@ -62,6 +62,10 @@ class RouteCandidate:
     ascent_m: float | None = None
     source: str = "local"
     scores: dict[str, float] = field(default_factory=dict)
+    #: OSM difficulty as the engine decoded it: hike_rating is sac_scale,
+    #: mtb_rating is mtb:scale. None where the source cannot supply it, which
+    #: is honest rather than defaulting to "easy".
+    ratings: dict[str, int | None] = field(default_factory=dict)
 
     @property
     def score(self) -> float:

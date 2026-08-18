@@ -1,0 +1,5 @@
+{
+  "priority": [
+    { "if": "road_class == STEPS", "multiply_by": "0" }
+  ]
+}

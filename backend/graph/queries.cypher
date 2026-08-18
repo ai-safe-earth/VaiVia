@@ -374,9 +374,26 @@ RETURN DISTINCT p.osm_id AS osm_id, p.name AS name, p.type AS type,
 // share, variety and climb. A caller must not re-rank on one of those alone or
 // the offline scoring is silently overridden.
 MATCH (r:Route)-[:STARTS_FROM]->(th:Trailhead)
-WHERE ($min_distance_m IS NULL OR r.distance_m >= $min_distance_m)
+// Activity is a hard filter, never a preference: a foot loop over steps and a
+// T4 scramble is not a bike route, it is impassable. Catalogues are generated
+// per profile (infra/graphhopper/config.yml) precisely so this can be exact.
+// A route with no activity cannot be served: activity is a hard filter, and an
+// unlabelled route also predates elevation, so it would answer a walking
+// question with no climb figure. The 502 such rows from before the
+// per-activity catalogues were deleted on 2026-08-18; this guard stays as
+// defence, since any future schema change that adds a route without an
+// activity would otherwise leak it into results.
+WHERE r.activity IS NOT NULL
+  AND ($activity IS NULL OR r.activity = $activity)
+  AND ($min_distance_m IS NULL OR r.distance_m >= $min_distance_m)
   AND ($max_distance_m IS NULL OR r.distance_m <= $max_distance_m)
   AND ($min_off_road IS NULL OR r.off_road_share >= $min_off_road)
+  // sac_scale / mtb:scale as GraphHopper decoded them. A route with no rating
+  // is NOT excluded by a ceiling: unrated is unknown, and dropping it would
+  // hide most of the catalogue behind a filter the data cannot answer.
+  AND ($max_hike_rating IS NULL OR coalesce(r.hike_rating, 0) <= $max_hike_rating)
+  AND ($max_mtb_rating IS NULL OR coalesce(r.mtb_rating, 0) <= $max_mtb_rating)
+  AND ($max_ascent_m IS NULL OR coalesce(r.ascent_m, 0) <= $max_ascent_m)
   AND ($near_lat IS NULL
        OR point.distance(th.location,
                          point({latitude: $near_lat, longitude: $near_lon}))
@@ -394,8 +411,11 @@ WITH r, th, found_types, pois
 WHERE size($poi_types) = 0
    OR all(wanted IN $poi_types WHERE wanted IN found_types)
 RETURN r.route_id AS id,
+       r.activity AS activity,
        r.distance_m AS distance_m,
        r.ascent_m AS ascent_m,
+       r.hike_rating AS hike_rating,
+       r.mtb_rating AS mtb_rating,
        r.off_road_share AS off_road_share,
        r.score AS score,
        r.named_pois AS named_pois,

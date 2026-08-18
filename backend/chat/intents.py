@@ -50,8 +50,15 @@ class LoopSearchIntent(BaseModel):
     """
 
     kind: Literal["loop_search"] = "loop_search"
+    #: Catalogues are generated per activity, so this selects which one is
+    #: searched rather than filtering one shared set.
+    activity: Literal["hike", "mtb"] | None = None
     min_distance_m: Annotated[float, Field(ge=0)] | None = None
     max_distance_m: Annotated[float, Field(ge=0)] | None = None
+    #: "nothing too steep", "under 800 m of climbing".
+    max_ascent_m: Annotated[float, Field(ge=0)] | None = None
+    #: 1 easy .. 4 hardest, mapped to sac_scale / mtb:scale by the orchestrator.
+    max_difficulty_level: Annotated[int, Field(ge=1, le=4)] | None = None
     poi_types: list[PoiType] = Field(default_factory=list)
     #: A place to start near, by name. Resolved server-side against known POIs.
     near: str | None = None

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     trailforks_api_key: str = ""
     trailforks_base_url: str = "https://www.trailforks.com/api/1"
 
+    # Internal service, like Neo4j: never published, only the gateway is.
+    graphhopper_url: str = "http://localhost:8989"
+
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout_s: int = 120
 

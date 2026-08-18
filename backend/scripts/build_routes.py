@@ -35,6 +35,7 @@ from uuid import uuid4
 from neo4j.exceptions import Neo4jError
 
 from core.config import get_settings
+from graph.graphhopper import GraphHopperClient
 from graph.neo4j_client import Neo4jClient
 from graph.route_context import pois_along_route, summarize_pois
 from graph.route_generation import generate_loops
@@ -56,9 +57,11 @@ ORDER BY t.off_road_share DESC
 
 # Replace rather than accumulate: a second run with different parameters must
 # not leave the previous run's routes behind pretending to be current.
+# Scoped to the activity being rebuilt: regenerating the hike catalogue must
+# not delete the mtb one.
 CLEAR_ROUTES = """
 UNWIND $trailhead_ids AS tid
-MATCH (r:Route {trailhead_id: tid})
+MATCH (r:Route {trailhead_id: tid, activity: $activity})
 DETACH DELETE r
 """
 
@@ -66,6 +69,9 @@ MERGE_ROUTES = """
 UNWIND $rows AS row
 MERGE (r:Route {route_id: row.route_id})
 SET r.trailhead_id = row.trailhead_id,
+    r.activity = row.activity,
+    r.hike_rating = row.hike_rating,
+    r.mtb_rating = row.mtb_rating,
     r.target_m = row.target_m,
     r.distance_m = row.distance_m,
     r.ascent_m = row.ascent_m,
@@ -88,6 +94,36 @@ MERGE (r)-[:PASSES]->(p)
 """
 
 
+async def _candidates(
+    db: Neo4jClient,
+    graph_name: str,
+    gh: GraphHopperClient | None,
+    activity: str,
+    trailhead: dict[str, Any],
+    target_m: int,
+    seeds: int,
+) -> list[Any]:
+    """Candidates from whichever source is configured.
+
+    The two sources return the same RouteCandidate, so everything downstream —
+    scoring, dedup, the POI map-back, persistence — is identical. That is what
+    putting generation behind a seam bought.
+    """
+    if gh is None:
+        return await generate_loops(
+            db, graph_name, trailhead, float(target_m), max_candidates=seeds
+        )
+    start = (trailhead["lat"], trailhead["lon"])
+    out = []
+    for seed in range(seeds):
+        candidate = await gh.round_trip(
+            start, float(target_m), activity, seed, trailhead["trailhead_id"]
+        )
+        if candidate:
+            out.append(candidate)
+    return out
+
+
 async def routes_for_trailhead(
     db: Neo4jClient,
     graph_name: str,
@@ -95,20 +131,41 @@ async def routes_for_trailhead(
     targets: list[int],
     seeds: int,
     keep: int,
-) -> list[dict[str, Any]]:
+    gh: GraphHopperClient | None = None,
+    activity: str = "hike",
+    min_length_fit: float = 0.0,
+) -> tuple[list[dict[str, Any]], list[int]]:
     rows: list[dict[str, Any]] = []
+    dropped: list[int] = []
     for target_m in targets:
-        candidates = await generate_loops(
-            db, graph_name, trailhead, float(target_m), max_candidates=seeds
+        candidates = await _candidates(
+            db, graph_name, gh, activity, trailhead, target_m, seeds
         )
         if not candidates:
             continue
         for rank, chosen in enumerate(select(candidates, keep=keep)):
+            # Decline to STORE a route that answers a different question than
+            # the one it was generated for. Scoring stays honest and ranks a
+            # bad fit low, but the catalogue is data: filing a 21 km route as
+            # the answer to "a 5 km loop" mislabels it, and a user asking for
+            # 5 km would be handed it as though it fit.
+            #
+            # This is not the scorer filtering. Short loops genuinely do not
+            # exist at some mountain trailheads -- the only paths out are long
+            # -- and the honest response is to have no 5 km route there rather
+            # than a 4x one. Drops are counted and reported per target.
+            if chosen.scores.get("length", 0.0) < min_length_fit:
+                dropped.append(target_m)
+                continue
             pois = await pois_along_route(db, chosen.coordinates, radius_m=150)
             summary = summarize_pois(pois)
             rows.append(
                 {
-                    "route_id": f"{chosen.trailhead_id}:{target_m}:{rank}",
+                    # Activity is part of the identity: the same trailhead
+                    # and distance yield a different route on foot and on a
+                    # bike, and one must not overwrite the other.
+                    "route_id": f"{chosen.trailhead_id}:{activity}:{target_m}:{rank}",
+                    "activity": activity,
                     "trailhead_id": chosen.trailhead_id,
                     "target_m": float(target_m),
                     "distance_m": round(chosen.distance_m, 1),
@@ -122,13 +179,15 @@ async def routes_for_trailhead(
                         f"{k}={v}" for k, v in sorted(chosen.scores.items())
                     ],
                     "source": chosen.source,
+                    "hike_rating": chosen.ratings.get("hike_rating"),
+                    "mtb_rating": chosen.ratings.get("mtb_rating"),
                     "poi_count": summary["count"],
                     "named_pois": [p["name"] for p in summary["named"]][:12],
                     "poi_ids": [p["osm_id"] for p in pois],
                     "coordinates": [[lat, lon] for lat, lon in chosen.coordinates],
                 }
             )
-    return rows
+    return rows, dropped
 
 
 async def main() -> None:
@@ -143,14 +202,62 @@ async def main() -> None:
     parser.add_argument("--seeds", type=int, default=8)
     parser.add_argument("--keep", type=int, default=3)
     parser.add_argument("--targets", default="5000,10000,15000,20000")
+    parser.add_argument(
+        "--activity",
+        default="hike",
+        choices=["hike", "mtb"],
+        help="which GraphHopper profile to generate for; also stored on the route",
+    )
+    parser.add_argument(
+        "--source",
+        default="graphhopper",
+        choices=["graphhopper", "local"],
+        help="graphhopper brings elevation and per-activity profiles; local is "
+        "the fallback that works without the service",
+    )
+    parser.add_argument(
+        "--min-length-fit",
+        type=float,
+        default=0.35,
+        help="refuse to store a route whose length score is below this "
+        "(0.35 is roughly within a third of the target); 0 stores everything",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     targets = [int(t) for t in args.targets.split(",")]
 
     settings = get_settings()
     graph_name = f"routes_{uuid4().hex[:12]}"
+
+    gh: GraphHopperClient | None = None
+    if args.source == "graphhopper":
+        gh = GraphHopperClient(settings.graphhopper_url)
+        try:
+            profiles = await gh.available_profiles()
+        except Exception as error:  # noqa: BLE001 — any failure means unusable
+            print(
+                f"GraphHopper unreachable at {settings.graphhopper_url}: "
+                f"{str(error)[:120]}"
+            )
+            print(
+                "Start it with: docker compose --env-file .env "
+                "-f infra/docker-compose.yml up -d graphhopper"
+            )
+            return
+        if args.activity not in profiles:
+            # Fail rather than fall back: silently generating a foot catalogue
+            # labelled mtb is worse than generating nothing.
+            print(f"profile {args.activity!r} not served; available: {profiles}")
+            return
+        print(
+            f"source: GraphHopper ({settings.graphhopper_url}), "
+            f"profile {args.activity}"
+        )
+    else:
+        print(f"source: local routing, activity labelled {args.activity}")
     all_rows: list[dict[str, Any]] = []
     barren: list[str] = []
+    dropped_by_target: dict[int, int] = {}
 
     async with Neo4jClient() as db:
         trailheads = await db.run(FETCH_TRAILHEADS, min_off_road=args.min_off_road)
@@ -182,9 +289,19 @@ async def main() -> None:
                 return
 
             for index, trailhead in enumerate(trailheads, start=1):
-                rows = await routes_for_trailhead(
-                    db, graph_name, trailhead, targets, args.seeds, args.keep
+                rows, dropped = await routes_for_trailhead(
+                    db,
+                    graph_name,
+                    trailhead,
+                    targets,
+                    args.seeds,
+                    args.keep,
+                    gh=gh,
+                    activity=args.activity,
+                    min_length_fit=args.min_length_fit,
                 )
+                for target_m in dropped:
+                    dropped_by_target[target_m] = dropped_by_target.get(target_m, 0) + 1
                 name = trailhead["name"] or f"({trailhead['trailhead_id']})"
                 if rows:
                     best = max(r["score"] for r in rows)
@@ -201,6 +318,13 @@ async def main() -> None:
                 await db.run_named("graph_drop_routing", graph_name=graph_name)
 
         print(f"\ngenerated {len(all_rows)} routes")
+        if dropped_by_target:
+            # Named rather than swallowed: many drops at one target means loops
+            # of that length do not exist at these trailheads, which is a real
+            # coverage fact, not a tuning knob to hide.
+            print("dropped for poor length fit (loops that size may not exist there):")
+            for target_m, count in sorted(dropped_by_target.items()):
+                print(f"  {target_m / 1000:>4.0f} km  {count:>4}")
         if barren:
             # Named, not swallowed: a trailhead that produces nothing is a
             # coverage hole, and finding it here is far cheaper than a user
@@ -232,6 +356,7 @@ async def main() -> None:
         await db.run(
             CLEAR_ROUTES,
             trailhead_ids=[t["trailhead_id"] for t in trailheads],
+            activity=args.activity,
         )
         await db.run_batched(MERGE_ROUTES, all_rows, batch_size=100)
         print(f"\nwrote {len(all_rows)} (:Route) nodes")

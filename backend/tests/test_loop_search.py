@@ -84,22 +84,74 @@ def test_a_loop_coexists_with_a_theme_and_a_trail_search():
     assert plan.search is not None
 
 
-@pytest.mark.parametrize(
-    "field",
-    ["min_distance_m", "max_distance_m", "poi_types", "near", "avoid_roads", "kind"],
-)
-def test_the_intent_carries_nothing_a_query_could_be_steered_with(field):
-    """The boundary rule: no field may name a template, an id, or Cypher. If
-    this list grows, check the new field against that before allowing it."""
-    assert field in LoopSearchIntent.model_fields
+def test_the_intent_carries_nothing_a_query_could_be_steered_with():
+    """The boundary rule: no field may name a template, an id, or Cypher.
+
+    Pinned so adding one is a deliberate act. Every field here is either a
+    bounded number, a closed enum, or a place name resolved server-side against
+    known POIs — none can carry a query, a template, or a database identifier.
+    """
     assert set(LoopSearchIntent.model_fields) == {
         "kind",
+        "activity",
         "min_distance_m",
         "max_distance_m",
+        "max_ascent_m",
+        "max_difficulty_level",
         "poi_types",
         "near",
         "avoid_roads",
     }
+
+
+def test_activity_is_a_closed_enum_not_free_text():
+    """It selects which catalogue is searched, so an arbitrary string would
+    reach the query as a value the model chose."""
+    import pydantic
+
+    assert LoopSearchIntent(activity="mtb").activity == "mtb"
+    with pytest.raises(pydantic.ValidationError):
+        LoopSearchIntent(activity="; MATCH (n) DETACH DELETE n")
+
+
+def test_difficulty_maps_onto_the_scale_matching_the_activity():
+    """sac_scale and mtb:scale are different scales. Applying a hiking ceiling
+    to a bike search would constrain it by a number that means something else
+    there."""
+    from chat.orchestrator import HIKE_RATING_BY_LEVEL, MTB_RATING_BY_LEVEL
+
+    assert HIKE_RATING_BY_LEVEL[1] < HIKE_RATING_BY_LEVEL[4]
+    assert MTB_RATING_BY_LEVEL[1] < MTB_RATING_BY_LEVEL[4]
+    assert set(HIKE_RATING_BY_LEVEL) == {1, 2, 3, 4}
+    assert set(MTB_RATING_BY_LEVEL) == {1, 2, 3, 4}
+
+
+@pytest.mark.asyncio
+async def test_a_hiking_ask_does_not_apply_an_mtb_ceiling(db):
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("search_loops", [])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    await orchestrator._loops(  # noqa: SLF001
+        LoopSearchIntent(activity="hike", max_difficulty_level=2)
+    )
+    _, params = next(c for c in db.calls if c[0] == "search_loops")
+    assert params["activity"] == "hike"
+    assert params["max_hike_rating"] is not None
+    assert params["max_mtb_rating"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_unstated_activity_searches_every_catalogue(db):
+    """Null means no preference, the same rule the activity fix established for
+    trail_search."""
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("search_loops", [])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    await orchestrator._loops(LoopSearchIntent(max_distance_m=10000))  # noqa: SLF001
+    _, params = next(c for c in db.calls if c[0] == "search_loops")
+    assert params["activity"] is None
 
 
 def test_a_single_stated_distance_becomes_a_band_not_an_equality():
