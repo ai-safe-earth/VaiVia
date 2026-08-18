@@ -187,5 +187,6 @@ deleted, and segments returned to 104,812.
 
 **The lesson to keep:** `tags.get("highway", "path")` is a dangerous default.
 Silently naming an untagged way a path is what turned a filter bug into
-routable water instead of a loud failure at ingestion. `None` plus an explicit
-skip is the correct shape, and applying it is an open next step.
+routable water instead of a loud failure at ingestion. The default is now gone:
+a way with no `highway` tag is logged and skipped, so the line that decides
+what a segment *is* can no longer invent it. A test pins that too.

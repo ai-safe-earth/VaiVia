@@ -157,3 +157,25 @@ def test_a_lake_outline_never_becomes_a_routing_segment():
     assert [p["type"] for p in result.pois] == ["lake"]
     assert len(result.pois[0]["boundary"]) == 4
     assert result.pois[0]["extent_m"] > 0
+
+
+def test_an_untagged_way_is_skipped_rather_than_called_a_path():
+    """The dangerous default, pinned. `tags.get("highway", "path")` turned a
+    filter bug into routable water; a way we cannot classify must drop out of
+    the routing graph, loudly, not enter it under a guessed type."""
+    from ingestion.osm_extract import extract
+
+    payload = {
+        "elements": [
+            {
+                "type": "way",
+                "id": 3,
+                "tags": {"barrier": "fence"},
+                "nodes": [30, 31],
+                "geometry": [{"lat": 45.85, "lon": 9.39}, {"lat": 45.86, "lon": 9.39}],
+            },
+        ]
+    }
+    result = extract(payload)
+    assert result.segments == []
+    assert result.intersections == {}

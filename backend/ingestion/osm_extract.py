@@ -10,6 +10,7 @@ Topology model (see graph/schema.cypher):
     (docs/fragilities.md #6) — never fabricated.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,6 +23,8 @@ from core.geo import (
     polyline_length_m,
     polyline_midpoint,
 )
+
+logger = logging.getLogger(__name__)
 
 POI_TAG_MAP: list[tuple[str, str, str]] = [
     # (tag key, tag value, poi type) — first match wins.
@@ -176,6 +179,18 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
         if len(node_ids) != len(coords) or len(coords) < 2:
             continue  # malformed element; skip rather than corrupt topology
 
+        # No default. `tags.get("highway", "path")` used to stand here, and
+        # silently calling an untagged way a path is what let 1,673 lake and
+        # car-park outlines into the routing graph as walkable ways. The `ways`
+        # filter above should already have dropped these, so this is the second
+        # layer -- but it is the layer that decides what a segment IS, and it
+        # must never invent that. A way we cannot classify is not routable, and
+        # says so.
+        highway_type = tags.get("highway")
+        if not highway_type:
+            logger.warning("way %s has no highway tag; not routable", way_id)
+            continue
+
         # Split positions: endpoints always; interior nodes shared with other ways.
         cut_indexes = (
             [0]
@@ -195,7 +210,7 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
                     osm_parent_way_id=way_id,
                     length_m=polyline_length_m(piece_coords),
                     surface=tags.get("surface"),
-                    highway_type=tags.get("highway", "path"),
+                    highway_type=highway_type,
                     coordinates=piece_coords,
                     location=polyline_midpoint(piece_coords),
                     start_node=start_id,
