@@ -34,9 +34,18 @@ Decomposition rules:
   120).
 - Difficulty levels: 1 Easy, 2 Intermediate, 3 Difficult, 4 Pro. "easy" ->
   max_difficulty_level 1; "not too hard" -> max_difficulty_level 2.
+- activity: set it ONLY when the user names or plainly implies one — "hike",
+  "walk", "on foot" -> hike; "ride", "bike", "mtb", "singletrack" -> mtb. If
+  they just describe a path or a landscape ("a stroller friendly path", "gravel
+  by the water"), leave activity null. Null means no preference and searches
+  everything; "mixed" does NOT mean no preference — it matches only trails that
+  are explicitly both, so never use it as a stand-in for an unstated activity.
 - Features map to poi_types: lake, hut, campsite, station, bathing_water,
-  viewpoint. A swim spot is bathing_water; a refuge or rifugio is hut; a train
-  or railway stop is station.
+  viewpoint, peak, saddle, beach, spring, cave, waterfall, chapel, castle,
+  ruins, picnic_site. A swim spot is bathing_water; a refuge or rifugio is hut;
+  a train or railway stop is station; a summit or cima is peak; a col, pass or
+  bocchetta is saddle; an ermita, eremo, chapel or wayside shrine is chapel;
+  the sea or a lido shore is beach.
 - "with kids", "family", "stroller" -> family_friendly true AND
   max_difficulty_level 1.
 - "more than X m of climbing" -> min_elevation_gain_m; "less than X m of

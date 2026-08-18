@@ -61,13 +61,18 @@ async def _snap(db: DbDep, poi: dict, radius_m: float) -> str:
 async def _route_via_gds(
     db: DbDep, start_node: str, end_node: str, max_distance_m: float
 ) -> dict | None:
-    """Distance-weighted route via GDS, or None to fall back to shortestPath.
+    """Comfort-weighted route via GDS, or None to fall back to shortestPath.
 
-    None covers both "GDS unavailable" and "no route" — Dijkstra's total is the
-    minimum possible distance, so when it finds nothing (or only something over
-    the cap), the shortestPath fallback cannot do better and yields the same
-    404, just via one redundant query. Folding the cases keeps the failure
-    handling in one place.
+    Dijkstra minimises `cost_m` (distance scaled by how unpleasant the way is —
+    core/comfort.py), so its `total_cost` is a penalised figure in no real unit.
+    The distance reported to the caller is summed from `distance_m` over the
+    resolved edges instead; returning totalCost would quote inflated lengths.
+
+    None covers "GDS unavailable", "no route", and "the comfortable route is
+    longer than the caller allowed". That last case genuinely falls through to
+    shortestPath rather than 404ing: since we no longer minimise distance, a
+    shorter — if roadier — route can exist inside the cap, and a walker who
+    asked for at most 5 km would rather have it than nothing.
     """
     settings = get_settings()
     min_lat, min_lon, max_lat, max_lon = settings.bbox
@@ -99,14 +104,21 @@ async def _route_via_gds(
         with suppress(Neo4jError):
             await db.run_named("graph_drop_routing", graph_name=graph_name)
 
-    if not rows or rows[0]["total_m"] > max_distance_m:
+    if not rows:
         return None
 
     row = rows[0]
     details = await db.run_named("route_edge_details", node_ids=row["node_ids"])
+    if not details:
+        return None
+
+    total_m = sum(d["distance_m"] for d in details)
+    if total_m > max_distance_m:
+        return None
+
     return {
-        "total_m": row["total_m"],
-        "gain_m": sum(d["gain_m"] for d in details) if details else None,
+        "total_m": total_m,
+        "gain_m": sum(d["gain_m"] for d in details),
         "coordinates": row["coordinates"],
         "osm_way_ids": [d["osm_way_id"] for d in details],
         "surfaces": [d["surface"] for d in details],

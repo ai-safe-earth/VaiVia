@@ -37,6 +37,8 @@ export interface AuthOptions {
   audience?: string;
   /** Injected in tests so verification runs without a network call. */
   keyResolver?: JWTVerifyGetKey;
+  /** DEV ONLY: skip verification entirely, run everything as DEV_USER. */
+  devNoAuth?: boolean;
 }
 
 function bearerToken(header: string | undefined): string | null {
@@ -46,7 +48,34 @@ function bearerToken(header: string | undefined): string | null {
   return token.trim() || null;
 }
 
+/**
+ * Stable so dev data (conversations, quota rows) survives a restart and is not
+ * confused with a real Supabase `sub`, which is always a UUID.
+ */
+export const DEV_USER: AuthUser = {
+  id: 'dev-local-user',
+  email: 'dev@localhost',
+  role: 'authenticated',
+};
+
 const authPlugin: FastifyPluginAsync<AuthOptions> = async (app, options) => {
+  if (options.devNoAuth) {
+    // Loud on every boot: the one thing worse than running without auth is not
+    // noticing that you are.
+    app.log.warn(
+      'AUTH DISABLED (GATEWAY_DEV_NO_AUTH) — every request runs as ' +
+        `${DEV_USER.id}. Local development only.`,
+    );
+    app.decorate('identify', async (request: FastifyRequest) => {
+      request.user = DEV_USER;
+    });
+    // Same shape as the real one, but nothing can fail it, so no reply here.
+    app.decorate('authenticate', async (request: FastifyRequest) => {
+      request.user = DEV_USER;
+    });
+    return;
+  }
+
   if (!options.keyResolver && !options.jwksUrl) {
     // config.ts only *requires* this in production, so outside production the
     // empty string used to reach `new URL` and kill boot with a bare

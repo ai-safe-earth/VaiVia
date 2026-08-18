@@ -110,6 +110,28 @@ export default function Home() {
           initialMessages={history}
           onConversationCreated={conversationCreated}
         />
+        {/* Trail geometry, paths and POIs in every answer are OSM-derived, so
+            the credit belongs in the app chrome and not only on the map — a
+            user reading results never has to open the map to see it. */}
+        <footer className="data-credit">
+          Trails, paths and places from{' '}
+          <a
+            href="https://www.openstreetmap.org/copyright"
+            target="_blank"
+            rel="noreferrer"
+          >
+            © OpenStreetMap
+          </a>{' '}
+          contributors, under{' '}
+          <a
+            href="https://opendatacommons.org/licenses/odbl/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            ODbL
+          </a>
+          . Conditions change — check locally before you go.
+        </footer>
       </div>
       <div className="map">
         <MapView geometry={geometry} />

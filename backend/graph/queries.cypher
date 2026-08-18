@@ -262,26 +262,34 @@ LIMIT $limit
 UNWIND range(0, size($node_ids) - 2) AS i
 MATCH (a:Intersection)-[c:CONNECTS_TO]->(b:Intersection)
 WHERE a.osm_node_id = $node_ids[i] AND b.osm_node_id = $node_ids[i + 1]
-WITH i, c ORDER BY i, c.distance_m
+WITH i, c ORDER BY i, c.cost_m
 WITH i, collect(c)[0] AS edge
 RETURN i,
        edge.osm_way_id AS osm_way_id,
        edge.surface AS surface,
+       edge.highway_type AS highway_type,
+       edge.distance_m AS distance_m,
        coalesce(edge.elevation_gain_m, 0.0) AS gain_m
 ORDER BY i
 
 // name: route_gds_dijkstra
-// Cost-weighted routing over a named GDS projection. The projection is created
-// by graph_project_routing (below) and dropped after use.
+// Comfort-weighted routing over a named GDS projection. The projection is
+// created by graph_project_routing (below) and dropped after use.
+//
+// Weighted on cost_m, NOT distance_m: roads are straighter than trails, so
+// minimising raw distance returns road walks (docs/fragilities.md #10).
+// totalCost is therefore a penalised cost in no real unit — it is returned as
+// total_cost and must never be shown to a user or treated as a length. Real
+// distance comes from summing distance_m over route_edge_details.
 MATCH (src:Intersection {osm_node_id: $start_node}),
       (dst:Intersection {osm_node_id: $end_node})
 CALL gds.shortestPath.dijkstra.stream($graph_name, {
   sourceNode: src,
   targetNode: dst,
-  relationshipWeightProperty: 'distance_m'
+  relationshipWeightProperty: 'cost_m'
 })
 YIELD totalCost, nodeIds
-RETURN totalCost AS total_m,
+RETURN totalCost AS total_cost,
        [nodeId IN nodeIds |
          [gds.util.asNode(nodeId).location.longitude,
           gds.util.asNode(nodeId).location.latitude]] AS coordinates,
@@ -295,13 +303,59 @@ WHERE source.location.latitude >= $min_lat
   AND source.location.latitude <= $max_lat
   AND source.location.longitude >= $min_lon
   AND source.location.longitude <= $max_lon
+// cost_m is coalesced, not read raw: regions ingested before a property is
+// added keep NULL for it, and neighbouring region bboxes overlap, so a
+// re-ingested region's projection can still pick up stale edges from one that
+// was not. A missing weight is worse than a wrong one — it can read as zero and
+// make exactly the untreated edges look free. The fallback is a mid-range
+// penalty, matching DEFAULT_HIGHWAY_PENALTY in core/comfort.py.
 WITH gds.graph.project($graph_name, source, target,
-  {relationshipProperties: r {.distance_m}}) AS g
+  {relationshipProperties: r {
+     .distance_m,
+     cost_m: coalesce(r.cost_m, r.distance_m * 2.0)
+   }}) AS g
 RETURN g.graphName AS graph_name, g.nodeCount AS nodes, g.relationshipCount AS rels
 
 // name: graph_drop_routing
 CALL gds.graph.drop($graph_name, false) YIELD graphName
 RETURN graphName
+
+// name: intersections_in_ring
+// Loop seeding: intersections in an annulus around a start point. A loop of
+// perimeter L approximates a circle of radius L/(2*pi), so waypoints are drawn
+// from a ring at roughly that radius and spread by bearing (Python side) to
+// stop all three legs collapsing onto the same corridor. Point-indexed
+// distance predicate; no traversal.
+MATCH (i:Intersection)
+WHERE point.distance(
+        i.location, point({latitude: $lat, longitude: $lon})) >= $min_m
+  AND point.distance(
+        i.location, point({latitude: $lat, longitude: $lon})) <= $max_m
+RETURN i.osm_node_id AS osm_node_id,
+       i.location.latitude AS lat,
+       i.location.longitude AS lon
+LIMIT $limit
+
+// name: pois_near_points
+// Map-back: what does a route polyline pass? A routing engine returns geometry
+// and nothing else (GraphHopper does not even expose osm_way_id), so the join
+// back to meaning is spatial.
+//
+// This is the BOUNDING half — cheap, index-backed, deliberately generous. The
+// caller samples the polyline, asks for anything near those samples, then
+// filters exactly with core/geo.min_distance_to_polyline_m. Same two-step as
+// ingestion's PASSES_BY: a point index cannot measure distance to a line, so
+// bound in Cypher and be exact in Python.
+UNWIND $points AS pt
+MATCH (p:POI)
+WHERE point.distance(
+        p.location, point({latitude: pt[0], longitude: pt[1]})) <= $radius_m
+RETURN DISTINCT p.osm_id AS osm_id, p.name AS name, p.type AS type,
+       p.location.latitude AS lat, p.location.longitude AS lon,
+       p.description AS description,
+       p.description_source AS description_source,
+       p.description_license AS description_license,
+       p.description_url AS description_url
 
 // name: healthcheck
 RETURN 1 AS ok

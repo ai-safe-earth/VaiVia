@@ -28,26 +28,70 @@ MAX_RETRIES = 5
 # a contact address before running anything high-volume.
 USER_AGENT = os.environ.get("OVERPASS_USER_AGENT", "VaiVia/0.1 (trail data ingestion)")
 
+# Trail ways alone do not form a connected network: a path ends at a lane, you
+# walk 200 m, the next path starts. Ingesting only path/track/cycleway/footway
+# shattered Lecco into 1,627 components with the largest holding 31.7% of
+# intersections (docs/fragilities.md #9), which made routing between arbitrary
+# points fail and loop construction impossible.
+#
+# So the walkable connective types are included too. motorway/trunk/primary and
+# their _link ramps are deliberately excluded: routing a walker or rider onto
+# those is wrong, and often illegal. Anchored so `service` cannot also match
+# `services` (motorway service areas) or `secondary_link` ramps.
+#
+# Caveat this does NOT fix: Dijkstra still weights by raw distance, so a
+# straight road can now beat a winding trail. Comfort weighting is the
+# follow-up — highway_type is already stored on every CONNECTS_TO edge.
+# Trail-to-segment matching is unaffected: COMPATIBLE_HIGHWAYS in
+# spatial_match.py still refuses to compose a trail out of residential streets.
+WALKABLE_HIGHWAYS = (
+    "path|track|cycleway|footway|bridleway|steps|pedestrian"
+    "|living_street|residential|unclassified|service|tertiary|secondary"
+)
+
+# Two output statements. Routing ways need full `geom` to be split at
+# intersections; POIs need only a point, and many of them (car parks, lakes,
+# picnic sites) are areas rather than nodes, so `out center` collapses each to
+# one coordinate. osm_extract tells the two apart by geometry-vs-center.
+#
+# The POI set covers both roles the route pipeline needs: ANCHORS to start from
+# (parking, station) and DESTINATIONS worth reaching (peak, saddle, lake, beach,
+# waterfall, chapel/ermita, castle). See docs/route-pipeline.md.
 OSM_QUERY_TEMPLATE = """
 [out:json][timeout:{timeout}];
 (
-  way["highway"~"path|track|cycleway|footway"]({bbox});
-  node["natural"="water"]({bbox});
-  node["tourism"~"alpine_hut|wilderness_hut"]({bbox});
-  node["tourism"="camp_site"]({bbox});
-  node["tourism"="viewpoint"]({bbox});
-  node["railway"="station"]({bbox});
-  node["amenity"="swimming_area"]({bbox});
-  node["leisure"="swimming_area"]({bbox});
+  way["highway"~"^({highways})$"]({bbox});
 );
 out body geom;
+(
+  node["natural"~"^(water|peak|saddle|beach|spring|cave_entrance)$"]({bbox});
+  way["natural"~"^(water|beach)$"]({bbox});
+  relation["natural"~"^(water|beach)$"]({bbox});
+  node["tourism"~"^(alpine_hut|wilderness_hut|camp_site|viewpoint|picnic_site)$"]({bbox});
+  way["tourism"~"^(camp_site|picnic_site)$"]({bbox});
+  node["railway"="station"]({bbox});
+  node["amenity"~"^(swimming_area|parking)$"]({bbox});
+  way["amenity"~"^(swimming_area|parking)$"]({bbox});
+  node["leisure"="swimming_area"]({bbox});
+  way["leisure"="swimming_area"]({bbox});
+  node["waterway"="waterfall"]({bbox});
+  node["building"="chapel"]({bbox});
+  way["building"="chapel"]({bbox});
+  node["historic"~"^(wayside_shrine|wayside_cross|castle|ruins)$"]({bbox});
+  way["historic"~"^(castle|ruins)$"]({bbox});
+);
+out center;
 """
 
 
 def build_query(bbox: tuple[float, float, float, float]) -> str:
     settings = get_settings()
     bbox_str = ",".join(f"{c}" for c in bbox)
-    return OSM_QUERY_TEMPLATE.format(timeout=settings.overpass_timeout_s, bbox=bbox_str)
+    return OSM_QUERY_TEMPLATE.format(
+        timeout=settings.overpass_timeout_s,
+        bbox=bbox_str,
+        highways=WALKABLE_HIGHWAYS,
+    )
 
 
 async def fetch(query: str, use_cache: bool = True) -> dict[str, Any]:

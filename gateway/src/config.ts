@@ -15,6 +15,8 @@ export interface Config {
   /** Proves to the backend that a request came through this gateway. */
   gatewaySharedSecret: string;
   supabaseJwksUrl: string;
+  /** DEV ONLY: skip JWT verification and run every request as one fixed user. */
+  devNoAuth: boolean;
   supabaseUrl: string;
   /** Postgres connection string for quota checks; empty disables quotas. */
   databaseUrl: string;
@@ -37,6 +39,17 @@ function required(name: string, value: string | undefined, isProd: boolean): str
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const nodeEnv = env.NODE_ENV ?? 'development';
   const isProd = nodeEnv === 'production';
+  const devNoAuth = env.GATEWAY_DEV_NO_AUTH === 'true';
+
+  // A switch that disables authentication must not be one env var away from
+  // being live. Failing to boot is the only refusal a misconfigured deploy
+  // cannot ignore.
+  if (isProd && devNoAuth) {
+    throw new Error(
+      'GATEWAY_DEV_NO_AUTH=true with NODE_ENV=production — refusing to start ' +
+        'an unauthenticated gateway.',
+    );
+  }
 
   return {
     port: Number(env.GATEWAY_PORT ?? 3001),
@@ -49,7 +62,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .filter(Boolean),
     backendUrl: env.BACKEND_URL ?? 'http://localhost:8000',
     gatewaySharedSecret: required('GATEWAY_SHARED_SECRET', env.GATEWAY_SHARED_SECRET, isProd),
-    supabaseJwksUrl: required('SUPABASE_JWT_JWKS_URL', env.SUPABASE_JWT_JWKS_URL, isProd),
+    // Not required when auth is off: there is no Supabase to verify against.
+    supabaseJwksUrl: devNoAuth
+      ? ''
+      : required('SUPABASE_JWT_JWKS_URL', env.SUPABASE_JWT_JWKS_URL, isProd),
+    devNoAuth,
     supabaseUrl: env.SUPABASE_URL ?? '',
     databaseUrl: env.DATABASE_URL ?? '',
     rateLimit: {
