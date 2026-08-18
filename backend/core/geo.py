@@ -88,6 +88,39 @@ def distance_to_polyline_m(point: LatLon, polyline: list[LatLon]) -> float:
     return best
 
 
+def bounds_of(points: list[LatLon]) -> tuple[float, float, float, float]:
+    """(min_lat, min_lon, max_lat, max_lon) of a point list."""
+    lats = [p[0] for p in points]
+    lons = [p[1] for p in points]
+    return (min(lats), min(lons), max(lats), max(lons))
+
+
+def distance_to_bounds_m(
+    point: LatLon, bounds: tuple[float, float, float, float]
+) -> float:
+    """A cheap LOWER bound on the distance from a point to anything inside a box.
+
+    Nothing in the box can be nearer than this, which is what makes it useful:
+    one hypot against the box rules out a candidate that would otherwise cost a
+    full scan of a polyline. Zero inside the box.
+
+    Deliberately an underestimate. Longitude is scaled by the cosine of the
+    latitude furthest from the equator in play, which is where a degree of
+    longitude is shortest, so the result can only be too small — never too
+    large, which would make it prune something real.
+    """
+    lat, lon = point
+    min_lat, min_lon, max_lat, max_lon = bounds
+    dlat = max(min_lat - lat, 0.0, lat - max_lat)
+    dlon = max(min_lon - lon, 0.0, lon - max_lon)
+    if dlat == 0.0 and dlon == 0.0:
+        return 0.0
+    worst_lat = max(abs(lat), abs(min_lat), abs(max_lat))
+    return math.hypot(
+        dlat * 111_320.0, dlon * 111_320.0 * math.cos(math.radians(worst_lat))
+    )
+
+
 def nearest_vertex_index(point: LatLon, polyline: list[LatLon]) -> int:
     return min(range(len(polyline)), key=lambda i: haversine_m(point, polyline[i]))
 

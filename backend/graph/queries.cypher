@@ -353,16 +353,44 @@ LIMIT $limit
 // filters exactly with core/geo.min_distance_to_polyline_m. Same two-step as
 // ingestion's PASSES_BY: a point index cannot measure distance to a line, so
 // bound in Cypher and be exact in Python.
+//
+// The radius is a CONSTANT on purpose. Widening it per POI by that POI's own
+// reach (`<= $radius_m + p.extent_m`, to catch lakes whose centroid sits out on
+// the water) reads naturally and quietly destroys this query: the predicate then
+// depends on the node being tested, so the point index cannot serve it and every
+// sample point scans every POI. At 1,707 samples that took 14 s per route and
+// turned a catalogue rebuild into a seven-hour job. Areas are handled by
+// area_pois_near_point instead, which pays for one scan rather than 1,707.
 UNWIND $points AS pt
 MATCH (p:POI)
-// Widened by the POI's own reach. A lake's centroid sits out on the water --
-// Lago di Como's is 5.1 km from the nearest path -- so a plain centroid radius
-// rules out every shoreline route before the exact check ever sees it. This is
-// still only the BOUNDING step; the caller measures to the boundary.
 WHERE point.distance(
-        p.location, point({latitude: pt[0], longitude: pt[1]}))
-      <= $radius_m + coalesce(p.extent_m, 0.0)
+        p.location, point({latitude: pt[0], longitude: pt[1]})) <= $radius_m
 RETURN DISTINCT p.osm_id AS osm_id, p.name AS name, p.type AS type,
+       p.location.latitude AS lat, p.location.longitude AS lon,
+       [c IN coalesce(p.boundary, []) | [c.latitude, c.longitude]] AS boundary,
+       p.description AS description,
+       p.description_source AS description_source,
+       p.description_license AS description_license,
+       p.description_url AS description_url
+
+// name: area_pois_near_point
+// The other half of the map-back's bounding step: areas big enough that their
+// centroid says nothing useful. Lago di Como's sits 5,122 m out on the water, so
+// a centroid radius rules out every shoreline route before the exact check ever
+// sees one -- and no fixed radius fixes it, because 5 km would sweep in half the
+// region.
+//
+// So the reach is per-POI, which means this cannot use the point index. That is
+// affordable exactly once: the caller passes ONE point (the centre of the
+// route's bounding box) and `$reach_m` covers the whole route, so this is a
+// single scan of the POIs that have an extent at all. It must stay that way --
+// per-sample-point, it is the query that cost 14 s a route.
+MATCH (p:POI)
+WHERE coalesce(p.extent_m, 0.0) > 0
+  AND point.distance(
+        p.location, point({latitude: $lat, longitude: $lon}))
+      <= $reach_m + p.extent_m
+RETURN p.osm_id AS osm_id, p.name AS name, p.type AS type,
        p.location.latitude AS lat, p.location.longitude AS lon,
        [c IN coalesce(p.boundary, []) | [c.latitude, c.longitude]] AS boundary,
        p.description AS description,

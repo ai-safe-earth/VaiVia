@@ -27,7 +27,13 @@ generalises it to a whole route.
 
 from typing import Any
 
-from core.geo import LatLon, distance_to_polyline_m, haversine_m
+from core.geo import (
+    LatLon,
+    bounds_of,
+    distance_to_bounds_m,
+    distance_to_polyline_m,
+    haversine_m,
+)
 
 # How far apart the bounding samples are. Any POI within `radius_m` of the line
 # must be within `radius_m + SAMPLE_SPACING_M/2` of some sample, so the Cypher
@@ -87,11 +93,28 @@ async def pois_along_route(
         radius_m=radius_m + SAMPLE_SPACING_M / 2,
     )
 
+    bounds = bounds_of(polyline)
+    # Areas come from a second query rather than a wider radius on the first.
+    # A lake's centroid can sit kilometres from its own shore, so its candidacy
+    # depends on its own extent -- and a per-node radius cannot use the point
+    # index, which is why this is asked ONCE for the whole route instead of
+    # once per sample point.
+    centre = ((bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2)
+    areas = await db.run_named(
+        "area_pois_near_point",
+        lat=centre[0],
+        lon=centre[1],
+        # Everything on the route is within the box's half-diagonal of its
+        # centre, so nothing whose outline could come within radius is missed.
+        reach_m=haversine_m(centre, (bounds[2], bounds[3])) + radius_m,
+    )
+    seen = {poi["osm_id"] for poi in candidates}
+    candidates = candidates + [a for a in areas if a["osm_id"] not in seen]
     found: list[dict[str, Any]] = []
     for poi in candidates:
         if poi_types and poi["type"] not in poi_types:
             continue
-        distance_m = poi_distance_to_route(poi, polyline)
+        distance_m = poi_distance_to_route(poi, polyline, bounds, cutoff_m=radius_m)
         if distance_m > radius_m:
             continue  # a bounding artefact, not actually near the line
         found.append({**poi, "distance_m": round(distance_m, 1)})
@@ -100,7 +123,12 @@ async def pois_along_route(
     return found
 
 
-def poi_distance_to_route(poi: dict[str, Any], polyline: list[LatLon]) -> float:
+def poi_distance_to_route(
+    poi: dict[str, Any],
+    polyline: list[LatLon],
+    bounds: tuple[float, float, float, float] | None = None,
+    cutoff_m: float | None = None,
+) -> float:
     """How close the route comes to a POI, measuring to its SHAPE.
 
     For a node — a summit, a chapel — the centre is the thing, so distance to
@@ -110,13 +138,39 @@ def poi_distance_to_route(poi: dict[str, Any], polyline: list[LatLon]) -> float:
     What a walker means by "around the lake" is the shore, so an area is
     measured to its boundary.
 
-    Boundaries are sampled to ~100 points at ingestion, so this stays a few
-    thousand segment comparisons rather than millions.
+    Done naively that is ~100 boundary points against every segment of a
+    1,700-point route, for each of ~100 candidates: 17 million comparisons, and
+    it took **16.9 s per route**, which made a catalogue rebuild a seven-hour
+    job. So each boundary point is first measured against the route's bounding
+    BOX, which is one hypot and can only underestimate. Points are then walked
+    cheapest-bound-first and the loop stops as soon as the bound exceeds the
+    best real distance found — nothing after it can beat that. Most of a lake's
+    outline is nowhere near the route, so most points never cost a scan.
+
+    `bounds` is the route's box, passed in when measuring many POIs against one
+    route so it is computed once rather than per POI. `cutoff_m` is the distance
+    beyond which the caller stops caring: the area query is generous by design
+    and returns every lake within the route's reach, so most candidates are far
+    away and can be rejected on their bounds alone, without ever touching the
+    line. The value returned is then only guaranteed to exceed the cutoff.
     """
     boundary = poi.get("boundary")
     if not boundary:
         return distance_to_polyline_m((poi["lat"], poi["lon"]), polyline)
-    return min(distance_to_polyline_m((lat, lon), polyline) for lat, lon in boundary)
+
+    box = bounds if bounds is not None else bounds_of(polyline)
+    ranked = sorted(
+        ((distance_to_bounds_m((lat, lon), box), (lat, lon)) for lat, lon in boundary),
+        key=lambda pair: pair[0],
+    )
+    best = float("inf")
+    for lower_bound, point in ranked:
+        if lower_bound >= best:
+            break
+        if cutoff_m is not None and lower_bound > cutoff_m:
+            return min(best, lower_bound)
+        best = min(best, distance_to_polyline_m(point, polyline))
+    return best
 
 
 def summarize_pois(pois: list[dict[str, Any]]) -> dict[str, Any]:
