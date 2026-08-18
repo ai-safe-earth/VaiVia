@@ -150,3 +150,42 @@ Re-ingesting both regions left **5,489 stale edges**. They were invisible until 
 **The issue:** Strict structured outputs require every intent field to be present, which pressures the model into inventing a value where the user implied none. `activity` is the sharp edge: the search template treats `mixed` trails as matching *any* activity (`$activity IS NULL OR t.activity = $activity OR t.activity = 'mixed'`), so a `mixed` **filter** is strictly narrower than null — it matches only trails tagged both, while null matches those and everything else. A model reaching for `mixed` to mean "no preference" therefore gets *fewer* results than no filter at all, often zero. Found by the golden eval: "stroller friendly path open year round" returned nothing, and "chestnut forest and gravel by the water" excluded the one trail whose description names chestnut forest, because an unstated activity had been guessed as `hike`.
 
 **Our mitigation:** Two layers. The plan prompt states when to leave `activity` null and that `mixed` is not a stand-in for an unstated activity. Independently, `chat/composer.py::sanitize()` maps `activity="mixed"` to `None` in Python, alongside the existing scrub of vacuous `0` bounds — the boundary must not depend on model compliance. A genuine "suitable for both" ask searches slightly wider as a result, which degrades gracefully where the alternative returned nothing. The same failure shape should be suspected for any future enum filter whose "both/either" value is not a wildcard in the template.
+
+---
+
+## 12. A Defaulted `highway` Tag Put Lake Shores In The Routing Graph
+
+**The issue:** POIs are now fetched with `out geom` rather than `out center`,
+because an area needs its outline (see `(:POI)` in `docs/architecture.md`).
+With `out geom` a lake or car-park outline arrives as a way carrying **geometry and a
+node list — exactly like a path**. `osm_extract.extract` told routing ways from
+POIs by shape (`"geometry" in e`), so the outlines fell through into the
+routing branch, where
+
+    highway_type=tags.get("highway", "path")
+
+silently called them paths. **1,673 lake and parking outlines entered the
+routing graph as walkable ways**, and the router was free to send a walker
+across open water.
+
+No test caught it. Every unit test passed throughout, because none fed a POI
+way and a routing way through `extract` together; there is now one that does.
+It surfaced only because the boundary count came back as 12 where ~1,686 was
+expected, and chasing that discrepancy found it.
+
+**Our mitigation:** The two are now told apart by **tags, not shape** — a
+routing way must have a `highway` tag, an area POI must not. The mirror-image
+trap is worth naming: testing for the *absence* of a node list would have
+excluded every POI way, which is exactly why only the 12 relations got
+boundaries on the first attempt.
+
+Cleanup was surgical rather than a wipe. Of 2,242 suspect segments, 2,237
+claimed `"path"` from the 1,673 outlines and 5 claimed `"service"` from a
+single way — a genuine parking aisle that is legitimately both a road and a
+POI. Deleting all 2,242 would have removed real road; only the 2,237 were
+deleted, and segments returned to 104,812.
+
+**The lesson to keep:** `tags.get("highway", "path")` is a dangerous default.
+Silently naming an untagged way a path is what turned a filter bug into
+routable water instead of a loud failure at ingestion. `None` plus an explicit
+skip is the correct shape, and applying it is an open next step.

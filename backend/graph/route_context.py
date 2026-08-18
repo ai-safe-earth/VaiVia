@@ -91,13 +91,32 @@ async def pois_along_route(
     for poi in candidates:
         if poi_types and poi["type"] not in poi_types:
             continue
-        distance_m = distance_to_polyline_m((poi["lat"], poi["lon"]), polyline)
+        distance_m = poi_distance_to_route(poi, polyline)
         if distance_m > radius_m:
-            continue  # a bounding-box artefact, not actually near the line
+            continue  # a bounding artefact, not actually near the line
         found.append({**poi, "distance_m": round(distance_m, 1)})
 
     found.sort(key=lambda p: p["distance_m"])
     return found
+
+
+def poi_distance_to_route(poi: dict[str, Any], polyline: list[LatLon]) -> float:
+    """How close the route comes to a POI, measuring to its SHAPE.
+
+    For a node — a summit, a chapel — the centre is the thing, so distance to
+    the point is right. For an area it is not: a lake's centroid sits out on
+    the water, and Lago di Como's is 5.1 km from the nearest path, so measuring
+    to it declares that no route in the region goes anywhere near the lake.
+    What a walker means by "around the lake" is the shore, so an area is
+    measured to its boundary.
+
+    Boundaries are sampled to ~100 points at ingestion, so this stays a few
+    thousand segment comparisons rather than millions.
+    """
+    boundary = poi.get("boundary")
+    if not boundary:
+        return distance_to_polyline_m((poi["lat"], poi["lon"]), polyline)
+    return min(distance_to_polyline_m((lat, lon), polyline) for lat, lon in boundary)
 
 
 def summarize_pois(pois: list[dict[str, Any]]) -> dict[str, Any]:

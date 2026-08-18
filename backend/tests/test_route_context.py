@@ -139,3 +139,29 @@ def test_summary_excludes_wikidata_one_liners_from_described():
     assert summary["attributions"] == [
         {"url": "https://it.wikipedia.org/wiki/Grigna", "license": "CC-BY-SA-4.0"}
     ]
+
+
+def test_an_area_poi_is_measured_to_its_shore_not_its_centre():
+    """Lago di Como's centroid is 5.1 km out on the water. Measuring to it
+    reports every shoreline path as far away, so "a route around the lake" can
+    never be answered — which is exactly what happened before boundaries."""
+    from graph.route_context import poi_distance_to_route
+
+    # A route hugging the west shore of a north-south lake.
+    route = [(45.85, 9.390), (45.87, 9.390), (45.89, 9.390)]
+    lake = {
+        "lat": 45.87,
+        "lon": 9.45,  # centre, ~4.7 km east of the route
+        "boundary": [[45.85, 9.391], [45.89, 9.391], [45.89, 9.51], [45.85, 9.51]],
+    }
+    assert poi_distance_to_route(lake, route) < 150
+    # Without the boundary the same lake reads as kilometres away.
+    assert poi_distance_to_route({**lake, "boundary": []}, route) > 4000
+
+
+def test_a_node_poi_still_measures_to_its_point():
+    from graph.route_context import poi_distance_to_route
+
+    route = [(45.85, 9.390), (45.89, 9.390)]
+    summit = {"lat": 45.87, "lon": 9.3905, "boundary": []}
+    assert poi_distance_to_route(summit, route) < 60

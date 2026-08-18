@@ -16,6 +16,7 @@ from typing import Any
 from core.comfort import comfort_cost_m
 from core.geo import (
     LatLon,
+    haversine_m,
     in_bbox,
     min_distance_to_polyline_m,
     polyline_length_m,
@@ -83,6 +84,42 @@ class ExtractResult:
     pois: list[dict[str, Any]] = field(default_factory=list)
 
 
+MAX_BOUNDARY_POINTS = 100
+
+
+def area_boundary(element: dict[str, Any]) -> list[LatLon]:
+    """The outline of an area POI, as (lat, lon).
+
+    A closed way carries `geometry` directly. A multipolygon relation carries
+    its rings as members, so the outer ones are concatenated — rough as a
+    polygon, but exact enough to answer "does this path run along the shore".
+    """
+    geometry = element.get("geometry")
+    if geometry:
+        return [(g["lat"], g["lon"]) for g in geometry if "lat" in g]
+
+    points: list[LatLon] = []
+    for member in element.get("members") or []:
+        if member.get("role") not in (None, "", "outer"):
+            continue
+        for g in member.get("geometry") or []:
+            if "lat" in g:
+                points.append((g["lat"], g["lon"]))
+    return points
+
+
+def sample_ring(points: list[LatLon], limit: int = MAX_BOUNDARY_POINTS) -> list[LatLon]:
+    """Thin an outline to at most `limit` points, keeping its shape.
+
+    Evenly spaced by index rather than by distance: cheap, and the error is far
+    smaller than the matching threshold it feeds.
+    """
+    if len(points) <= limit:
+        return points
+    step = len(points) / limit
+    return [points[int(i * step)] for i in range(limit)]
+
+
 def poi_type_for(tags: dict[str, str]) -> str | None:
     for key, value, poi_type in POI_TAG_MAP:
         if tags.get(key) == value:
@@ -92,7 +129,18 @@ def poi_type_for(tags: dict[str, str]) -> str | None:
 
 def extract(overpass_json: dict[str, Any]) -> ExtractResult:
     elements = overpass_json.get("elements", [])
-    ways = [e for e in elements if e.get("type") == "way" and "geometry" in e]
+    # Routing ways are identified by their TAGS, not by their shape. Since
+    # POIs are fetched with `out geom`, a lake or car park outline also
+    # arrives as a way with geometry and a node list — and having no highway
+    # tag it would fall through to the "path" default and become routable.
+    # That briefly put lake shores in the routing graph.
+    ways = [
+        e
+        for e in elements
+        if e.get("type") == "way"
+        and "geometry" in e
+        and e.get("tags", {}).get("highway")
+    ]
     nodes = [e for e in elements if e.get("type") == "node"]
     # Area POIs. A car park, a lake and a picnic site are mapped as closed ways
     # or multipolygons, not nodes, so Overpass returns them with `center`
@@ -100,8 +148,16 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
     # Without this the whole class is simply absent, which is why lake
     # proximity needed a 500 m radius: the only lake nodes are labels sitting
     # out on the water.
+    # The mirror image: an area POI is a way or relation that is NOT a
+    # routing way. `out geom` gives ways a node list too, so testing for its
+    # absence would have excluded every POI way — which is why only the 12
+    # relations got boundaries on the first attempt.
     area_pois = [
-        e for e in elements if e.get("type") in ("way", "relation") and "center" in e
+        e
+        for e in elements
+        if e.get("type") in ("way", "relation")
+        and not e.get("tags", {}).get("highway")
+        and (e.get("geometry") or e.get("members") or "center" in e)
     ]
 
     # Count node usage across ways to find intersections.
@@ -160,6 +216,9 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
                 "type": poi_type,
                 "lat": node["lat"],
                 "lon": node["lon"],
+                # A node has no extent; identical keys keep the write uniform.
+                "boundary": [],
+                "extent_m": 0.0,
                 # Kept so scripts.enrich_pois_wiki can look the place up later.
                 # Only ~12% of destinations carry either, but where they do the
                 # prose is the best open description we have.
@@ -171,8 +230,19 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
     for area in area_pois:
         tags = area.get("tags", {})
         poi_type = poi_type_for(tags)
+        if poi_type is None:
+            continue
+        # Keep the OUTLINE, not just a centre. A centroid is fine for a car
+        # park and useless for a lake: Lago di Como's sits 5.1 km out on the
+        # water, so measuring to it reports every shoreline path as far away
+        # and "a route around the lake" can never be answered.
+        boundary = area_boundary(area)
         center = area.get("center") or {}
-        if poi_type is None or "lat" not in center:
+        if boundary:
+            centre = polyline_midpoint(boundary)
+        elif "lat" in center:
+            centre = (center["lat"], center["lon"])
+        else:
             continue
         # Prefixed so a way id and a node id of the same number cannot collide
         # on the MERGE key. Node POIs keep bare ids so existing data is stable.
@@ -182,8 +252,17 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
                 "osm_id": f"{prefix}{area['id']}",
                 "name": tags.get("name"),
                 "type": poi_type,
-                "lat": center["lat"],
-                "lon": center["lon"],
+                "lat": centre[0],
+                "lon": centre[1],
+                # Sampled: a 4,000-point lake outline must not become a
+                # 4,000-point node property, and ~100 points still traces a
+                # shore closely enough to say if a path runs along it.
+                "boundary": [list(p) for p in sample_ring(boundary)],
+                # How far the outline reaches from the centre, so the
+                # map-back knows which POIs are worth measuring at all.
+                "extent_m": max(
+                    (haversine_m(centre, point) for point in boundary), default=0.0
+                ),
                 "wikidata": tags.get("wikidata"),
                 "wikipedia": tags.get("wikipedia"),
             }

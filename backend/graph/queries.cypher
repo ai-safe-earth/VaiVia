@@ -355,10 +355,16 @@ LIMIT $limit
 // bound in Cypher and be exact in Python.
 UNWIND $points AS pt
 MATCH (p:POI)
+// Widened by the POI's own reach. A lake's centroid sits out on the water --
+// Lago di Como's is 5.1 km from the nearest path -- so a plain centroid radius
+// rules out every shoreline route before the exact check ever sees it. This is
+// still only the BOUNDING step; the caller measures to the boundary.
 WHERE point.distance(
-        p.location, point({latitude: pt[0], longitude: pt[1]})) <= $radius_m
+        p.location, point({latitude: pt[0], longitude: pt[1]}))
+      <= $radius_m + coalesce(p.extent_m, 0.0)
 RETURN DISTINCT p.osm_id AS osm_id, p.name AS name, p.type AS type,
        p.location.latitude AS lat, p.location.longitude AS lon,
+       [c IN coalesce(p.boundary, []) | [c.latitude, c.longitude]] AS boundary,
        p.description AS description,
        p.description_source AS description_source,
        p.description_license AS description_license,
