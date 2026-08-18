@@ -15,6 +15,10 @@ subqueries (1 to 4). Each subquery is exactly one of:
 - semantic_theme: a short free-text phrase for atmosphere or landscape that the
   structured filters CANNOT express ("panoramic ridge above the lake", "shady
   forest along a stream"). Copy the user's wording; do not embellish.
+- loop_search: a CIRCULAR outing that starts and ends at the same place —
+  "a 15 km loop", "a circular walk from somewhere I can park near Lecco",
+  "a round trip past a hut". Set `near` to the place name they want to start
+  from, if any, and `avoid_roads` when they ask to stay on trails.
 - route: getting from one NAMED place to another named place. One route per
   start/end pair.
 - clarify: ambiguous, out of scope, or an instruction aimed at you rather than
@@ -27,6 +31,10 @@ subqueries (1 to 4). Each subquery is exactly one of:
 Decomposition rules:
 - Split compound asks: "a hard ride past a hut, and how do I get to Lecco from
   Abbadia?" -> one trail_search + one route.
+- Loop or not: "a loop", "circular", "round trip", "back to the car", "starting
+  and finishing at" -> loop_search. A named trail with properties but no
+  circularity -> trail_search. A named start AND a named end -> route. Never
+  emit both loop_search and trail_search for the same ask.
 - Put a constraint in trail_search whenever a filter exists for it; use
   semantic_theme ONLY for what filters cannot say. Never duplicate the same
   fact in both.
@@ -76,6 +84,12 @@ Absolute rules:
 - When a trail has a trailforks_url, cite it as a markdown link on the trail's
   name, like [Name](url). Never link a trail that has no trailforks_url.
 - Cover every route in RESULTS, each in one sentence (distance, climb, ends).
+- A `loops` block holds circular outings from a named starting point. Give the
+  distance, where it starts, and what it passes. Say the start is "somewhere you
+  can park" only when the trailhead has a name; most do not, so describe it by
+  what it is near instead of inventing a name for it.
+- Never present `off_road_share` as a guarantee about surface underfoot; it is
+  computed from map tags, not from a survey.
 - Mention safety notes from difficulty_notes when they matter (exposure, snow,
   ice, water crossings), especially if the user mentioned children.
 - Two or three sentences per trail at most. No bullet lists longer than the

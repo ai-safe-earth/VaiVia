@@ -208,9 +208,33 @@ difficulty, surface mix. Compose the description from all of it.
 properties, plus `PASSES_BY`/`NEAR_POI`-style edges to the POIs and trails it
 touches, then embed the composed description.
 
-**6-8. Runtime.** Unchanged in shape from today: intents -> composer -> named
-Cypher templates, except the templates now select over `(:Route)` rather than
-assembling one.
+**6-8. Runtime — BUILT 2026-08-18.** `loop_search` is a new atomic intent at
+the LLM boundary, alongside trail_search / route / semantic_theme / clarify. It
+carries only what a walker says out loud — a distance range, features to pass, a
+place to start near, and whether to keep off roads — and maps onto the
+`search_loops` template, which filters `(:Route)` and orders by the score
+computed offline.
+
+Verified live: *"a 15 km loop on trails past a peak near Lecco"* returns five
+catalogue loops of 14.2-17.9 km at 83-98% off-road, over Monte Ocone, Punta
+Cermenati (Monte Resegone) and Zucco di Teral. No routing happens in the turn.
+
+`check_intents_live` still passes 17/17 with the adversarial half at 7/7, so
+adding an intent did not weaken containment.
+
+Two bugs this shook out, both worth remembering:
+
+- **A stated distance is a point estimate, not an interval.** The model returns
+  "a 15 km loop" as `min=max=15000`, an exact-equality filter. Real routes are
+  15,771 m, so it matched nothing and the user was told no such loop existed
+  while 500 sat in the catalogue. `widen_narrow_band` turns a band narrower than
+  15% of itself into +/-20%, deterministically in Python rather than as another
+  prompt rule the model may not follow — the same reasoning as the 0-bound
+  scrub.
+- **Composer tests are not orchestrator tests.** The first version passed every
+  composer test and 500'd on every real request, because `_loops` referenced
+  `self.db` where the attribute is `self._db`. There is now a test that
+  executes the orchestrator path against a fake db.
 
 ## What this makes possible that today's design cannot
 

@@ -364,6 +364,55 @@ RETURN DISTINCT p.osm_id AS osm_id, p.name AS name, p.type AS type,
        p.description_license AS description_license,
        p.description_url AS description_url
 
+// name: search_loops
+// Stage 7: the chat layer SELECTS from the precomputed catalogue instead of
+// computing a route per request (docs/route-pipeline.md). Everything expensive
+// -- generation, scoring, dedup, the POI map-back -- already happened offline,
+// so a turn is a filter and an ORDER BY.
+//
+// Ordered by the stored score, which already folds in length accuracy, off-road
+// share, variety and climb. A caller must not re-rank on one of those alone or
+// the offline scoring is silently overridden.
+MATCH (r:Route)-[:STARTS_FROM]->(th:Trailhead)
+WHERE ($min_distance_m IS NULL OR r.distance_m >= $min_distance_m)
+  AND ($max_distance_m IS NULL OR r.distance_m <= $max_distance_m)
+  AND ($min_off_road IS NULL OR r.off_road_share >= $min_off_road)
+  AND ($near_lat IS NULL
+       OR point.distance(th.location,
+                         point({latitude: $near_lat, longitude: $near_lon}))
+          <= $near_radius_m)
+CALL (r) {
+  OPTIONAL MATCH (r)-[:PASSES]->(p:POI)
+  WITH DISTINCT p
+  WHERE p IS NOT NULL AND (size($poi_types) = 0 OR p.type IN $poi_types)
+  RETURN collect(p.type) AS found_types,
+         collect({name: p.name, type: p.type})[0..8] AS pois
+}
+WITH r, th, found_types, pois
+// Every requested feature must be present, not merely one of them: "past a hut
+// AND a lake" is a conjunction to a walker.
+WHERE size($poi_types) = 0
+   OR all(wanted IN $poi_types WHERE wanted IN found_types)
+RETURN r.route_id AS id,
+       r.distance_m AS distance_m,
+       r.ascent_m AS ascent_m,
+       r.off_road_share AS off_road_share,
+       r.score AS score,
+       r.named_pois AS named_pois,
+       th.trailhead_id AS trailhead_id,
+       th.name AS trailhead_name,
+       th.location.latitude AS start_lat,
+       th.location.longitude AS start_lon,
+       pois AS pois
+ORDER BY r.score DESC
+LIMIT $limit
+
+// name: route_geometry
+// The map payload for a catalogue route.
+MATCH (r:Route {route_id: $route_id})
+RETURN r.route_id AS id,
+       [p IN r.geometry | [p.longitude, p.latitude]] AS coordinates
+
 // name: healthcheck
 RETURN 1 AS ok
 

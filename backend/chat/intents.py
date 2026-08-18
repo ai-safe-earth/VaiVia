@@ -39,6 +39,26 @@ class TrailSearchIntent(BaseModel):
     family_friendly: bool = False
 
 
+class LoopSearchIntent(BaseModel):
+    """A circular outing: start somewhere you can reach, come back to it.
+
+    Distinct from TrailSearchIntent (a named trail with properties) and from
+    RouteIntent (getting from one named place to another). It selects from the
+    precomputed catalogue built by scripts.build_routes, so no field here names
+    a template, an id, or anything the model could steer the query with -- only
+    what a walker would say out loud.
+    """
+
+    kind: Literal["loop_search"] = "loop_search"
+    min_distance_m: Annotated[float, Field(ge=0)] | None = None
+    max_distance_m: Annotated[float, Field(ge=0)] | None = None
+    poi_types: list[PoiType] = Field(default_factory=list)
+    #: A place to start near, by name. Resolved server-side against known POIs.
+    near: str | None = None
+    #: "on trails", "keep off the roads". Maps to a floor on off-road share.
+    avoid_roads: bool = False
+
+
 class RouteIntent(BaseModel):
     """Route between two named places. Maps to the routing template chain."""
 
@@ -68,7 +88,11 @@ class ClarifyIntent(BaseModel):
 
 
 Intent = Annotated[
-    TrailSearchIntent | RouteIntent | SemanticThemeIntent | ClarifyIntent,
+    TrailSearchIntent
+    | LoopSearchIntent
+    | RouteIntent
+    | SemanticThemeIntent
+    | ClarifyIntent,
     Field(discriminator="kind"),
 ]
 

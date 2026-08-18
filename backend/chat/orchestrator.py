@@ -147,8 +147,13 @@ class ChatOrchestrator:
     def _result_kind(plan: ComposedPlan) -> str:
         if plan.is_clarify:
             return "clarify"
-        if plan.routes and not (plan.search or plan.theme):
+        if plan.routes and not (plan.search or plan.theme or plan.loop):
             return "route"
+        # A loops-only turn is a loop_search, not a trail_search. The label is
+        # client-facing: mislabelling it makes the frontend render catalogue
+        # loops as if they were trails, which they are not.
+        if plan.loop is not None and not (plan.search or plan.theme):
+            return "loop_search"
         return "trail_search"
 
     async def _execute(
@@ -174,6 +179,11 @@ class ChatOrchestrator:
                 results["semantic_unavailable"] = True
             refs["trail_ids"] = [r["id"] for r in trails]
 
+        if plan.loop is not None:
+            loops = await self._loops(plan.loop)
+            results["loops"] = loops
+            refs["loop_ids"] = [r["id"] for r in loops]
+
         if plan.routes:
             routes, route_refs = await self._routes(plan.routes)
             results["routes"] = routes
@@ -191,6 +201,46 @@ class ChatOrchestrator:
                         results.setdefault(key, routes[0][key])
 
         return results, refs
+
+    async def _loops(self, intent: Any) -> list[dict[str, Any]]:
+        """Select from the precomputed catalogue. No routing happens here.
+
+        Everything costly ran offline in scripts.build_routes, so this is a
+        filter over (:Route) ordered by the score computed there.
+        """
+        near_lat = near_lon = None
+        if intent.near:
+            # Same resolution path as point-to-point routing: escaped full-text
+            # first, CONTAINS as fallback. User text never reaches Cypher as
+            # anything but a parameter.
+            query = lucene_escape(intent.near).strip()
+            rows = (
+                await self._db.run_named("poi_by_name_fulltext", query=query, limit=1)
+                if query
+                else []
+            )
+            if not rows:
+                rows = await self._db.run_named(
+                    "poi_by_name", name=intent.near, limit=1
+                )
+            if rows:
+                near_lat, near_lon = rows[0]["lat"], rows[0]["lon"]
+
+        settings = get_settings()
+        return await self._db.run_named(
+            "search_loops",
+            min_distance_m=intent.min_distance_m,
+            max_distance_m=intent.max_distance_m,
+            # "on trails, off the roads" as a floor rather than a hard filter:
+            # the catalogue averages 87% off-road, so a high bar would exclude
+            # good routes for the sake of a few hundred metres of lane.
+            min_off_road=0.7 if intent.avoid_roads else None,
+            poi_types=list(intent.poi_types),
+            near_lat=near_lat,
+            near_lon=near_lon,
+            near_radius_m=settings.loop_near_radius_m,
+            limit=SEARCH_RESULT_LIMIT,
+        )
 
     async def _search(
         self, intent: TrailSearchIntent, theme: str | None
