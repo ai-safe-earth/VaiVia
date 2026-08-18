@@ -122,9 +122,45 @@ destination is a POI worth reaching: peak, lake, ermita, hut, viewpoint, sea.
 
 ## Stage detail
 
-**1. Anchors.** Intersections within ~200 m of `amenity=parking` or
-`railway=station`, restricted to the main connected component so a route can
-never be seeded on an island. Precomputed, stored on the node.
+**1. Anchors — BUILT 2026-08-18** (`scripts/build_trailheads.py`).
+
+Anchors snap to the network within 200 m and must sit in the largest connected
+component, so a route can never be seeded on an island — the failure that
+returned 0/10 loops before fragility #9 was found. GDS WCC now writes
+`component_id` onto every `(:Intersection)`, which turns "can a route exist from
+here" into a property check rather than an algorithm per candidate.
+
+Lecco: 1,519 of 1,547 parking/station POIs snapped, clustering to **266
+distinct `(:Trailhead)` nodes**. That collapse is the point — a row of car parks
+along one road is one place to start, and 1,511 candidates would have produced a
+catalogue nobody could review.
+
+Each trailhead carries the off-road share of the network within 750 m, which
+separates a mountain trailhead from a supermarket car park that happens to touch
+a footpath:
+
+| off-road share | trailheads |
+|---|---|
+| trail (>60%) | 46 |
+| mixed (30-60%) | 145 |
+| urban (<30%) | 75 |
+
+The score is **descriptive, not a filter**. What counts as "enough trail" is a
+product decision, and dropping candidates inside the build step would hide it.
+
+Only 37 of 266 have a name, because car parks are rarely named in OSM. Naming
+trailheads from a nearby named feature is unsolved and worth doing before any of
+this reaches a user — "start from the car park at Vò di Moncodeno" is an answer,
+"start from trailhead 4312828180" is not.
+
+Trailheads are their own nodes, not labels on `(:Intersection)`, so re-running
+OSM ingestion cannot clobber derived data. `(:Trailhead)-[:STARTS_AT]->(:Intersection)`
+gives routing its entry point and `-[:SERVED_BY]->(:POI)` records which car parks
+it represents.
+
+**Catalogue size is now predictable:** 266 trailheads x 5 distances x ~3 kept is
+roughly 4,000 routes for Lecco, or ~2,900 if the urban trailheads are excluded.
+Reviewable.
 
 **2. Generate.** Round trips and point-to-point. Whether this is our own
 seed-and-stitch or GraphHopper is the open question in `docs/routing-engine.md`;

@@ -29,11 +29,13 @@ CREATE CONSTRAINT segment_way_id  IF NOT EXISTS FOR (s:Segment)      REQUIRE s.o
 CREATE CONSTRAINT inter_node_id   IF NOT EXISTS FOR (i:Intersection) REQUIRE i.osm_node_id IS UNIQUE;
 CREATE CONSTRAINT poi_osm_id      IF NOT EXISTS FOR (p:POI)          REQUIRE p.osm_id IS UNIQUE;
 CREATE CONSTRAINT region_name     IF NOT EXISTS FOR (r:Region)       REQUIRE r.name IS UNIQUE;
+CREATE CONSTRAINT trailhead_id     IF NOT EXISTS FOR (t:Trailhead)    REQUIRE t.trailhead_id IS UNIQUE;
 
 // ── Spatial point indexes ────────────────────────────────────────────────────
 CREATE POINT INDEX inter_location   IF NOT EXISTS FOR (i:Intersection) ON (i.location);
 CREATE POINT INDEX poi_location     IF NOT EXISTS FOR (p:POI)          ON (p.location);
 CREATE POINT INDEX segment_location IF NOT EXISTS FOR (s:Segment)      ON (s.location);
+CREATE POINT INDEX trailhead_location IF NOT EXISTS FOR (t:Trailhead) ON (t.location);
 
 // ── Filter indexes ───────────────────────────────────────────────────────────
 CREATE INDEX trail_difficulty_level IF NOT EXISTS FOR (t:Trail) ON (t.difficulty_level);
