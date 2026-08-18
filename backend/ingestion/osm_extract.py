@@ -23,7 +23,14 @@ from core.geo import (
 )
 
 POI_TAG_MAP: list[tuple[str, str, str]] = [
-    # (tag key, tag value, poi type) — first match wins
+    # (tag key, tag value, poi type) — first match wins.
+    #
+    # Two roles, deliberately in one table. ANCHORS are where an outing can
+    # start, because you can leave a car or step off a train there —
+    # `parking` exists for that alone and is not something a user asks to walk
+    # past. DESTINATIONS are places worth reaching, which is what turns a line
+    # on a map into an outing. api.models.PoiType exposes only the latter to
+    # the chat layer.
     ("natural", "water", "lake"),
     ("tourism", "alpine_hut", "hut"),
     ("tourism", "wilderness_hut", "hut"),
@@ -32,6 +39,24 @@ POI_TAG_MAP: list[tuple[str, str, str]] = [
     ("railway", "station", "station"),
     ("amenity", "swimming_area", "bathing_water"),
     ("leisure", "swimming_area", "bathing_water"),
+    # Anchors
+    ("amenity", "parking", "parking"),
+    # Destinations
+    ("natural", "peak", "peak"),
+    ("natural", "saddle", "saddle"),
+    ("natural", "beach", "beach"),
+    ("natural", "spring", "spring"),
+    ("natural", "cave_entrance", "cave"),
+    ("waterway", "waterfall", "waterfall"),
+    # An ermita/eremo is tagged inconsistently; all three forms are common in
+    # Italy and Spain, so all three map to one type rather than three the user
+    # would have to guess between.
+    ("building", "chapel", "chapel"),
+    ("historic", "wayside_shrine", "chapel"),
+    ("historic", "wayside_cross", "chapel"),
+    ("historic", "castle", "castle"),
+    ("historic", "ruins", "ruins"),
+    ("tourism", "picnic_site", "picnic_site"),
 ]
 
 
@@ -69,6 +94,15 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
     elements = overpass_json.get("elements", [])
     ways = [e for e in elements if e.get("type") == "way" and "geometry" in e]
     nodes = [e for e in elements if e.get("type") == "node"]
+    # Area POIs. A car park, a lake and a picnic site are mapped as closed ways
+    # or multipolygons, not nodes, so Overpass returns them with `center`
+    # instead of `geometry`. Routing ways are told apart by carrying geometry.
+    # Without this the whole class is simply absent, which is why lake
+    # proximity needed a 500 m radius: the only lake nodes are labels sitting
+    # out on the water.
+    area_pois = [
+        e for e in elements if e.get("type") in ("way", "relation") and "center" in e
+    ]
 
     # Count node usage across ways to find intersections.
     usage: dict[str, int] = {}
@@ -126,6 +160,25 @@ def extract(overpass_json: dict[str, Any]) -> ExtractResult:
                 "type": poi_type,
                 "lat": node["lat"],
                 "lon": node["lon"],
+            }
+        )
+
+    for area in area_pois:
+        tags = area.get("tags", {})
+        poi_type = poi_type_for(tags)
+        center = area.get("center") or {}
+        if poi_type is None or "lat" not in center:
+            continue
+        # Prefixed so a way id and a node id of the same number cannot collide
+        # on the MERGE key. Node POIs keep bare ids so existing data is stable.
+        prefix = "w" if area["type"] == "way" else "r"
+        result.pois.append(
+            {
+                "osm_id": f"{prefix}{area['id']}",
+                "name": tags.get("name"),
+                "type": poi_type,
+                "lat": center["lat"],
+                "lon": center["lon"],
             }
         )
 

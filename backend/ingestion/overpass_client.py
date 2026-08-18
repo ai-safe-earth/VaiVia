@@ -49,19 +49,38 @@ WALKABLE_HIGHWAYS = (
     "|living_street|residential|unclassified|service|tertiary|secondary"
 )
 
+# Two output statements. Routing ways need full `geom` to be split at
+# intersections; POIs need only a point, and many of them (car parks, lakes,
+# picnic sites) are areas rather than nodes, so `out center` collapses each to
+# one coordinate. osm_extract tells the two apart by geometry-vs-center.
+#
+# The POI set covers both roles the route pipeline needs: ANCHORS to start from
+# (parking, station) and DESTINATIONS worth reaching (peak, saddle, lake, beach,
+# waterfall, chapel/ermita, castle). See docs/route-pipeline.md.
 OSM_QUERY_TEMPLATE = """
 [out:json][timeout:{timeout}];
 (
   way["highway"~"^({highways})$"]({bbox});
-  node["natural"="water"]({bbox});
-  node["tourism"~"alpine_hut|wilderness_hut"]({bbox});
-  node["tourism"="camp_site"]({bbox});
-  node["tourism"="viewpoint"]({bbox});
-  node["railway"="station"]({bbox});
-  node["amenity"="swimming_area"]({bbox});
-  node["leisure"="swimming_area"]({bbox});
 );
 out body geom;
+(
+  node["natural"~"^(water|peak|saddle|beach|spring|cave_entrance)$"]({bbox});
+  way["natural"~"^(water|beach)$"]({bbox});
+  relation["natural"~"^(water|beach)$"]({bbox});
+  node["tourism"~"^(alpine_hut|wilderness_hut|camp_site|viewpoint|picnic_site)$"]({bbox});
+  way["tourism"~"^(camp_site|picnic_site)$"]({bbox});
+  node["railway"="station"]({bbox});
+  node["amenity"~"^(swimming_area|parking)$"]({bbox});
+  way["amenity"~"^(swimming_area|parking)$"]({bbox});
+  node["leisure"="swimming_area"]({bbox});
+  way["leisure"="swimming_area"]({bbox});
+  node["waterway"="waterfall"]({bbox});
+  node["building"="chapel"]({bbox});
+  way["building"="chapel"]({bbox});
+  node["historic"~"^(wayside_shrine|wayside_cross|castle|ruins)$"]({bbox});
+  way["historic"~"^(castle|ruins)$"]({bbox});
+);
+out center;
 """
 
 

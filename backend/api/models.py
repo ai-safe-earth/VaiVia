@@ -9,7 +9,28 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 Activity = Literal["mtb", "hike", "mixed"]
-PoiType = Literal["lake", "hut", "campsite", "station", "bathing_water", "viewpoint"]
+# What a user can ask to pass or reach. Deliberately a subset of the POI types
+# in the graph: `parking` is ingested as a route ANCHOR (somewhere to leave the
+# car) and nobody asks for a walk past a car park, so it is not offered here.
+# See ingestion/osm_extract.py POI_TAG_MAP and docs/route-pipeline.md.
+PoiType = Literal[
+    "lake",
+    "hut",
+    "campsite",
+    "station",
+    "bathing_water",
+    "viewpoint",
+    "peak",
+    "saddle",
+    "beach",
+    "spring",
+    "cave",
+    "waterfall",
+    "chapel",
+    "castle",
+    "ruins",
+    "picnic_site",
+]
 Season = Literal["spring", "summer", "autumn", "winter"]
 
 
