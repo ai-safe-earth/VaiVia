@@ -331,6 +331,13 @@ WHERE point.distance(
         i.location, point({latitude: $lat, longitude: $lon})) >= $min_m
   AND point.distance(
         i.location, point({latitude: $lat, longitude: $lon})) <= $max_m
+  // Same component as the start. component_id is written by
+  // scripts.build_trailheads from a projection over the region bbox, so this
+  // one predicate excludes both unreachable waypoints and — importantly —
+  // waypoints outside the projection. A ring near the bbox edge otherwise
+  // returns nodes GDS has never heard of, and Dijkstra throws
+  // "targetNode nodes do not exist in the in-memory graph".
+  AND ($component_id IS NULL OR i.component_id = $component_id)
 RETURN i.osm_node_id AS osm_node_id,
        i.location.latitude AS lat,
        i.location.longitude AS lon

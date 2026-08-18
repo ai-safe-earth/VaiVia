@@ -198,6 +198,7 @@ async def main() -> tuple[str | None, list[dict[str, Any]]]:
                 lon=START_LON,
                 min_m=radius * (1 - RING_TOLERANCE),
                 max_m=radius * (1 + RING_TOLERANCE),
+                component_id=None,
                 limit=4000,
             )
             if not ring:

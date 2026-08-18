@@ -30,6 +30,7 @@ CREATE CONSTRAINT inter_node_id   IF NOT EXISTS FOR (i:Intersection) REQUIRE i.o
 CREATE CONSTRAINT poi_osm_id      IF NOT EXISTS FOR (p:POI)          REQUIRE p.osm_id IS UNIQUE;
 CREATE CONSTRAINT region_name     IF NOT EXISTS FOR (r:Region)       REQUIRE r.name IS UNIQUE;
 CREATE CONSTRAINT trailhead_id     IF NOT EXISTS FOR (t:Trailhead)    REQUIRE t.trailhead_id IS UNIQUE;
+CREATE CONSTRAINT route_id        IF NOT EXISTS FOR (r:Route)        REQUIRE r.route_id IS UNIQUE;
 
 // ── Spatial point indexes ────────────────────────────────────────────────────
 CREATE POINT INDEX inter_location   IF NOT EXISTS FOR (i:Intersection) ON (i.location);
@@ -45,6 +46,9 @@ CREATE INDEX trail_duration_hike    IF NOT EXISTS FOR (t:Trail) ON (t.duration_h
 CREATE INDEX trail_duration_mtb     IF NOT EXISTS FOR (t:Trail) ON (t.duration_mtb_min);
 CREATE INDEX trail_elevation_gain   IF NOT EXISTS FOR (t:Trail) ON (t.elevation_gain_m);
 CREATE INDEX poi_type               IF NOT EXISTS FOR (p:POI)   ON (p.type);
+CREATE INDEX route_trailhead        IF NOT EXISTS FOR (r:Route) ON (r.trailhead_id);
+CREATE INDEX route_distance         IF NOT EXISTS FOR (r:Route) ON (r.distance_m);
+CREATE INDEX route_score            IF NOT EXISTS FOR (r:Route) ON (r.score);
 
 // ── Full-text index (route start/end resolution; Lucene input is escaped) ───
 CREATE FULLTEXT INDEX poi_name_fulltext IF NOT EXISTS FOR (p:POI) ON EACH [p.name];
