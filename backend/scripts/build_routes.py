@@ -59,9 +59,18 @@ ORDER BY t.off_road_share DESC
 # not leave the previous run's routes behind pretending to be current.
 # Scoped to the activity being rebuilt: regenerating the hike catalogue must
 # not delete the mtb one.
-CLEAR_ROUTES = """
+#
+# Written AFTER the new routes, not before. Clearing first left the catalogue
+# briefly empty, and a live query landing in that window honestly answered that
+# there are no loops -- the worst possible failure, because it looks like data
+# rather than a race. Route ids are deterministic, so MERGE updates a surviving
+# route in place and only what the new run did not produce is deleted: at every
+# instant the catalogue is complete, either the old one or the new one. That
+# needs no transaction and no downtime.
+DELETE_STALE_ROUTES = """
 UNWIND $trailhead_ids AS tid
 MATCH (r:Route {trailhead_id: tid, activity: $activity})
+WHERE NOT r.route_id IN $keep_ids
 DETACH DELETE r
 """
 
@@ -250,8 +259,7 @@ async def main() -> None:
             print(f"profile {args.activity!r} not served; available: {profiles}")
             return
         print(
-            f"source: GraphHopper ({settings.graphhopper_url}), "
-            f"profile {args.activity}"
+            f"source: GraphHopper ({settings.graphhopper_url}), profile {args.activity}"
         )
     else:
         print(f"source: local routing, activity labelled {args.activity}")
@@ -353,12 +361,13 @@ async def main() -> None:
             print("\n--dry-run: nothing written.")
             return
 
+        await db.run_batched(MERGE_ROUTES, all_rows, batch_size=100)
         await db.run(
-            CLEAR_ROUTES,
+            DELETE_STALE_ROUTES,
             trailhead_ids=[t["trailhead_id"] for t in trailheads],
             activity=args.activity,
+            keep_ids=[row["route_id"] for row in all_rows],
         )
-        await db.run_batched(MERGE_ROUTES, all_rows, batch_size=100)
         print(f"\nwrote {len(all_rows)} (:Route) nodes")
 
 
