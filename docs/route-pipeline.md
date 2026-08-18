@@ -190,6 +190,36 @@ RETURN r, p ORDER BY r.score DESC
 
 returning real answers — Corno Zuccone, Monte Castello, Zucco di Pralongone.
 
+**Rebuilt on GraphHopper, 2026-08-18.** Elevation and per-activity profiles
+(`infra/graphhopper/config.yml`, `graph/graphhopper.py`), with a length-fit gate
+at persistence:
+
+| | hike | mtb |
+|---|---|---|
+| Routes | 255 | 218 |
+| Mean score | 0.77 | 0.74 |
+| Off-road | 74% | 66% |
+| Retrace | **4%** | **5%** |
+| Mean ascent | 1,719 m | 1,631 m |
+| Rated (sac_scale / mtb:scale) | 255 | 218 |
+
+Retrace 25% -> 4% is the headline, and every route now carries real climb where
+our own generator reported none.
+
+The gate halved the catalogue and raised the mean score from 0.65 to 0.77.
+`round_trip.distance` is a hint that overshoots, badly in steep terrain where the
+only paths out are long, so roughly half of what was generated answered a
+different question than the one it was filed under. Dropping those at
+persistence — not in the scorer, which stays honest — is what bought the quality.
+Drops are reported per target, because a target that mostly fails is a coverage
+fact worth seeing.
+
+**A misreading worth recording.** The first look at the rebuilt hike catalogue
+appeared to show no 5 km routes at all, and that was written up as a finding
+about alpine terrain. It was a truncated table: there are 44 hike and 43 mtb
+5 km loops, averaging 5.4 km against target. Check the whole output before
+turning an absence into a claim.
+
 **The 25% mean retrace is the known weakness of our own generator**, and it is
 the one number GraphHopper would transform (0.0-3.2% measured, see
 `docs/routing-engine.md`). The catalogue is good enough to build the rest of the
