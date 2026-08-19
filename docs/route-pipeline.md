@@ -162,9 +162,69 @@ it represents.
 roughly 4,000 routes for Lecco, or ~2,900 if the urban trailheads are excluded.
 Reviewable.
 
-**2. Generate.** Round trips and point-to-point. Whether this is our own
-seed-and-stitch or GraphHopper is the open question in `docs/routing-engine.md`;
-the pipeline does not care, it consumes geometry either way.
+**2-5. Generate, score, dedup, enrich, persist — BUILT 2026-08-18**
+(`graph/route_generation.py`, `graph/route_scoring.py`, `scripts/build_routes.py`).
+
+First real catalogue, over the 46 trailheads at or above 60% off-road, four
+target distances, 6 seeds each, keeping the best 3:
+
+| | |
+|---|---|
+| Routes | **502** |
+| Trailheads that produced nothing | **0** |
+| Mean off-road share | **87%** |
+| Mean retrace | 25% |
+| Mean score | 0.72 |
+| POIs per route (mean) | 25 |
+| Routes with at least one named POI | 425 / 502 |
+| `PASSES` edges | 12,363 |
+
+And the thing the whole design exists for — a chat turn *selecting* instead of
+computing. "Under 16 km, mostly off-road, passing a peak" is now a filter:
+
+```cypher
+MATCH (r:Route)-[:PASSES]->(p:POI {type:'peak'})
+WHERE r.distance_m <= 16000 AND r.off_road_share > 0.8
+RETURN r, p ORDER BY r.score DESC
+```
+
+returning real answers — Corno Zuccone, Monte Castello, Zucco di Pralongone.
+
+**Rebuilt on GraphHopper, 2026-08-18.** Elevation and per-activity profiles
+(`infra/graphhopper/config.yml`, `graph/graphhopper.py`), with a length-fit gate
+at persistence:
+
+| | hike | mtb |
+|---|---|---|
+| Routes | 255 | 218 |
+| Mean score | 0.77 | 0.74 |
+| Off-road | 74% | 66% |
+| Retrace | **4%** | **5%** |
+| Mean ascent | 1,719 m | 1,631 m |
+| Rated (sac_scale / mtb:scale) | 255 | 218 |
+
+Retrace 25% -> 4% is the headline, and every route now carries real climb where
+our own generator reported none.
+
+The gate halved the catalogue and raised the mean score from 0.65 to 0.77.
+`round_trip.distance` is a hint that overshoots, badly in steep terrain where the
+only paths out are long, so roughly half of what was generated answered a
+different question than the one it was filed under. Dropping those at
+persistence — not in the scorer, which stays honest — is what bought the quality.
+Drops are reported per target, because a target that mostly fails is a coverage
+fact worth seeing.
+
+**A misreading worth recording.** The first look at the rebuilt hike catalogue
+appeared to show no 5 km routes at all, and that was written up as a finding
+about alpine terrain. It was a truncated table: there are 44 hike and 43 mtb
+5 km loops, averaging 5.4 km against target. Check the whole output before
+turning an absence into a claim.
+
+**The 25% mean retrace is the known weakness of our own generator**, and it is
+the one number GraphHopper would transform (0.0-3.2% measured, see
+`docs/routing-engine.md`). The catalogue is good enough to build the rest of the
+product against; regenerating it from a better engine changes no schema and no
+query, which was the point of putting generation behind a seam.
 
 **3. Score and dedup.** Length accuracy, retrace, off-road share, climb, POIs
 passed, overlap with waymarked CAI routes. Candidates overlap heavily, so dedup
@@ -178,9 +238,33 @@ difficulty, surface mix. Compose the description from all of it.
 properties, plus `PASSES_BY`/`NEAR_POI`-style edges to the POIs and trails it
 touches, then embed the composed description.
 
-**6-8. Runtime.** Unchanged in shape from today: intents -> composer -> named
-Cypher templates, except the templates now select over `(:Route)` rather than
-assembling one.
+**6-8. Runtime — BUILT 2026-08-18.** `loop_search` is a new atomic intent at
+the LLM boundary, alongside trail_search / route / semantic_theme / clarify. It
+carries only what a walker says out loud — a distance range, features to pass, a
+place to start near, and whether to keep off roads — and maps onto the
+`search_loops` template, which filters `(:Route)` and orders by the score
+computed offline.
+
+Verified live: *"a 15 km loop on trails past a peak near Lecco"* returns five
+catalogue loops of 14.2-17.9 km at 83-98% off-road, over Monte Ocone, Punta
+Cermenati (Monte Resegone) and Zucco di Teral. No routing happens in the turn.
+
+`check_intents_live` still passes 17/17 with the adversarial half at 7/7, so
+adding an intent did not weaken containment.
+
+Two bugs this shook out, both worth remembering:
+
+- **A stated distance is a point estimate, not an interval.** The model returns
+  "a 15 km loop" as `min=max=15000`, an exact-equality filter. Real routes are
+  15,771 m, so it matched nothing and the user was told no such loop existed
+  while 500 sat in the catalogue. `widen_narrow_band` turns a band narrower than
+  15% of itself into +/-20%, deterministically in Python rather than as another
+  prompt rule the model may not follow — the same reasoning as the 0-bound
+  scrub.
+- **Composer tests are not orchestrator tests.** The first version passed every
+  composer test and 500'd on every real request, because `_loops` referenced
+  `self.db` where the attribute is `self._db`. There is now a test that
+  executes the orchestrator path against a fake db.
 
 ## What this makes possible that today's design cannot
 

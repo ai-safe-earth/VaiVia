@@ -105,3 +105,21 @@ export async function fetchTrailGeoJson(trailId: string): Promise<GeoJSON.Featur
   if (!response.ok) return null;
   return (await response.json()) as GeoJSON.Feature;
 }
+
+/** Catalogue route geometry for the map.
+ *
+ * Unlike fetchTrailGeoJson this only swallows a 404. When several loops are
+ * drawn at once a silent null on any failure blanks part of the map with no
+ * explanation, so anything else throws and the caller decides.
+ */
+export async function fetchRouteGeoJson(routeId: string): Promise<GeoJSON.Feature | null> {
+  const token = await getAccessToken();
+  const response = await fetch(`${GATEWAY_URL}/routes/${encodeURIComponent(routeId)}/geojson`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`route geometry failed: ${response.status}`);
+  }
+  return (await response.json()) as GeoJSON.Feature;
+}

@@ -33,7 +33,7 @@ A curated, named trail loop sourced from Trailforks.
 | `landscape_description` | `STRING` | Landscape and path character (embedding source) |
 | `total_distance_m` | `FLOAT` | Total length in **metres** |
 | `elevation_gain_m` / `elevation_loss_m` | `FLOAT` | Total ascent / descent (null until backfill where source lacks it) |
-| `duration_hike_min` | `INTEGER` | DIN 33466 estimate; null if activity is mtb-only |
+| `duration_hike_min` | `INTEGER` | DIN 33466 shape with calibrated vertical rates (450 m/h up, 600 m/h down — see `core/durations.py`); null if activity is mtb-only |
 | `duration_mtb_min` | `INTEGER` | Speed-by-difficulty + climb estimate; null if hike-only |
 | `best_seasons` | `LIST<STRING>` | e.g. `['spring','summer','autumn']` |
 | `seasonal_hazards` | `LIST<STRING>` | e.g. `['snow','ice','mud_after_rain']` |
@@ -76,10 +76,22 @@ A point of interest, sourced from OSM.
 
 | Property | Type | Description |
 |---|---|---|
-| `osm_id` | `STRING` | OSM node or way ID |
+| `osm_id` | `STRING` | OSM id, prefixed `w`/`r` for way- and relation-sourced POIs so a way id and a node id of the same number cannot collide |
 | `name` | `STRING` | Display name |
-| `type` | `STRING` | `lake`, `hut`, `campsite`, `station`, `bathing_water`, `viewpoint` |
-| `location` | `POINT` | WGS84 spatial point |
+| `type` | `STRING` | Anchors: `parking`, `station`. Destinations: `peak`, `saddle`, `lake`, `beach`, `bathing_water`, `waterfall`, `spring`, `cave`, `viewpoint`, `hut`, `campsite`, `chapel`, `castle` |
+| `location` | `POINT` | WGS84 spatial point — for an area, the midpoint of its outline |
+| `boundary` | `LIST<POINT>` | Outline of an area POI, sampled to at most 100 points; empty for a node |
+| `extent_m` | `FLOAT` | How far the outline reaches from `location`; `0.0` for a node |
+
+**Areas are not points.** 53% of POIs are mapped as closed ways or
+multipolygon relations, not nodes, and for a large one the centroid is not
+where the place is: Lago di Como's sits **5,122 m out on the water**, so any
+proximity test against it declares that no path in the region goes near the
+lake. What a walker means by "around the lake" is the shore, so an area keeps
+its outline and `graph/route_context.py::poi_distance_to_route` measures to the
+boundary for areas and to the point for nodes. `extent_m` exists so the Cypher
+bounding step can widen its radius per-POI (`$radius_m + p.extent_m`) and let
+the exact check in Python see the candidate at all.
 
 ---
 

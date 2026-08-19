@@ -235,6 +235,186 @@ Also fixed: an unstated `activity` was silently over-constraining every search
 cannot mean it) — live golden retrieval 16/21 -> 18/21. And OSM data attribution
 now credits the data rather than only the basemap tiles.
 
+## Session 2026-08-18 (part two): the catalogue exists
+
+On **`feat/route-catalogue`**, 5 commits, branched from `main` and **not pushed**
+— everything below lives only on this machine until it is.
+
+The pipeline in `docs/route-pipeline.md` is now built end to end. Neo4j has
+stopped being the routing engine and become the catalogue a chat turn chooses
+from.
+
+**Stage 2-5: generate, score, dedup, enrich, persist**
+(`graph/route_generation.py`, `graph/route_scoring.py`, `scripts/build_routes.py`).
+Generation is deliberately prolific because offline it is cheap; quality comes
+from scoring and dedup afterwards. Scoring is pure functions with tests, since
+it encodes taste and taste should be arguable in a test rather than buried in a
+script. Weights are length 40 / off-road 30 / variety 20 / climb 10.
+
+**Stage 7: `loop_search`** — a new atomic intent beside trail_search / route /
+semantic_theme / clarify. It carries only what a walker says out loud (distance,
+features, a place to start near, activity, difficulty, ascent) and maps onto
+`search_loops`, which filters `(:Route)` and orders by the offline score.
+Verified live: *"a 15 km loop on trails past a peak near Lecco"* returns real
+catalogue loops over Monte Ocone and Punta Cermenati with no routing in the
+turn. `check_intents_live` stayed 17/17 with the adversarial half at 7/7, so
+adding an intent did not weaken containment.
+
+**GraphHopper is a real service now** (`infra/docker-compose.yml`,
+`infra/graphhopper/`), supplying the two things our own graph cannot:
+
+- **Elevation.** Every `CONNECTS_TO` edge reports 0 m (fragility #6), which made
+  duration and difficulty unanswerable even though `core/durations.py` has
+  implemented DIN 33466 all along. One config line (CGIAR SRTM) gives every
+  route real ascent.
+- **Per-activity profiles.** Activity is not a filter you apply to one catalogue
+  afterwards — a foot loop over steps and a T4 scramble is impassable on a bike
+  — so `hike` and `mtb` generate separate catalogues, with `mtb` excluding steps
+  outright. Activity is part of the route id and `CLEAR_ROUTES` is
+  activity-scoped, so rebuilding one cannot destroy the other.
+
+Difficulty arrived with them: GraphHopper decodes `sac_scale` to `hike_rating`
+and `mtb:scale` to `mtb_rating`, so the filter set the owner asked for — length,
+time, difficulty, activity — is now expressible. Time is the one still to
+compute, and it only ever needed ascent.
+
+Current catalogue:
+
+| | hike | mtb |
+|---|---|---|
+| Routes | 255 | 218 |
+| Mean score | 0.77 | 0.74 |
+| Off-road | 74% | 66% |
+| Retrace | 4% | 5% |
+| Mean ascent | 1,719 m | 1,631 m |
+
+Retrace 25% -> 4% against our own generator is the headline. The **length gate**
+is what bought the score: `round_trip.distance` overshoots, badly in steep
+terrain where the only paths out are long, so about half of what was generated
+answered a different question than the one it was filed under. Those are dropped
+at persistence — not in the scorer, which stays honest — and the drops are
+reported per target, because a target that mostly fails is a coverage fact.
+
+The 502 pre-activity routes were deleted after confirmation: no activity, no
+elevation, superseded. The query keeps an `activity IS NOT NULL` guard so a
+future unlabelled route cannot leak into results.
+
+**Two confident claims made this session were wrong, both recorded in the docs
+rather than quietly fixed:**
+
+1. *"A near-constant 113-121 m/km proves the elevation is SRTM noise."* It was a
+   selection effect — the catalogue only holds trailheads above 60% off-road,
+   which are mountain trailheads. Flat starts give 1-40 m/km. Smoothing was
+   added on that false diagnosis and kept only because it is harmless.
+2. *"Zero 5 km routes survived the gate, so short loops do not exist at alpine
+   trailheads."* A `tail -16` had cut the row off the table. There are 44 hike
+   and 43 mtb 5 km loops averaging 5.4 km against target.
+
+Both were the same failure: reading a filtered or truncated view as if it were
+the whole.
+
+## Session 2026-08-18 (part three): loops became visible, and one ingestion bug
+
+Still on **`feat/route-catalogue`**, still **not pushed**. One commit landed
+(`ef1df5b`); **seven files are modified and uncommitted** — finish or revert
+them before anything else (see "Where this was interrupted").
+
+### What shipped
+
+Driving the frontend showed loops as prose only: no name, no card, no line on
+the map. Three causes, all now fixed and committed.
+
+**Names.** A route's only id was `1461822581:hike:15000:0`, and trailhead names
+would not have helped (37 of 266). But every route already had
+`-[:PASSES]->(:POI)` edges carrying a name AND a type, so
+`scripts/name_routes.py` derives one from the best thing it passes — peak, then
+saddle, lake, castle, waterfall, chapel. **81% of 473 routes are named**, 190
+from peaks. Null stays null: the card shows distance rather than inventing
+something. No regeneration was needed, which mattered — that would have been
+hours of GraphHopper calls.
+
+**Durations** came with it. `core/durations.py` implemented DIN 33466 all along
+and only needed ascent; a loop returns to its start, so descent equals ascent.
+
+**The map.** Loop geometry never left the database — `route_geometry` sat in
+`queries.cypher` with no caller and no endpoint. `GET /routes/{route_id}/geojson`
+now serves it, needing no gateway change since `/routes` was already proxied.
+`LoopCard` mirrors `TrailCard`; all returned loops draw at once and clicking one
+highlights and zooms to it, via a `selected` feature property so switching is a
+restyle rather than a refetch.
+
+The live intent check earned its cost again: after the prompt change the model
+began calling "a 2 hour mountain bike ride" a loop, which exposed that
+`loop_search` could not express **duration at all** despite routes now having
+one. Added `max_duration_min`, tightened the prompt to require a real
+circularity signal, and it went back to 17/17 with the adversarial half at 7/7.
+
+### Why "a 5 km route around the lake" still cannot work
+
+Two independent faults, found by chasing that question:
+
+1. **The catalogue has no lakeside routes.** It was built with
+   `--min-off-road 0.6`, which is 46 of 266 trailheads and all of them mountain
+   ones. Near the Lecco shore there are 62 trailheads and **only 6 made the
+   cut** — a lakeside promenade is footway and road by nature. Every `lake` match
+   in the catalogue is an alpine tarn or pond.
+2. **Lago di Como could never be matched anyway.** It is a relation whose
+   centroid sits **5,122 m out on the water**, and the map-back radius is 150 m.
+   No bigger radius fixes it: 5 km would sweep in half the region.
+
+Fault 2 is fixed in the working tree: area POIs now keep a sampled (~100 point)
+boundary and an `extent_m`, the bounding query widens by that extent, and
+`route_context.poi_distance_to_route` measures to the boundary for areas and to
+the point for nodes. A test pins it — a shoreline route reads under 150 m from
+the lake with a boundary and over 4 km without.
+
+Fault 1 is **not** fixed. It needs a rebuild at `--min-off-road 0.3`, which is
+the next real task.
+
+### The ingestion bug this introduced, and what it teaches
+
+Switching POIs to `out geom` (needed for boundaries) made lake and car park
+outlines indistinguishable from routing ways — with `out geom` a POI way arrives
+carrying geometry AND a node list, exactly like a path. Having no `highway` tag
+it took the `"path"` default in
+
+    highway_type=tags.get("highway", "path")
+
+and became routable. **1,673 lake and parking outlines entered the routing graph
+as walkable paths.**
+
+It was not caught by a test. It surfaced because the boundary count came back as
+12 when ~1,686 was expected, and chasing that discrepancy found it. Every unit
+test passed throughout, because none fed a POI way and a routing way through
+`extract` together — there is now one that does.
+
+The fix discriminates by TAGS, not by shape: a routing way must have a `highway`
+tag, an area POI must not. Cleanup was surgical rather than a wipe: of 2,242
+suspect segments, 2,237 claimed `"path"` from 1,673 parent ways (the outlines)
+and 5 claimed `"service"` from one way — a genuine parking aisle that is
+legitimately both a road and a POI. Deleting all 2,242 would have removed real
+road; only the 2,237 were deleted, and segments returned to 104,812.
+
+**The lesson worth keeping:** `tags.get("highway", "path")` is a dangerous
+default. Silently calling an untagged way a path is what turned a filter bug
+into routable water. `None` plus an explicit skip would have failed loudly at
+ingestion instead of quietly corrupting the graph.
+
+### Where this was interrupted
+
+A Lecco re-ingest was **in flight** when the session ended, to give the way-based
+area POIs their boundaries under the fixed filter. At the last check the graph
+still showed only **12 boundaries** (the relations from the earlier broken run),
+so that re-ingest either did not finish or needs re-running. Verify before
+trusting any lake matching:
+
+    uv run python -m ingestion.osm_ingest --region Lecco
+    # expect ~1,686 POIs with a boundary, segments back at ~104,812
+
+Then, in order: re-run `scripts/build_trailheads` (component ids change with the
+routing graph), rebuild the catalogue at `--min-off-road 0.3`, and re-run
+`scripts/name_routes`.
+
 ## The design that ties it together
 
 `docs/route-pipeline.md` records the architecture the owner set out: build
@@ -754,6 +934,62 @@ cost through Phase 5 was roughly $62.
         {
           "date": "2026-08-18",
           "text": "GATEWAY_DEV_NO_AUTH lets the app run with Supabase off, and loadConfig THROWS if it is set with NODE_ENV=production. A switch that disables authentication must not be one env var away from being live; failing to boot is the only refusal a misconfigured deploy cannot ignore"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "Neo4j stops being the routing engine and becomes the catalogue a chat turn selects from. Generation, scoring, dedup and the POI map-back all run offline in scripts.build_routes, so a turn is a filter and an ORDER BY. Generation is bounded as trailheads x distances x keep, which makes catalogue size predictable and coverage auditable"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "Route scoring is pure functions with tests (length 40 / off-road 30 / variety 20 / climb 10) because it encodes taste, and taste should be arguable in a test rather than buried in a script. Unknown climb scores neutral rather than zero, so a route is not punished for missing instrumentation; nothing is filtered inside the scorer, because good-enough-to-offer is a product decision"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "loop_search is its own atomic intent rather than a flag on trail_search: a circular outing is a different ask from a named trail and from point-to-point directions. Its field set is pinned by a test so each addition is checked against the LLM boundary rule deliberately"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "A single stated loop distance is a point estimate, not an interval. The model returns '15 km' as min=max=15000 and real routes are 15,771 m, so it matched nothing while 500 loops sat in the catalogue. widen_narrow_band fixes it in Python rather than as another prompt rule, the same reasoning as the 0-bound scrub"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "GraphHopper runs as a real service for geometry and elevation. One config line (CGIAR SRTM) replaced the elevation backfill we never built, which is what blocked duration and difficulty; core/durations.py has implemented DIN 33466 all along and only ever needed ascent"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "Activity is generated, not filtered: hike and mtb are separate GraphHopper profiles producing separate catalogues, mtb excluding steps outright rather than penalising them, because a foot loop over steps and a T4 scramble is impassable on a bike. Activity is part of the route id and CLEAR_ROUTES is activity-scoped so one rebuild cannot destroy the other"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "Difficulty comes from GraphHopper decoding sac_scale to hike_rating and mtb:scale to mtb_rating. The rating stored is the hardest covering at least 5% of the route, since a plain max would let 30 m of scramble label a 20 km valley walk alpine. Our 1-4 level maps onto both scales but only the one matching the activity is applied"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "build_routes declines to STORE a route whose length fit is poor, and reports the drops per target. round_trip.distance overshoots badly in steep terrain, so half of what was generated answered a different question than the one it was filed under. This is filtering at persistence, not in the scorer: mean score went 0.65 to 0.77"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "Two confident diagnoses this session were wrong and are recorded in the docs rather than quietly fixed. A near-constant 113-121 m/km was read as SRTM noise and was a selection effect (the catalogue only holds mountain trailheads; flat starts give 1-40 m/km). And 'no 5 km routes survived' came from a truncated table; there are 44. Both were reading a filtered or truncated view as the whole"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "A route is named after the most prominent POI it passes (peak, then saddle, lake, castle, waterfall, chapel), with no 'loop' suffix, owner's choice. 81% of routes get a name this way and no regeneration was needed, since the PASSES edges already carried name and type. Null stays null and the card shows distance: 'Route 4312828180' must never reach a user"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "Loop geometry is served per route from GET /routes/{route_id}/geojson rather than inlined in the chat payload, because the same results dict is handed to the answer model and a few hundred coordinate pairs per route would put tens of kilobytes of numbers in the prompt every turn"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "The map draws every returned loop and highlights the clicked one, styled data-driven on a `selected` feature property so switching selection is a restyle rather than a refetch. A trail (one feature, no such property) renders exactly as before"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "Area POIs keep a sampled ~100-point boundary and an extent_m, and the map-back measures to the boundary for areas and to the point for nodes. A centroid cannot answer 'does this path run along the lake': Lago di Como's sits 5,122 m out on the water, and no radius fixes that without sweeping in half the region"
+        },
+        {
+          "date": "2026-08-18",
+          "text": "Routing ways and area POIs are told apart by TAGS, not by shape. With `out geom` a lake outline arrives with geometry and a node list exactly like a path, and having no highway tag it took the 'path' default and became routable -- 1,673 outlines entered the routing graph. A routing way must now have a highway tag and an area POI must not. The dangerous part was the default itself: tags.get('highway', 'path') turned a filter bug into routable water instead of failing loudly"
         }
       ]
     }
@@ -790,13 +1026,40 @@ cost through Phase 5 was roughly $62.
       "since": "2026-08-18"
     },
     {
-      "text": "spike/osm-coverage holds 15 commits of load-bearing work and is not merged. The branch outgrew its name; decide whether to rename, split or merge before it diverges further",
-      "severity": "medium",
+      "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed \u2014 it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
+      "severity": "high",
+      "owner": "oscar",
+      "since": "2026-08-18"
+    },
+    {
+      "text": "Seven files are modified and uncommitted on feat/route-catalogue (the area-POI boundary work). A Lecco re-ingest was in flight and the graph still shows only 12 POI boundaries where ~1,686 are expected, so lake matching is not yet working. Finish the re-ingest and verify before building anything on top",
+      "severity": "high",
       "owner": "oscar",
       "since": "2026-08-18"
     }
   ],
   "nextSteps": [
+    {
+      "title": "Finish the interrupted Lecco re-ingest and verify ~1,686 POI boundaries and ~104,812 segments, then commit the seven modified files",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Rebuild trailheads and the catalogue at --min-off-road 0.3 so lakeside and valley routes exist at all; 220 of 266 trailheads are currently unbuilt",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Push feat/route-catalogue and merge it; the whole route pipeline exists only on the dev machine",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Rotate the exposed OpenAI API key and the Supabase database and account passwords before any deployment",
       "est": 0.5,
@@ -805,42 +1068,35 @@ cost through Phase 5 was roughly $62.
       "plan": "redesign"
     },
     {
-      "title": "Decide what to do with spike/osm-coverage: rename or split, then merge. 15 commits, all tests green, nothing merged",
+      "title": "Make a catalogue rebuild atomic: CLEAR_ROUTES then MERGE leaves it briefly empty, and a live query in that window honestly returns nothing",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Stage 2 of the route pipeline: generate candidate routes per trailhead, then score and dedup. Unblocked now the engine is decided and the map-back proven",
-      "est": 3,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Name the trailheads. Only 37 of 266 have one, and start-from-trailhead-4312828180 is not an answer a user can act on",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Stand GraphHopper up as a real service, move /routes behind an interface with both implementations, then delete the custom routing",
-      "est": 2,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Revisit the NEAR_POI 500 m radius now lakes are ingested as areas rather than one node floating on the water",
+      "title": "Calibrate duration. DIN 33466 rates the classic Grigna ascent (12 km / 1,600 m) at 10 hours where guidebooks say 6-8, so catalogue figures read 15+ hours and a user will not trust them",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Elevation backfill (fragility #6). Every CONNECTS_TO edge still reports 0 m, so difficulty and effort ranking are unanswerable on our own routing",
+      "title": "Replace the tags.get('highway', 'path') default with None plus an explicit skip, so an untagged way fails loudly instead of becoming routable",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Investigate the off-road drop from 87% to 74%: comfort.json layered on hike.json is not biting as hard as the standalone model did (67% in the gate test)",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Name the trailheads. 37 of 266 have one; route names now cover 81% so this is no longer blocking, but 'starts at' is still often blank",
       "est": 1,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -901,6 +1157,20 @@ cost through Phase 5 was roughly $62.
       "date": "2026-08-18",
       "model": "opus-5",
       "credits": 31,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-18",
+      "model": "opus-5",
+      "credits": 79,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-18",
+      "model": "opus-5",
+      "credits": 98,
       "person": "oscar",
       "hours": null
     }

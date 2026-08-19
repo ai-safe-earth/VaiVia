@@ -119,3 +119,63 @@ def test_located_in_rows_uses_bbox():
     rows = located_in_rows(result, bbox=(44.9, 8.9, 45.1, 9.1), region="Test")
     assert set(rows["intersections"]) == {"1", "3", "4", "5", "6"}
     assert rows["pois"] == ["100"]  # 101 is outside the bbox
+
+
+def test_a_lake_outline_never_becomes_a_routing_segment():
+    """POIs are fetched with `out geom`, so a lake arrives as a way with
+    geometry and a node list, exactly like a path. Having no highway tag it
+    would take the "path" default and become routable — which briefly put lake
+    shores into the routing graph."""
+    from ingestion.osm_extract import extract
+
+    payload = {
+        "elements": [
+            {
+                "type": "way",
+                "id": 1,
+                "tags": {"highway": "path"},
+                "nodes": [10, 11],
+                "geometry": [{"lat": 45.85, "lon": 9.39}, {"lat": 45.86, "lon": 9.39}],
+            },
+            {
+                "type": "way",
+                "id": 2,
+                "tags": {"natural": "water", "name": "Laghetto"},
+                "nodes": [20, 21, 22, 20],
+                "geometry": [
+                    {"lat": 45.90, "lon": 9.40},
+                    {"lat": 45.91, "lon": 9.40},
+                    {"lat": 45.91, "lon": 9.41},
+                    {"lat": 45.90, "lon": 9.40},
+                ],
+            },
+        ]
+    }
+    result = extract(payload)
+    parents = {s.osm_parent_way_id for s in result.segments}
+    assert parents == {"1"}, "the lake must not be routable"
+    assert [p["type"] for p in result.pois] == ["lake"]
+    assert len(result.pois[0]["boundary"]) == 4
+    assert result.pois[0]["extent_m"] > 0
+
+
+def test_an_untagged_way_is_skipped_rather_than_called_a_path():
+    """The dangerous default, pinned. `tags.get("highway", "path")` turned a
+    filter bug into routable water; a way we cannot classify must drop out of
+    the routing graph, loudly, not enter it under a guessed type."""
+    from ingestion.osm_extract import extract
+
+    payload = {
+        "elements": [
+            {
+                "type": "way",
+                "id": 3,
+                "tags": {"barrier": "fence"},
+                "nodes": [30, 31],
+                "geometry": [{"lat": 45.85, "lon": 9.39}, {"lat": 45.86, "lon": 9.39}],
+            },
+        ]
+    }
+    result = extract(payload)
+    assert result.segments == []
+    assert result.intersections == {}

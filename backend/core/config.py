@@ -31,9 +31,16 @@ class Settings(BaseSettings):
     # area features are ingested as a single node (a lake's node sits out on
     # the water, ~400 m from its own shoreline path).
     poi_near_radius_m: float = 500.0
+    # How far a catalogue loop's trailhead may sit from a named place before it
+    # stops counting as "near" it. Generous, because a walker asking for a loop
+    # near a town means the hills above it, not the town square.
+    loop_near_radius_m: float = 8000.0
 
     trailforks_api_key: str = ""
     trailforks_base_url: str = "https://www.trailforks.com/api/1"
+
+    # Internal service, like Neo4j: never published, only the gateway is.
+    graphhopper_url: str = "http://localhost:8989"
 
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout_s: int = 120

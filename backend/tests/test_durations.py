@@ -10,15 +10,29 @@ def test_difficulty_levels():
         difficulty_level("Extreme")
 
 
-def test_hike_flat_din33466():
-    # 12 km flat: 3 h horizontal, no vertical -> 180 min
+def test_hike_flat_is_unchanged_at_4kmh():
+    # 12 km flat: 3 h horizontal, no vertical -> 180 min. The calibration moved
+    # the vertical rates only; flat walking was never the part that was wrong.
     assert hike_duration_min(12_000, 0, 0) == 180
 
 
 def test_hike_with_climb():
-    # 8 km + 600 m up + 600 m down: horizontal 2 h; vertical 600/300 + 600/500 = 3.2 h
-    # DIN: max(3.2, 2) + min/2 = 3.2 + 1 = 4.2 h = 252 min
-    assert hike_duration_min(8_000, 600, 600) == 252
+    # 8 km + 600 m up + 600 m down: horizontal 2 h;
+    # vertical 600/450 + 600/600 = 2.33 h; max + min/2 = 2.33 + 1 = 3.33 h
+    assert hike_duration_min(8_000, 600, 600) == 200
+
+
+def test_the_grigna_reference_case_lands_in_the_guidebook_band():
+    """The case the vertical rates are calibrated against.
+
+    The classic Grigna ascent is 12 km with 1,600 m of climb, and a loop
+    returns to its start so descent equals ascent. Guidebooks put it at 6-8
+    hours. Unmodified DIN 33466 gives 10.0, which is what made the catalogue
+    read 15+ hours and cost the numbers their credibility. Moving the rates in
+    core.durations must be a deliberate act, so this pins the consequence.
+    """
+    minutes = hike_duration_min(12_000, 1_600, 1_600)
+    assert 6 * 60 <= minutes <= 8 * 60, f"{minutes / 60:.1f} h is outside 6-8 h"
 
 
 def test_hike_null_elevation_degrades_to_flat():

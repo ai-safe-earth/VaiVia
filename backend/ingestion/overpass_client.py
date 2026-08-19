@@ -50,9 +50,12 @@ WALKABLE_HIGHWAYS = (
 )
 
 # Two output statements. Routing ways need full `geom` to be split at
-# intersections; POIs need only a point, and many of them (car parks, lakes,
-# picnic sites) are areas rather than nodes, so `out center` collapses each to
-# one coordinate. osm_extract tells the two apart by geometry-vs-center.
+# intersections. POIs come back with `out geom` rather than `out center`
+# because a centroid is not enough for a large area: Lago di Como's centroid
+# sits 5.1 km out on the water, so no shoreline path is ever within matching
+# distance of it, and "a route around the lake" can never be answered from a
+# point. The boundary is kept alongside the centroid and the map-back measures
+# to whichever is right (graph/route_context.py).
 #
 # The POI set covers both roles the route pipeline needs: ANCHORS to start from
 # (parking, station) and DESTINATIONS worth reaching (peak, saddle, lake, beach,
@@ -80,7 +83,7 @@ out body geom;
   node["historic"~"^(wayside_shrine|wayside_cross|castle|ruins)$"]({bbox});
   way["historic"~"^(castle|ruins)$"]({bbox});
 );
-out center;
+out geom;
 """
 
 

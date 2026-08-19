@@ -20,7 +20,13 @@ from fastapi import APIRouter, HTTPException
 from neo4j.exceptions import Neo4jError
 
 from api.deps import DbDep
-from api.models import PoiRef, RouteRequest, RouteResponse
+from api.models import (
+    GeoJsonLineString,
+    PoiRef,
+    RouteGeoJson,
+    RouteRequest,
+    RouteResponse,
+)
 from core.config import get_settings
 from core.text import lucene_escape
 
@@ -123,6 +129,30 @@ async def _route_via_gds(
         "osm_way_ids": [d["osm_way_id"] for d in details],
         "surfaces": [d["surface"] for d in details],
     }
+
+
+@router.get("/routes/{route_id}/geojson", response_model=RouteGeoJson)
+async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
+    """Map payload for one catalogue route.
+
+    Geometry is fetched per route rather than carried in the chat payload: the
+    same results dict is handed to the answer model, so inlining a few hundred
+    coordinate pairs per route would put tens of kilobytes of numbers into the
+    prompt on every turn.
+
+    Note the id shape — "1461822581:hike:15000:0". Colons are legal in a path
+    segment, but callers must still encode it.
+    """
+    rows = await db.run_named("route_geometry", route_id=route_id)
+    coordinates = rows[0]["coordinates"] if rows else None
+    if not coordinates:
+        raise HTTPException(
+            status_code=404, detail=f"route {route_id!r} has no geometry"
+        )
+    return RouteGeoJson(
+        geometry=GeoJsonLineString(coordinates=coordinates),
+        properties={"route_id": route_id, "point_count": len(coordinates)},
+    )
 
 
 @router.post("/routes", response_model=RouteResponse)

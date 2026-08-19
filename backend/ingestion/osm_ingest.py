@@ -42,6 +42,11 @@ MERGE (p:POI {osm_id: row.osm_id})
 SET p.name = row.name,
     p.type = row.type,
     p.location = point({latitude: row.lat, longitude: row.lon}),
+    // Outline and reach, for POIs that are areas. A centroid answers "where is
+    // this" but not "does this path run along it", which for a lake is the only
+    // question that matters.
+    p.boundary = [c IN row.boundary | point({latitude: c[0], longitude: c[1]})],
+    p.extent_m = row.extent_m,
     p.wikidata = row.wikidata,
     p.wikipedia = row.wikipedia
 """

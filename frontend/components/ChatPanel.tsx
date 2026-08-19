@@ -2,10 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { AuthRequiredError, fetchTrailGeoJson, sendChat } from '@/lib/api';
+import {
+  AuthRequiredError,
+  fetchRouteGeoJson,
+  fetchTrailGeoJson,
+  sendChat,
+} from '@/lib/api';
 import { isAuthConfigured } from '@/lib/supabaseClient';
-import type { ChatMessage, Trail } from '@/lib/types';
+import type { ChatMessage, Loop, Trail } from '@/lib/types';
 
+import { LoopCard } from './LoopCard';
 import { TrailCard } from './TrailCard';
 
 const SUGGESTIONS = [
@@ -39,7 +45,13 @@ export function ChatPanel({
   const [conversationId, setConversationId] = useState<string | null>(
     initialConversationId,
   );
+  // One selection slot shared with trails: route ids cannot collide with
+  // trail ids, and picking a loop should clear a trail anyway.
   const [selectedTrail, setSelectedTrail] = useState<string | null>(null);
+  // Loop geometries are fetched once per results event and kept, so
+  // clicking between loops restyles what is already drawn instead of
+  // refetching and making the map flicker.
+  const loopFeatures = useRef<Map<string, GeoJSON.Feature>>(new Map());
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,7 +60,40 @@ export function ChatPanel({
 
   async function selectTrail(trail: Trail) {
     setSelectedTrail(trail.id);
+    loopFeatures.current.clear();
     onGeometry(await fetchTrailGeoJson(trail.id));
+  }
+
+  /** Every loop drawn at once, with `selected` marking the one to highlight.
+   *  MapView styles and fits on that property, so switching selection is a
+   *  restyle rather than a refetch. */
+  function drawLoops(selectedId: string | null) {
+    const features = [...loopFeatures.current.entries()].map(([id, feature]) => ({
+      ...feature,
+      properties: { ...(feature.properties ?? {}), id, selected: id === selectedId },
+    }));
+    if (features.length === 0) return;
+    onGeometry({ type: 'FeatureCollection', features });
+  }
+
+  function selectLoop(loop: Loop) {
+    setSelectedTrail(loop.id);
+    drawLoops(loop.id);
+  }
+
+  async function loadLoopGeometry(loops: Loop[]) {
+    loopFeatures.current.clear();
+    // Settled, not all: one route missing its geometry must not stop the
+    // others being drawn.
+    const results = await Promise.allSettled(
+      loops.map((loop) => fetchRouteGeoJson(loop.id)),
+    );
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value) {
+        loopFeatures.current.set(loops[index].id, result.value);
+      }
+    });
+    drawLoops(null);
   }
 
   async function submit(text: string) {
@@ -82,6 +127,13 @@ export function ChatPanel({
             break;
           case 'results': {
             updateLast({ results: event.results });
+            // Loops arrive without geometry — it is fetched per route so the
+            // answer model is not handed thousands of coordinates. Draw them
+            // all; clicking a card highlights and zooms to one.
+            if (event.results.loops?.length) {
+              void loadLoopGeometry(event.results.loops);
+              break;
+            }
             // A composed plan can resolve several routes; draw them all.
             const lines = (event.results.routes ?? [])
               .map((block) => block.geometry)
@@ -174,6 +226,18 @@ export function ChatPanel({
                 ))}
               </div>
             )}
+
+            {/* Rendered on presence, not on `kind`: a loops+theme turn is
+                still labelled trail_search, so keying off kind would hide
+                them. */}
+            {message.results?.loops?.map((loop) => (
+              <LoopCard
+                key={loop.id}
+                loop={loop}
+                selected={selectedTrail === loop.id}
+                onSelect={selectLoop}
+              />
+            ))}
 
             {message.results?.trails?.map((trail) => (
               <TrailCard

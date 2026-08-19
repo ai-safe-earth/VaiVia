@@ -78,19 +78,38 @@ export function MapView({ geometry }: Props) {
         source.setData(data);
       } else {
         instance.addSource('selection', { type: 'geojson', data });
+        // Styling is data-driven on `properties.selected` so several routes can
+        // be shown at once with one of them picked out. A feature without that
+        // property — a trail, or a single route — reads as unselected, and the
+        // widths below deliberately make that case look the way it always has.
+        // Typed explicitly: TypeScript otherwise widens the tuple to
+        // string[] and MapLibre's paint props reject it.
+        const selected: maplibregl.ExpressionSpecification = [
+          'boolean',
+          ['get', 'selected'],
+          false,
+        ];
         // Casing under the line keeps it legible over both forest and water.
         instance.addLayer({
           id: 'selection-casing',
           type: 'line',
           source: 'selection',
-          paint: { 'line-color': '#0b3a24', 'line-width': 7, 'line-opacity': 0.8 },
+          paint: {
+            'line-color': '#0b3a24',
+            'line-width': ['case', selected, 7, 4],
+            'line-opacity': ['case', selected, 0.8, 0.35],
+          },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
         instance.addLayer({
           id: 'selection-line',
           type: 'line',
           source: 'selection',
-          paint: { 'line-color': '#6fcf97', 'line-width': 3.5 },
+          paint: {
+            'line-color': '#6fcf97',
+            'line-width': ['case', selected, 3.5, 2],
+            'line-opacity': ['case', selected, 1, 0.55],
+          },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
       }
@@ -110,7 +129,11 @@ export function MapView({ geometry }: Props) {
 function boundsOf(
   data: GeoJSON.Feature | GeoJSON.FeatureCollection,
 ): maplibregl.LngLatBoundsLike | null {
-  const features = data.type === 'FeatureCollection' ? data.features : [data];
+  const all = data.type === 'FeatureCollection' ? data.features : [data];
+  // Zoom to the picked route when there is one, otherwise frame them all. That
+  // is what makes clicking a card feel like choosing rather than reloading.
+  const picked = all.filter((feature) => feature.properties?.selected);
+  const features = picked.length > 0 ? picked : all;
   const lines: GeoJSON.Position[][] = features.flatMap((feature) => {
     const geometry = feature.geometry;
     if (!geometry) return [];

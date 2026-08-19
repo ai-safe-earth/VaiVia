@@ -22,7 +22,9 @@ Derived data, so it lives on its own nodes rather than as labels on
 (:Intersection) — re-running OSM ingestion must not clobber it, and a trailhead
 carries its own properties.
 
-Idempotent: MERGE on trailhead_id, which is the anchor intersection's node id.
+A run REPLACES the previous derivation: trailheads the current clustering does
+not emit are deleted, with their catalogue routes, before the MERGE. MERGE
+alone is idempotent only while the routing graph is stable.
 
 Run from backend/ with Neo4j up, GDS loaded and a region ingested:
     uv run python -m scripts.build_trailheads
@@ -91,6 +93,22 @@ CALL (i) {
          sum(c.distance_m) AS total_m
 }
 RETURN row.node_id AS node_id, off_m, total_m
+"""
+
+# Trailheads are DERIVED, so a run must replace the previous derivation rather
+# than union with it. MERGE alone is only idempotent while the routing graph is
+# stable: change it -- as removing 1,673 routable lake outlines did -- and the
+# clustering picks different representative nodes, so old trailheads survive
+# under ids the current run never emits. 410 nodes had accumulated where 257
+# were current, and the catalogue build was about to generate routes from
+# clusters that no longer describe the network.
+DELETE_STALE_TRAILHEADS = """
+MATCH (t:Trailhead)
+WHERE NOT t.trailhead_id IN $current_ids
+// A catalogue route cannot start from a trailhead that no longer exists, so it
+// goes with it rather than lingering as a card nothing can reach.
+OPTIONAL MATCH (r:Route)-[:STARTS_FROM]->(t)
+DETACH DELETE r, t
 """
 
 MERGE_TRAILHEADS = """
@@ -258,6 +276,10 @@ async def main() -> None:
         if args.dry_run:
             print("\n--dry-run: nothing written.")
             return
+        await db.run(
+            DELETE_STALE_TRAILHEADS,
+            current_ids=[c["node_id"] for c in clusters],
+        )
         await db.run_batched(MERGE_TRAILHEADS, clusters, batch_size=200)
         print(f"\nwrote {len(clusters)} (:Trailhead) nodes")
 

@@ -1,0 +1,20 @@
+{
+  "priority": [
+    { "if": "road_class == PATH",          "multiply_by": "1.0" },
+    { "else_if": "road_class == TRACK",    "multiply_by": "0.91" },
+    { "else_if": "road_class == BRIDLEWAY","multiply_by": "0.87" },
+    { "else_if": "road_class == CYCLEWAY", "multiply_by": "0.77" },
+    { "else_if": "road_class == FOOTWAY",  "multiply_by": "0.71" },
+    { "else_if": "road_class == PEDESTRIAN","multiply_by": "0.67" },
+    { "else_if": "road_class == STEPS",    "multiply_by": "0.56" },
+    { "else_if": "road_class == LIVING_STREET","multiply_by": "0.5" },
+    { "else_if": "road_class == SERVICE",  "multiply_by": "0.45" },
+    { "else_if": "road_class == RESIDENTIAL","multiply_by": "0.42" },
+    { "else_if": "road_class == UNCLASSIFIED","multiply_by": "0.42" },
+    { "else_if": "road_class == TERTIARY", "multiply_by": "0.31" },
+    { "else_if": "road_class == SECONDARY","multiply_by": "0.22" },
+
+    { "if": "surface == ASPHALT || surface == CONCRETE || surface == PAVED", "multiply_by": "0.77" },
+    { "else_if": "surface == COBBLESTONE || surface == PAVING_STONES", "multiply_by": "0.87" }
+  ]
+}

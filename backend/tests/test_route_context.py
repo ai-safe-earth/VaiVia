@@ -139,3 +139,54 @@ def test_summary_excludes_wikidata_one_liners_from_described():
     assert summary["attributions"] == [
         {"url": "https://it.wikipedia.org/wiki/Grigna", "license": "CC-BY-SA-4.0"}
     ]
+
+
+def test_an_area_poi_is_measured_to_its_shore_not_its_centre():
+    """Lago di Como's centroid is 5.1 km out on the water. Measuring to it
+    reports every shoreline path as far away, so "a route around the lake" can
+    never be answered — which is exactly what happened before boundaries."""
+    from graph.route_context import poi_distance_to_route
+
+    # A route hugging the west shore of a north-south lake.
+    route = [(45.85, 9.390), (45.87, 9.390), (45.89, 9.390)]
+    lake = {
+        "lat": 45.87,
+        "lon": 9.45,  # centre, ~4.7 km east of the route
+        "boundary": [[45.85, 9.391], [45.89, 9.391], [45.89, 9.51], [45.85, 9.51]],
+    }
+    assert poi_distance_to_route(lake, route) < 150
+    # Without the boundary the same lake reads as kilometres away.
+    assert poi_distance_to_route({**lake, "boundary": []}, route) > 4000
+
+
+def test_a_node_poi_still_measures_to_its_point():
+    from graph.route_context import poi_distance_to_route
+
+    route = [(45.85, 9.390), (45.89, 9.390)]
+    summit = {"lat": 45.87, "lon": 9.3905, "boundary": []}
+    assert poi_distance_to_route(summit, route) < 60
+
+
+@pytest.mark.asyncio
+async def test_areas_are_asked_for_separately_and_only_once():
+    """The performance-critical shape of the bounding step.
+
+    Widening the per-sample radius by each POI's own extent is the obvious way
+    to catch a lake whose centroid sits offshore, and it makes the predicate
+    depend on the node being tested, so the point index stops serving it: 1,707
+    sample points then scan every POI, 14 s per route. Areas therefore get one
+    query for the whole route, and the sampled one keeps a constant radius.
+    """
+    db = FakeDb([])
+    await pois_along_route(db, LINE, radius_m=150)
+
+    names = [name for name, _ in db.calls]
+    assert names.count("area_pois_near_point") == 1, "one scan per route, not per point"
+
+    _, sampled = db.calls[names.index("pois_near_points")]
+    assert "extent" not in str(sampled), "the sampled radius must stay a constant"
+
+    _, area = db.calls[names.index("area_pois_near_point")]
+    # Reach must cover the far corner of the route from the centre it measures
+    # from, or a lakeside route at the end of a long line is missed.
+    assert area["reach_m"] > 150

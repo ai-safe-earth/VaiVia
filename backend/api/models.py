@@ -112,6 +112,22 @@ class TrailGeoJson(BaseModel):
     properties: dict[str, object]
 
 
+class GeoJsonLineString(BaseModel):
+    """A single ring. A catalogue route is one continuous line, unlike a trail,
+    which is a MultiLineString of the segments it is composed of."""
+
+    type: Literal["LineString"] = "LineString"
+    coordinates: list[list[float]]  # [[lon, lat], ...]
+
+
+class RouteGeoJson(BaseModel):
+    """GeoJSON Feature — the map payload for one catalogue route."""
+
+    type: Literal["Feature"] = "Feature"
+    geometry: GeoJsonLineString
+    properties: dict[str, object]
+
+
 class RouteRequest(BaseModel):
     start: str = Field(description="POI name to start from")
     end: str = Field(description="POI name to finish at")

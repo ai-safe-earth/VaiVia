@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from chat.intents import (
     ClarifyIntent,
     Intent,
+    LoopSearchIntent,
     RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
@@ -20,6 +21,11 @@ from chat.intents import (
 
 MAX_SUBQUERIES = 4
 MAX_ROUTES = 2
+
+# A stated loop distance narrower than this fraction of itself is treated as a
+# point estimate rather than a real interval, and widened.
+NARROW_BAND_RATIO = 0.15
+DISTANCE_TOLERANCE = 0.20
 
 # Offered when the user gives us nothing actionable — each one is a complete
 # question they can answer in a word or two, chosen to map onto an indexed
@@ -81,6 +87,7 @@ class ComposedPlan:
     search: TrailSearchIntent | None = None
     theme: str | None = None
     routes: list[RouteIntent] = field(default_factory=list)
+    loop: LoopSearchIntent | None = None
 
     @property
     def is_clarify(self) -> bool:
@@ -127,6 +134,65 @@ def merge_searches(intents: list[TrailSearchIntent]) -> TrailSearchIntent:
     return merged
 
 
+def merge_loops(loops: list[LoopSearchIntent]) -> LoopSearchIntent:
+    """Tightest-wins merge, mirroring merge_searches."""
+    merged = LoopSearchIntent()
+    for loop in loops:
+        for name in (
+            "max_distance_m",
+            "max_ascent_m",
+            "max_difficulty_level",
+            "max_duration_min",
+        ):
+            values = [
+                v for v in (getattr(merged, name), getattr(loop, name)) if v is not None
+            ]
+            setattr(merged, name, min(values) if values else None)
+        for name in ("min_distance_m",):
+            values = [
+                v for v in (getattr(merged, name), getattr(loop, name)) if v is not None
+            ]
+            setattr(merged, name, max(values) if values else None)
+        for poi_type in loop.poi_types:
+            if poi_type not in merged.poi_types:
+                merged.poi_types.append(poi_type)
+        merged.near = merged.near or loop.near
+        merged.activity = merged.activity or loop.activity
+        merged.avoid_roads = merged.avoid_roads or loop.avoid_roads
+    # Same trap as the searches: a 0-metre max silently matches nothing.
+    if merged.max_distance_m is not None and merged.max_distance_m <= 0:
+        merged.max_distance_m = None
+    if merged.min_distance_m is not None and merged.min_distance_m <= 0:
+        merged.min_distance_m = None
+    if merged.max_ascent_m is not None and merged.max_ascent_m <= 0:
+        merged.max_ascent_m = None
+    if merged.max_duration_min is not None and merged.max_duration_min <= 0:
+        merged.max_duration_min = None
+    return widen_narrow_band(merged)
+
+
+def widen_narrow_band(loop: LoopSearchIntent) -> LoopSearchIntent:
+    """A single stated distance is an approximation, so treat it as one.
+
+    "a 15 km loop" comes back from the model as min=max=15000, which is an
+    exact-equality filter. Real routes are 15,328 m, so that matches nothing
+    and the user is told no such loop exists when 500 of them do. The model
+    is not wrong about the number; it is the interval that needs saying, and
+    saying it here keeps it deterministic rather than another prompt rule the
+    model may or may not follow.
+    """
+    low, high = loop.min_distance_m, loop.max_distance_m
+    if low is None or high is None or high < low:
+        return loop
+    midpoint = (low + high) / 2
+    if midpoint <= 0:
+        return loop
+    if (high - low) / midpoint < NARROW_BAND_RATIO:
+        loop.min_distance_m = midpoint * (1 - DISTANCE_TOLERANCE)
+        loop.max_distance_m = midpoint * (1 + DISTANCE_TOLERANCE)
+    return loop
+
+
 def compose(subqueries: list[Intent]) -> ComposedPlan:
     """Merge atomic subqueries into one executable plan.
 
@@ -156,12 +222,19 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     themes = [s.text.strip() for s in subqueries if isinstance(s, SemanticThemeIntent)]
     themes = [t for t in themes if t]
     routes = [s for s in subqueries if isinstance(s, RouteIntent)][:MAX_ROUTES]
+    loops = [s for s in subqueries if isinstance(s, LoopSearchIntent)]
+    # Tightest-wins like the searches: two loop asks in one message are one
+    # outing with both constraints, not two outings.
+    loop = merge_loops(loops) if loops else None
 
     search = merge_searches(searches) if searches else None
     theme = "; ".join(themes) if themes else None
 
     actionable = (
-        bool(theme) or bool(routes) or (search is not None and has_constraints(search))
+        bool(theme)
+        or bool(routes)
+        or loop is not None
+        or (search is not None and has_constraints(search))
     )
     if not actionable:
         return ComposedPlan(
@@ -174,4 +247,4 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
             )
         )
 
-    return ComposedPlan(search=search, theme=theme, routes=routes)
+    return ComposedPlan(search=search, theme=theme, routes=routes, loop=loop)

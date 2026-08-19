@@ -1,0 +1,91 @@
+# GraphHopper: geometry and elevation. Neo4j keeps meaning.
+#
+# Decided in docs/routing-engine.md after measuring both on the same extract:
+# round-trip loops retrace 0.0-3.2% here against ~20% from our own generator,
+# and elevation arrives for free where our graph has none at all (fragility #6),
+# which is what blocks difficulty and duration.
+#
+# Two profiles, because activity is NOT a filter you can apply to one catalogue
+# after the fact: a foot loop with 200 steps and a T4 scramble is not a bike
+# route, it is impassable. Separate profiles generate separate catalogues.
+#
+# Round trip needs flexible mode, so no contraction hierarchies. Landmarks are
+# off too: they are a per-profile preparation whose benefit shows on long
+# point-to-point queries, not on the bounded loops this serves.
+
+graphhopper:
+  datareader.file: /data/data/region.osm
+  graph.location: /data/graph-cache
+
+  # SRTM 90 m via CGIAR, downloaded on demand and cached on the volume. One
+  # line here replaces the elevation backfill pipeline we never built.
+  graph.elevation.provider: cgiar
+  graph.elevation.cache_dir: /data/srtm-cache
+  # Standard practice rather than a fix for anything observed: raw SRTM samples
+  # jitter by a few metres and summing those deltas along a dense polyline can
+  # manufacture climb. Smoothing collapses micro-oscillation before ascent is
+  # totalled.
+  #
+  # It was added on a WRONG diagnosis, recorded so nobody repeats it. The first
+  # catalogue averaged a near-constant 113-121 m/km at every target distance,
+  # which looked terrain-independent and therefore like noise. It was not: the
+  # catalogue only contains trailheads above 60% off-road, which are mountain
+  # trailheads, so they all climb. Measured against flat starts, the same engine
+  # returns 1-40 m/km at Olginate and 36-98 m/km at the Lecco waterfront. The
+  # elevation was right all along; the sample was filtered.
+  graph.elevation.edge_smoothing: ramer
+  graph.elevation.edge_smoothing.ramer.max_elevation: 5
+
+  # hike_rating and mtb_rating are GraphHopper's decoding of OSM sac_scale and
+  # mtb:scale — the difficulty data identified in docs/licensing.md as the
+  # Trailforks replacement. Requested here so routes can be filtered and scored
+  # on it, not merely routed by it.
+  # mtb is its own vehicle in GraphHopper, not a flavour of bike, so it needs
+  # its own access/speed/priority/network values. The bundled hike.json and
+  # mtb.json name what they need; the import fails loudly listing anything
+  # absent, which is how this list was arrived at rather than guessed.
+  graph.encoded_values: >-
+    foot_access, foot_priority, foot_average_speed, foot_road_access,
+    foot_network,
+    bike_access, bike_priority, bike_average_speed, bike_road_access,
+    bike_network,
+    mtb_access, mtb_priority, mtb_average_speed, mtb_network,
+    roundabout, smoothness, get_off_bike,
+    road_class, road_class_link, road_environment, road_access,
+    surface, track_type, average_slope, max_slope,
+    hike_rating, mtb_rating, ferry_speed
+
+  profiles:
+    # Walking, trail-preferring. hike.json is GraphHopper's own model and
+    # already prefers paths and reads sac_scale; comfort.json layers our
+    # calibration on top (docs/fragilities.md #10) rather than replacing it.
+    - name: hike
+      custom_model_files: [hike.json, comfort.json]
+
+    # Mountain bike. mtb.json reads mtb:scale and knows where a rider must
+    # dismount. no_steps.json is ours: steps are merely slow on foot and
+    # effectively impassable on a bike, so they are excluded outright rather
+    # than penalised.
+    - name: mtb
+      custom_model_files: [mtb.json, comfort.json, no_steps.json]
+
+  profiles_ch: []
+  profiles_lm: []
+
+  # Never route a walker or a rider onto these. Excluded at import rather than
+  # priced, because no penalty makes a motorway a correct answer.
+  import.osm.ignored_highways: motorway,trunk
+
+  custom_models.directory: /data/custom_models
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: 0.0.0.0
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: 0.0.0.0
+  request_log:
+    appenders: []
