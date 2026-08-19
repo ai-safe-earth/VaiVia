@@ -69,6 +69,96 @@ So the tolerance is **2 m**, catching 231 of 14,769 (1.6%). At 5 m it would touc
 and at 10 m 3,036 — both deep inside the real-dead-end population, welding junctions that
 do not exist. Re-run the histogram after any change to the network before moving it.
 
+### What the 231 actually are — reconciled 2026-08-19
+
+The histogram counts loose ends with *something* within the tolerance. That is not the
+same as counting gaps, and the difference is most of them:
+
+| | loose ends |
+|---|---|
+| within 2 m of an edge they are not joined to | **231** |
+| ...whose own edge ends at a junction under 2 m away — a **stub**, not a gap | 129 |
+| ...genuinely near something they should meet | 102 |
+
+A stub is a short edge hanging off a junction. Its far end is a dangle, and the *other*
+edges at that junction are, trivially, within 2 m of it — so it registers as a near miss
+against its own neighbourhood. Nothing is broken there.
+
+Reconciling the remaining 102 against the detectors is what found the missing rule. The
+pair rule needs both ends to be dangles; the edge rule excludes anything within tolerance
+of an edge's start or end, to avoid double-reporting the pair case. Between them they
+could not see **a loose end stopping just short of an existing junction** — the third
+class, now `gap_dangle_junction`. Fifteen of them, invisible until the arithmetic was
+made to add up.
+
+The lesson is the reconciliation itself: a detector suite is only trustworthy once the
+measure and the rules are shown to account for the same population.
+
+### Repairs: what each rule does, and two ways to get it wrong
+
+`topology/repair.py` consumes the **findings of the latest QA run**, not a fresh scan, so
+what was judged in QGIS is exactly what is changed. Every change writes `qa.fix` with
+before/after geometry (`qa.v_fix` is the layer), and `--dry-run` writes nothing.
+
+| rule | repair |
+|---|---|
+| `gap_dangle_pair` | weld the two ends; the lower `vertex_id` stays put |
+| `gap_dangle_junction` | weld the end onto the junction; the junction never moves |
+| `gap_dangle_edge` | split the target edge at the loose end, which becomes the shared vertex |
+| `degenerate` | self-loop → **split** at the midpoint; sub-metre edge → **collapse** |
+| `island`, `overlap` | not repaired: one is a coverage fact, the other needs judgement per case |
+
+Both halves of the degenerate rule were wrong on the first run, and both failures are the
+same mistake — treating a defect in the ROUTING GRAPH as a defect in the GROUND:
+
+- **A self-loop is real.** A loop trail or a roundabout mapped as one closed way has
+  `source = target`, which no shortest path can enter. Deleting them removed **26.3 km of
+  network**, the longest a 640 m loop way. They are split at the midpoint instead.
+- **A sub-metre edge carries no ground but a real connection.** Deleting 245 of them
+  severed the joins they carried and created **129 new loose ends**. They are collapsed —
+  weld the two ends, and the edge disappears without disconnecting its neighbours.
+
+Only a zero-length ring is deleted, and it connects nothing to nothing by construction.
+
+A weld can collapse an edge that was not in the pass's first snapshot, so the degenerate
+rule re-selects until a pass changes nothing. A split refuses to cut closer than a metre
+from an end, because doing so manufactures the very degenerate edge it would then have to
+clean up.
+
+### The 2026-08-19 pass, in numbers
+
+Against the two provinces, on 101,870 edges and 9,238 km:
+
+| rule | before | after |
+|---|---|---|
+| `gap_dangle_pair` | 9 | 0 |
+| `gap_dangle_edge` | 92 | 0 |
+| `gap_dangle_junction` | 15 | 0 |
+| `degenerate` | 488 | 0 |
+| `island` | 389 | 370 |
+| `overlap` | 128 (972.6 m) | 164 (1,168.5 m) |
+
+Loose ends 14,769 → 14,586; components 407 → 387; **total length unchanged at 9,238.0 km**,
+which is the check that matters — a repair pass that changes the length of the network has
+either invented ground or thrown some away.
+
+Overlap is the one number that moved the wrong way: 36 more findings and 196 m more shared
+geometry. Welding two near-duplicate ways together makes the duplication measurable where
+before it was two lines with a gap between them. Not repaired automatically, so it sits in
+`qa.v_overlap` for judgement.
+
+### A matview that lied
+
+`curated.vertex_degree` is materialised, every detector reads it, and 0004 said
+`build_network.py` refreshed it after a rebuild. It did not. A rebuilt network was
+therefore measured with the *previous* network's degrees: the same 101,870 edges reported
+9 dangle pairs before a rebuild and 19 after, with nothing changed in between. Repairs
+chosen from those numbers would weld vertices picked off a graph that no longer existed.
+
+The refresh now happens where the comment always claimed it did, and `topology/qa.py`
+refuses to run when the matview's row count does not match `curated.vertex` — the cheapest
+possible detection of a class of error that is otherwise silent.
+
 ### Two PostGIS traps found building these detectors
 
 Both read naturally and are quietly wrong — the same family as the per-node radius that

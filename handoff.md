@@ -543,83 +543,90 @@ The numbers are list-price API equivalents. On a subscription plan nothing here
 is billed per token — `/usage` is what reflects real plan consumption. Build
 cost through Phase 5 was roughly $62.
 
-## 2026-08-19 - Brand system v1.0 on the frontend
+## 2026-08-19 (later) - The QA loop closes: repairs, and a missing rule
 
-The frontend now wears the brand system in `assets/brand/` (spec, tokens, four
-logo files, ten icons): dark ground, two accents with fixed meanings, square
-corners, 1px hairlines, no shadows. `assets/` had never been committed; it is in
-this commit alongside the code that implements it.
+`topology/repair.py` now exists — the second half of the loop `qa.py` opens, and the
+thing the 2 m tolerance was measured for. It repairs the FINDINGS of the latest QA run
+rather than a fresh scan, so what was judged in QGIS is exactly what changes.
 
-The visible changes: the transcript is a ruled document rather than chat
-bubbles, the route card is a hairline-delimited band with a figure row (distance
-lime, then ascent, walking time and grade), hazards are a 6px flare bar with a
-calm sentence instead of red pills, and every route carries a Sources disclosure
-saying in the UI that the two sources are matched by proximity and never merged.
-Tokens are imported once globally and no component holds a hex literal; the only
-exception is MapView, which resolves `--vv-lime` off the root because MapLibre
-paint properties cannot read a CSS variable. The basemap is desaturated and
-darkened at the raster layer rather than by a CSS filter over the canvas, which
-would have taken the route line down with it.
+Against the two provinces, all four repairable rules went to zero and the network kept
+every metre:
 
-### Five blocks ship inactive, and each is waiting on the backend
-
-They are in the UI, in their right places, visibly unavailable rather than
-absent, so the work needed to finish them is obvious instead of forgotten. The
-unavailable map tabs use the brand system's own `--vv-muted` unavailable state
-and are really `disabled`, not merely grey.
-
-| Block | Where | Waiting on |
+| rule | before | after |
 |---|---|---|
-| "How I read it" | between the answer and the routes | `/chat` streams results, not the plan the composer merged |
-| Elevation profile | map bottom panel | the payload has total ascent, not a height series |
-| Places layer | map tab | POIs do not travel with map geometry |
-| Hazards layer | map tab | hazards are per trail, not per segment, so there is nothing to draw them on |
-| Coverage layer | map tab | nothing exposes where coverage stops |
+| gap_dangle_pair | 9 | 0 |
+| gap_dangle_edge | 92 | 0 |
+| gap_dangle_junction | 15 | 0 |
+| degenerate | 488 | 0 |
+| island | 389 | 370 |
+| overlap | 128 (972.6 m) | 164 (1,168.5 m) |
 
-The Sources disclosure has the same shape of gap. The brand spec asks it to show
-OSM way ids, the Trailforks id and a MAPS_TO distance; the payload carries none
-of them, so it shows what is real (graph id, OSM/ODbL) and the component already
-takes `osmWayIds` and `matchDistanceM` for the day the API returns them. The
-mockups' sample ids are deliberately not shipped. Note also that **MAPS_TO does
-not exist** - the model's single link is `COMPOSED_OF {seq, match_confidence}` -
-so the spec's label is stale and the row is labelled `link`.
+Loose ends 14,769 -> 14,586. Components 407 -> 387. **Total length 9,238.0 km, unchanged** —
+that is the check that matters, because a repair pass which moves the length of the
+network has either invented ground or thrown some away.
 
-### Judgement calls worth knowing
+### A third gap class nobody could see
 
-- The Trailforks credit ("terms pending", per the spec) renders only when a
-  trail actually carries a `trailforks_url`. No Trailforks data has ever entered
-  the system, and an unconditional credit would claim a source we do not use.
-- The composer placeholder is "Type what you want to do", not the spec's "Speak,
-  or type": there is no voice input on web, and the spec's own web composer has
-  no mic button. The banned "Find me a trail..." string is gone.
-- SAC difficulty squares render only for hiking routes with a `hike_rating`,
-  filled to the grade and hollow beyond, never flare - there is no user-stated
-  limit in the payload to compare against. MTB routes show the worded grade;
-  rendering `mtb:scale` as SAC squares would invent a grade.
-- MapLibre's stylesheet is imported by the component and so lands after
-  `globals.css`; its white attribution pill and control shadow won at equal
-  specificity. The overrides are scoped under `.map`.
-- IBM Plex Mono is not loaded - the token's `ui-monospace` fallback is what
-  renders. Loading it means `next/font` and a build-time font fetch.
+Reconciling the histogram against the detectors was supposed to be bookkeeping and instead
+found a missing rule. Of the 231 loose ends within 2 m of an edge they are not joined to:
+129 are **stubs** (their own edge ends at a junction under 2 m away, so that junction's
+other edges register as a near miss — nothing is broken), and 102 are real. The pair rule
+saw 14 of those, the edge rule 92, and the remaining ones were invisible: a loose end
+stopping just short of an EXISTING junction. The pair rule needs both ends to be dangles;
+the edge rule excludes anything near an endpoint, to avoid double-reporting the pair case,
+which excluded near-junction gaps along with it. That is `gap_dangle_junction`, 15 of them,
+and it now has a QGIS layer like every other rule.
 
-Verified: 40 frontend unit tests, `tsc --noEmit` and `next build` all clean, and
-the result driven in a real browser against fixture data - zero rounded corners,
-zero box-shadows, ground `#0D0F0E` on every surface, attribution a full-width
-dark row. The harness route that rendered the fixtures was deleted before the
-commit.
+### Two mistakes in the degenerate rule, both the same mistake
 
-Two things this session found that are not about branding. `npm run lint` in
-`frontend/` is broken independently of this work: `next lint` is deprecated and
-prompts interactively because there is no ESLint config in the repo. CI runs
-`npm test` and `npm run build`, so nothing is red - but the lint script does not
-work if you type it. And `CLAUDE.md` had drifted two tiers behind the repo (no
-`pipeline/`, gateway and frontend still marked as future phases); it was brought
-up to date in the same commit.
+Both were caught by looking at the numbers after the first pass rather than trusting it,
+and both are a defect in the ROUTING GRAPH being treated as a defect in the GROUND:
 
-Three blockers below were removed because the repo contradicts them: Supabase is
-back on against the local stack (commit 4b3c445), and `feat/route-catalogue` is
-both pushed and merged into `develop`, with a clean working tree. The credential
-rotations are still open.
+- **Self-loops are real.** A loop trail mapped as one closed way has source = target, which
+  no shortest path can enter. Deleting them removed **26.3 km of network**, the longest a
+  640 m loop way. They are split at the midpoint now.
+- **Sub-metre edges carry a connection.** Deleting 245 of them severed the joins they
+  carried and created **129 new loose ends**. They are collapsed now — weld the two ends,
+  the edge disappears, the neighbours stay joined.
+
+The network was rebuilt from staging to undo that first pass, which is exactly what
+"replace, not merge" in build_network is for. Only a zero-length ring is deleted now.
+
+### A materialised view that lied
+
+`curated.vertex_degree` is read by every detector, and 0004 said `build_network.py`
+refreshed it after a rebuild. It did not. A rebuilt network was therefore measured with the
+PREVIOUS network's degrees — the same 101,870 edges reported 9 dangle pairs before a
+rebuild and 19 after, with nothing changed in between, and a repair pass driven by those
+numbers would have welded vertices chosen off a graph that no longer existed. The refresh
+now happens where the comment always claimed it did, and `topology/qa.py` refuses to run
+when the matview's row count does not match `curated.vertex`.
+
+This is the one to remember: it was silent, it was in a file whose comment asserted the
+opposite, and only a number that changed when nothing had changed exposed it.
+
+### Where the review bundle stands
+
+`export/review_bundle.py` gained a `gap_dangle_junction` layer and a `fix` layer (what the
+last pass changed, with how far each end moved), and two fixes of its own: context is
+scoped to the latest run (it had been accumulating every run's neighbourhoods — 7,219
+edges of "context" for nine findings) and now follows overlap as well, since overlap is
+what is left to judge. A refreshed bundle was written outside the repo because QGIS held
+the old GeoPackage open.
+
+### Open, and honest about it
+
+- **Overlap is the one number that moved the wrong way**: 128 findings / 972.6 m before,
+  164 / 1,168.5 m after. Welding two near-duplicate ways together makes duplication
+  measurable where before it was two lines with a gap between them. Not repaired
+  automatically — it needs judgement per case, and it sits in `qa.v_overlap` waiting for it.
+- 370 islands remain, deliberately. They are a coverage fact, not a defect.
+- `routable_bike` is true on 97.9% of edges. Legality works (bicycle=no is honoured, steps
+  are excluded, access is honoured with the specific-key override), but footways with no
+  bicycle tag stay bikeable by design, and the comfort model that justifies that lives in
+  `backend/core/comfort.py` — which no longer produces data. 198 edges at sac_scale T4 or
+  worse are bike-routable and only 15 of those carry any mtb:scale. A SAC ceiling in
+  `load/legality.py` is a small, testable change; it needs a reload to take effect.
 
 <!-- pmctl:handoff v1 -->
 ```json
@@ -1071,7 +1078,11 @@ rotations are still open.
         },
         {
           "date": "2026-08-19",
-          "text": "Brand system v1.0 applied to the frontend. Blocks with no data behind them ship inactive and visibly unavailable rather than being left out, so the backend work they need stays visible: How I read it, elevation profile, and the places/hazards/coverage map layers. Nothing invents a value it does not have - no sample ids, no zeroes standing in for missing measurements."
+          "text": "Repairs land as their own pass over the latest QA run findings, never a fresh scan, so what was reviewed in QGIS is what changes. Self-loops are split rather than deleted and sub-metre edges collapsed rather than deleted: a defect in the routing graph is not a defect in the ground. The check that a pass went right is that the total length of the network did not move."
+        },
+        {
+          "date": "2026-08-19",
+          "text": "qa.py refuses to run when curated.vertex_degree is stale. A matview left over from an earlier network made the same 101,870 edges report 9 dangle pairs and then 19, with nothing changed between - and repairs would have been chosen from those numbers. build_network now refreshes it, where 0004 always claimed it did."
         }
       ]
     }
@@ -1118,8 +1129,8 @@ rotations are still open.
       "plan": "redesign"
     },
     {
-      "title": "Carry POIs with map geometry so the Places map layer can render",
-      "est": 1,
+      "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed — it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
+      "severity": "high",
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -1147,6 +1158,27 @@ rotations are still open.
     },
     {
       "title": "Add an ESLint config to frontend/ - npm run lint currently prompts interactively and does nothing",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Judge the 164 overlap findings in QGIS: duplicate, bridge, or a legitimately shared stretch. The only QA rule that cannot be automated",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Add a SAC ceiling to load/legality.py so alpine terrain is not bike-routable without an explicit mtb:scale or bicycle=yes (198 edges at T4+, 15 with any MTB grade). Needs a reload",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Flatten bicycle/access/mtb:scale/tracktype into qa.v_network so QGIS can style on them without a jsonb expression",
       "est": 1,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",

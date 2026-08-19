@@ -136,6 +136,11 @@ def main() -> None:
 
         print("computing connected components...")
         conn.execute(COMPONENTS)
+        # Every QA detector reads vertex_degree, and 0004 says this is where it
+        # is refreshed — but it was not, so a rebuild left the previous
+        # network's degrees in place and the detectors then measured a network
+        # that no longer existed. Refreshing here, where the claim already was.
+        conn.execute("REFRESH MATERIALIZED VIEW curated.vertex_degree")
         comp = conn.execute("""SELECT count(DISTINCT component_id) AS components,
                       (SELECT count(*) FROM curated.vertex v2
                        WHERE v2.component_id = (
