@@ -40,7 +40,8 @@ Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md`
 
 - Python 3.11+, type hints required on all public functions, async for I/O (Neo4j driver, HTTP). Format Black, lint Ruff.
 - Gateway/frontend: TypeScript strict; gateway stays thin — if a change adds domain logic there, it belongs in the backend.
-- Conventional Commits (`feat:`, `fix:`, `docs:`, …); branches `feat/…`, `fix/…`, `docs/…`.
+- Conventional Commits (`feat:`, `fix:`, `docs:`, …); branches `feat/…`, `fix/…`, `docs/…`, `chore/…`.
+- **Branch from `develop` and open PRs against `develop`**, never `main`. `main` is production: protected, no direct pushes, and reached only by a release PR from `develop` or a `hotfix/…` branched off `main` (which must then be merged back into `develop`). `develop` is the repo default, so `gh pr create` targets it on its own.
 - Update the relevant file in `docs/` (including `docs/plan.md` checkboxes) when a change affects the data model, query patterns, fragilities, or roadmap.
 
 ## Handoff file (read by the project tracker)
