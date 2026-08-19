@@ -635,6 +635,19 @@ def main() -> None:
         print("refreshing vertex degree and connected components...")
         conn.execute("REFRESH MATERIALIZED VIEW curated.vertex_degree")
         conn.execute(COMPONENTS)
+
+        # A repair splits edges and deletes them, so curated.edge_route now
+        # describes a network that has moved: the deleted edges' links went with
+        # them (ON DELETE CASCADE) and each new half of a split edge has no link
+        # at all. A partly-true link table is worse than an absent one — this is
+        # vertex_degree's lesson — so it is cleared and said out loud.
+        (links,) = conn.execute("SELECT count(*) FROM curated.edge_route").fetchone()
+        if links:
+            conn.execute("TRUNCATE curated.edge_route")
+            print(
+                f"cleared {links:,} route links — they described the pre-repair "
+                "network. Re-run `python -m curate.routes`."
+            )
         conn.execute(
             "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),

@@ -20,7 +20,7 @@ sources/    acquire (Geofabrik PBF, GLO-30 tiles, GTFS, CLC+, REL, Infomont)
 load/       into staging_* tables
 topology/   noding, metadata propagation, QA detectors and automated repairs
 draw/       route enumeration (loops, out-and-back) and assembly
-curate/     aggregation rules, scoring, dedup
+curate/     route-relation join (edge_route), aggregation rules, scoring, dedup
 export/     to Neo4j
 sql/        migrations, applied in filename order by migrate.py
 tests/      pure-function tests (no database in the loop)
@@ -72,6 +72,9 @@ Ready-made layers, latest run only — add these by name rather than filtering b
 | `qa.v_island` | components too small to hold a route |
 | `qa.v_dangle` | all loose ends — for judging whether a dangle is a defect or a real dead end |
 | `qa.v_fix` | what the last repair pass changed, with how far each end moved |
+| `qa.v_route` | **one line per named route** (752 features): ref, name, network, km, and `pieces` — how many disconnected parts it comes out in |
+| `qa.v_route_edge` | every edge that carries a route, with the route's identity as real columns |
+| `qa.v_route_coverage` | how much of each relation the network holds; `matched_fraction` near 0 is a route clipped away by the region bboxes |
 
 `qa.finding` and `qa.fix` are the underlying tables; `qa.fix` carries before/after geometry
 for every automated repair, so a repair pass is reviewable after the fact and reversible if
@@ -85,7 +88,15 @@ uv run python -m topology.qa --dry-run             # counts, writes nothing
 uv run python -m topology.qa --tolerance-m 2.0     # write findings
 uv run python -m topology.repair --dry-run         # what would change, writes nothing
 uv run python -m topology.repair                   # repair, recording every change
+
+uv run python -m curate.routes --dry-run           # what the route join would write
+uv run python -m curate.routes                     # join route relations onto the network
+uv run python -m curate.routes --check             # is the stored join still current?
 ```
+
+The route join runs **after** build and repair, and both of those clear it: it holds
+`edge_id`s, so it is true only of the network that produced them. `--check` says whether
+the stored link still describes the network in the database.
 
 Repairs consume the **latest QA run's findings**, so what you judged in QGIS is what
 changes. `qa.fix` holds before/after geometry for every one of them. The check that a pass

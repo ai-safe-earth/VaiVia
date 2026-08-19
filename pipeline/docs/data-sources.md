@@ -64,11 +64,17 @@ existing graph is in.
 
 **Fitness.** It is the network. Nothing else in the list carries geometry we can route on.
 
-## 2. OSM route relations — ADOPT
+## 2. OSM route relations — ADOPT, and **joined to the network 2026-08-20**
 
 **What.** `relation[route~hiking|foot|mtb|bicycle]` — the named-trail layer today's
 ingestion never fetches. Comes free in the same Geofabrik extract (pyosmium resolves
 member ways).
+
+**Status.** 752 relations loaded, and since 2026-08-20 joined onto the network by
+`curate/routes.py` into `curated.edge_route`: all 752 matched, 17,118 edges / 2,469.5 km
+of the 9,238.0 km network now carry a named route, and 10,361 edges that had no `name` of
+their own now carry one. See `docs/metadata-rules.md` for the join's rules and
+`qa.v_route` / `qa.v_route_coverage` for the layers.
 
 **Coverage — measured** on the spike's cached Overpass fetches:
 

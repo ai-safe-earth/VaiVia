@@ -39,6 +39,50 @@ Assembly itself is a check: the ordered pieces must `ST_LineMerge` to **exactly 
 LineString**. A MultiLineString means a gap, which is filed as a `qa.finding` pointing at
 the break — a broken route is never stored with a straight line across the hole.
 
+## Route-relation membership (`curated.edge_route`, written 2026-08-20)
+
+The **Positional** row of the split table, realised. A member of an OSM route relation is
+a way id, and `curated.edge.way_id` is the same id, so the join needed no matching
+algorithm — it already existed in the data and had never been written.
+
+| decision | rule | why |
+|---|---|---|
+| shape | a **link table**, never a column on `edge` | 5,295 edges belong to more than one relation; a column would pick one and discard the rest |
+| grain | one row per (edge, relation, member position) | a way may appear **twice in one relation** (140 cases: an out-and-back leg), so (edge, relation) is not a key |
+| the relation's tags | **not copied** — `staging.osm_relation` stays the source of truth | a second copy is a second thing to keep in step; the same argument that keeps edge tags in `tags` |
+| all pieces of a member | every piece of a member way joins the route | the relation is a claim about the **way**; pieces are an artefact of noding |
+| ordering | `member_index` (position in the relation) + `piece_index` (position along the way) | that is the order OSM stated |
+| direction | **not resolved here** | a member way can be walked backwards along the route; resolving that is assembly's job, above. Store provenance, derive direction later |
+| nested relations | **skipped, and counted** | 16 exist, all superroutes listing their stages. The stages are relations in their own right and join on their own; flattening the parent would make every stage's edges appear twice under two names |
+| node members | skipped | 2,639 of them: guideposts and summits, not network |
+
+### What it produced, against the 2026-08-19 network
+
+| | |
+|---|---|
+| relations joined | **752 of 752** |
+| distinct member ways in the network | 10,246 of 15,392 |
+| links written | 25,719 |
+| edges carrying a route | 17,118 (**2,469.5 km** of 9,238.0) |
+| edges with no `name` of their own that now carry a route's | **10,361** |
+| routes that merge into a single line | 621 of 752 |
+
+The 5,146 member ways the network does not hold are outside both region bboxes or were
+excluded by `load/legality.py` — expected, and the reason `qa.v_route_coverage` exists:
+`matched_fraction` near 1 is a route clipped at the edge of coverage, near 0 is a route
+this network cannot hold. Twenty-seven sit below 0.2, led by BI-12 (Trieste–Savona) at
+0.003. **A route generator must filter on that number**; a "route" of two matched ways out
+of 646 is a fragment with a famous name.
+
+### The link describes ONE build of the network
+
+`edge_route` holds `edge_id`s, so it is true only of the network that produced them.
+`build_network` (which replaces the network) and `topology/repair` (which splits and
+deletes edges) both **clear** the table and say so; `curate.routes --check` reports
+staleness by comparing the network run ids recorded in `build_run` against the run ids now
+in `curated.edge`. An empty table is visibly missing, a partly-stale one lies — which is
+`curated.vertex_degree`'s lesson, applied before it could be repeated.
+
 ## Where an operation runs
 
 If it is naturally **one SQL statement over a table** — noding, snapping, line-merging,

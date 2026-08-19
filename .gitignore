@@ -68,3 +68,6 @@ pipeline/data/
 # `uv run python -m export.review_bundle --zip`. The database is the product.
 /review/
 /review.zip
+
+# Personal working note, not part of the repo.
+Oscar_continua_desde_aqui.md

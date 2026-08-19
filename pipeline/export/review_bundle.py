@@ -74,6 +74,18 @@ LAYERS: list[tuple[str, str]] = [
         """SELECT osm_type, osm_id, poi_type, name, ele_m, regions, geom
            FROM staging.osm_poi""",
     ),
+    # One line per named route: 752 features, not 102,000, and the layer that
+    # says whether the join landed. `pieces` is the column to sort by — a route
+    # that merges into one line runs continuously through the network, and one
+    # that comes out in nine is either clipped at the edge of coverage or has
+    # real gaps in it. Both are judgements, so the layer travels with the
+    # bundle rather than staying behind on the machine.
+    (
+        "route",
+        """SELECT rel_id, ref, name, route_kind, network, osmc_symbol, regions,
+                  edges, km, pieces, geom
+           FROM qa.v_route""",
+    ),
 ]
 
 # Edges near the findings that need a human decision. The other rules are
