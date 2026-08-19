@@ -198,11 +198,46 @@ test: cover the proximity threshold edge cases
 
 ### Branches
 
+Two long-lived branches, and everything else is short-lived.
+
+```
+main      ----o------------o----------o    production, protected, tagged
+             /            /          /
+          release      release   hotfix/*
+           /            /
+develop  -o--o--o--o---o--o--o----o-------  the development environment
+          /     /        /
+      feat/a  fix/b   feat/c
+```
+
+- **`main` is production.** It is protected: no direct pushes, no force pushes,
+  no deletion, and a pull request with all three CI jobs green before anything
+  merges. Nothing lands here except a release from `develop` or a hotfix.
+- **`develop` is the development environment** and the repository default, so a
+  new pull request targets it unless you deliberately say otherwise. This is
+  where features integrate, and what the local stack in
+  [Development setup](#development-setup) is pointed at.
+- **Work branches off `develop`** and merges back into it:
+
 ```
 feat/elevation-backfill
 fix/null-surface-tag
 docs/query-cookbook
+chore/branch-strategy
 ```
+
+- **A release is a pull request from `develop` to `main`**, tagged on merge
+  (`v0.2.0`). Nothing is rebased or cherry-picked into it: what has been tested
+  on `develop` is exactly what ships.
+- **A hotfix branches from `main`** (`hotfix/gateway-401`), merges to `main`,
+  and is then merged back into `develop` in the same sitting — a fix that lives
+  only on production will be silently reverted by the next release.
+
+One thing the protection deliberately does not do: it requires no approving
+review, because a single maintainer cannot approve their own pull request and a
+rule nobody can satisfy gets switched off rather than followed. The pull request
+itself is still required, so every change to production is reviewable after the
+fact and CI has always run on the merge result.
 
 ### Secrets
 
@@ -230,11 +265,17 @@ A change is not finished until the docs match it:
 ## Pull request process
 
 1. Open an issue first for anything non-trivial, so the approach can be agreed.
-2. Keep the PR focused — one feature or fix.
-3. Add or update tests for changed behaviour.
-4. Update the relevant `docs/` file.
-5. Make sure `ruff`, `black`, `pytest`, and both `npm test` suites pass.
-6. One review approval is required to merge.
+2. Branch from `develop`, and target `develop` — the repository default, so this
+   is what a new pull request does on its own. Only a release or a hotfix
+   targets `main`.
+3. Keep the PR focused — one feature or fix.
+4. Add or update tests for changed behaviour.
+5. Update the relevant `docs/` file.
+6. Make sure `ruff`, `black`, `pytest`, and both `npm test` suites pass. CI runs
+   the same three jobs and they must be green before a merge into `main`.
+7. Review: an outside contribution needs a maintainer's approval. The
+   maintainer's own pull requests do not, since GitHub does not let anyone
+   approve their own — CI and the pull request itself are the gate there.
 
 ---
 
