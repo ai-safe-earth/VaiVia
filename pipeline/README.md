@@ -59,9 +59,33 @@ Connect QGIS directly to the store (Layer → Add Layer → PostgreSQL):
 | Database | `vaivia_geo` |
 | User / Password | `vaivia` / `POSTGIS_PASSWORD` from `.env` |
 
-Every QA rule is a layer: filter `qa.finding` on `rule` (and `run_id` for one run).
-`qa.fix` carries before/after geometry for every automated repair, so a repair pass is
-reviewable after the fact and reversible if a tolerance was wrong.
+Ready-made layers, latest run only — add these by name rather than filtering by hand:
+
+| layer | what it shows |
+|---|---|
+| `qa.v_network` | every edge, with highway/surface/sac_scale/name — the context the findings sit on |
+| `qa.v_gap_dangle_pair` | two loose ends within tolerance, not joined. **The classic gap** |
+| `qa.v_gap_dangle_edge` | a loose end near another edge's interior: under/overshoot |
+| `qa.v_overlap` | the same ground mapped twice, with `shared_m` |
+| `qa.v_degenerate` | sub-metre edges and self-loops |
+| `qa.v_island` | components too small to hold a route |
+| `qa.v_dangle` | all loose ends — for judging whether a dangle is a defect or a real dead end |
+
+`qa.finding` and `qa.fix` are the underlying tables; `qa.fix` carries before/after geometry
+for every automated repair, so a repair pass is reviewable after the fact and reversible if
+a tolerance was wrong.
+
+```bash
+uv run python -m topology.build_network            # noded network + components
+uv run python -m topology.qa --measure             # the near-miss distribution
+uv run python -m topology.histogram                # the same, as a PNG to look at
+uv run python -m topology.qa --dry-run             # counts, writes nothing
+uv run python -m topology.qa --tolerance-m 2.0     # write findings
+```
+
+**Look before repairing.** The tolerance comes from the histogram and from opening
+examples in QGIS at each candidate distance — see `docs/metadata-rules.md`, which records
+why 2 m and not 5.
 
 ## Provenance
 

@@ -55,3 +55,32 @@ what this stack retires.
 Detectors write `qa.finding` (one rule = one QGIS layer, geometry per finding). Repairs
 are automated per rule, write `qa.fix` with before/after geometry, honour `--dry-run`, and
 take tolerances from measured distributions (the near-miss histogram), never from guesses.
+
+### Measured, not guessed: the 2 m tolerance
+
+`topology/histogram.py` plots, for every loose end, the distance to the nearest edge it is
+not joined to. Over the two provinces: **14,769 loose ends**, and the distribution *peaks
+at 6–8 m*, decaying to 100 m. That shape is the answer — the bulk are **real dead ends**
+(spurs, driveways, paths stopping near a road), not defects. Only the small population
+below ~2 m sits before the rise, where "near another line" is not explainable as a genuine
+ending.
+
+So the tolerance is **2 m**, catching 231 of 14,769 (1.6%). At 5 m it would touch 1,180
+and at 10 m 3,036 — both deep inside the real-dead-end population, welding junctions that
+do not exist. Re-run the histogram after any change to the network before moving it.
+
+### Two PostGIS traps found building these detectors
+
+Both read naturally and are quietly wrong — the same family as the per-node radius that
+cost 14 s a route in the old graph.
+
+- **`ST_Dimension` of an empty geometry returns the dimension of its TYPE.**
+  `ST_Dimension(LINESTRING EMPTY)` is `1`, not `-1`, so testing `= 1` to find line-on-line
+  overlaps matched every bbox-overlapping pair that does not intersect at all: **51,905
+  phantoms against 146 real overlaps**. Measure the shared *length* instead, which is also
+  the honest measure of the defect.
+- **A CTE has no indexes.** `WITH dangles AS (...) FROM dangles a JOIN dangles b ON
+  ST_DWithin(...)` degrades to a nested loop over every pair — 14,769² geography distances,
+  killed after ten minutes. Join the indexed relation directly and filter on `degree`
+  inside the join: same result in 21 s. Related: a `::geography` predicate needs a
+  `gist((geom::geography))` index; a plain geometry index cannot serve it.
