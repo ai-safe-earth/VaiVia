@@ -63,3 +63,8 @@ infra/supabase/signing_keys.json
 
 # Pipeline source downloads (large, reproducible from the URLs in sources/)
 pipeline/data/
+
+# Review bundles: exported snapshots of PostGIS layers, rebuildable with
+# `uv run python -m export.review_bundle --zip`. The database is the product.
+/review/
+/review.zip
