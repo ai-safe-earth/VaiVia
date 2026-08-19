@@ -4,14 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md` — read it before structural work. Layout: `backend/` (FastAPI + Neo4j, Python), `gateway/` (Fastify BFF, Node/TS — Phase 3), `frontend/` (Next.js — Phase 5), `infra/` (compose, Supabase migrations, deploy). Backend code lands under `backend/` (`api/`, `ingestion/`, `graph/`, `scripts/`, `tests/`, `fixtures/`).
+Monorepo; the roadmap and target architecture live in `docs/plan.md` — read it before structural work. Layout: `pipeline/` (geodata pipeline, PostGIS, Python — its own uv project, own `README.md` and `docs/`), `backend/` (FastAPI + Neo4j, Python), `gateway/` (Fastify BFF, Node/TS), `frontend/` (Next.js + MapLibre), `infra/` (compose, Supabase migrations, deploy). All four tiers are built and tested; CI runs one job per tier. Backend code lands under `backend/` (`api/`, `ingestion/`, `graph/`, `scripts/`, `tests/`, `fixtures/`).
 
 ## Setup and commands
 
 - Backend deps: **uv** in `backend/` (`cd backend && uv sync`), not pip. Run tools via `uv run`.
+- `pipeline/` is a **separate uv project** with its own venv: `cd pipeline && uv sync`. Never run pipeline code from `backend/`'s environment or vice versa.
 - Neo4j: `docker compose --env-file .env -f infra/docker-compose.yml up -d neo4j` (run from repo root; `--env-file` is required because the compose file lives in `infra/`) (Community + APOC + GDS). Copy `.env.example` → `.env` first; `NEO4J_PASSWORD` is required (no default).
+- PostGIS (pipeline working store): `docker compose --env-file .env -f infra/docker-compose.yml up -d postgis` (pgRouting image; `POSTGIS_PASSWORD` in `.env`). It listens on **5433** — the local Supabase stack owns 5432.
+- Supabase for dev is the **local** stack, not a hosted project: `cd infra && supabase start` (see CONTRIBUTING "Start Supabase").
 - Ingestion for local dev/CI must stay offline: `--mock` (reads `backend/fixtures/trailforks_mock.json`), never the live Trailforks API.
-- Checks before PR (from `backend/`): `uv run ruff check .`, `uv run black --check .`, `uv run pytest tests/ -v`.
+- Checks before PR: from `backend/` **and** from `pipeline/` — `uv run ruff check .`, `uv run black --check .`, `uv run pytest tests/ -v`; from `gateway/` — `npm run lint && npm run typecheck && npm test`; from `frontend/` — `npm test && npm run build`.
 
 ## Architecture rules (from docs/plan.md — owner-ratified)
 
@@ -23,9 +26,19 @@ Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md`
 - Chat history, usage ledger, and quotas live in Supabase Postgres (`infra/supabase/migrations/`); per-user daily LLM cost caps are enforced before every OpenAI call.
 - SSE streaming end-to-end for `/chat` (backend → gateway → frontend).
 
+## Geodata pipeline rules (`pipeline/` — see pipeline/docs/metadata-rules.md)
+
+- **The database is the product.** Curated routes, POIs and starts live in PostGIS; the tile server, dashboard, QGIS and the Neo4j export are all readers. `backend/` consumes the export — it no longer produces the data.
+- Migrations are `pipeline/sql/NNNN_*.sql`, applied in filename order by `uv run python migrate.py` (idempotent; `--dry-run` lists them). Add a new file; never edit an applied one.
+- Division of labour: one SQL statement over a whole table (noding, snapping, line-merge, raster sampling) → PostGIS. Per-feature branching, anything needing a unit test or a plot → Python (GeoPandas/Shapely). Code implements the table in `pipeline/docs/metadata-rules.md`, not its own judgement.
+- **Look before repairing.** Detectors write `qa.finding` (one rule = one QGIS layer); repairs write `qa.fix` with before/after geometry and honour `--dry-run`. Tolerances come from a measured distribution (2 m from the near-miss histogram, `topology/histogram.py`), never a guess — re-run the histogram after any change to the network.
+- Pipeline tests are pure-function and must not touch a database: CI has no PostGIS.
+- Every curated row carries the `run_id` that produced it (`build_run` records each run's stage, parameters and counts); runs are compared inside the database — there is deliberately no file artefact to diff.
+
 ## Graph model rules (load-bearing — see docs/architecture.md, docs/fragilities.md)
 
 - **Never merge OSM and Trailforks nodes.** Single ordered link: `(:Trail)-[:COMPOSED_OF {seq, match_confidence}]->(:Segment)`, created by proximity (≤ `SPATIAL_MATCH_THRESHOLD_M`, default 20 m) + `highway_type`/`surface` compatibility. There is no `MAPS_TO` (dropped as redundant).
+- Trailforks data is **API-only and needs a granted key**; Outside's terms require prior written consent for commercial, in-software and AI use, which is all three of what VaiVia is (`docs/licensing.md`). Ingestion is a deliberate stub and no Trailforks data has ever entered the system; the data is OSM throughout, with open-licensed enrichment (Wikipedia/Wikidata) over marquee places. Keep the two-source model, but wire nothing new to Trailforks.
 - **Routing graph is Intersection–Intersection**: `(:Intersection)-[:CONNECTS_TO {distance, elevation_change, osm_way_id, surface, highway_type}]->(:Intersection)`. Segments are NOT routing vertices; never put `PASSES_BY` or other semantic edges in a path expression.
 - **Trail identity lives only on `(:Trail)`** — never filter by trail name on segments.
 - **Always bound traversals** (`*..100`) and spatially pre-filter; use GDS Dijkstra (Intersection/CONNECTS_TO projection) for real routing.
@@ -42,7 +55,7 @@ Early-stage monorepo; the roadmap and target architecture live in `docs/plan.md`
 - Gateway/frontend: TypeScript strict; gateway stays thin — if a change adds domain logic there, it belongs in the backend.
 - Conventional Commits (`feat:`, `fix:`, `docs:`, …); branches `feat/…`, `fix/…`, `docs/…`, `chore/…`.
 - **Branch from `develop` and open PRs against `develop`**, never `main`. `main` is production: protected, no direct pushes, and reached only by a release PR from `develop` or a `hotfix/…` branched off `main` (which must then be merged back into `develop`). `develop` is the repo default, so `gh pr create` targets it on its own.
-- Update the relevant file in `docs/` (including `docs/plan.md` checkboxes) when a change affects the data model, query patterns, fragilities, or roadmap.
+- Update the relevant file in `docs/` (including `docs/plan.md` checkboxes) when a change affects the data model, query patterns, fragilities, or roadmap. Pipeline changes update `pipeline/docs/` (`metadata-rules.md`, `data-sources.md`) instead.
 
 ## Handoff file (read by the project tracker)
 
