@@ -3,9 +3,11 @@
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
 
+import { AppHeader } from '@/components/AppHeader';
 import { AuthPanel } from '@/components/AuthPanel';
 import { ChatPanel } from '@/components/ChatPanel';
 import { ConversationList } from '@/components/ConversationList';
+import { ElevationPanel, MapLayerTabs } from '@/components/MapChrome';
 import { onSession, signOut, type AuthUser } from '@/lib/auth';
 import {
   listConversations,
@@ -19,6 +21,10 @@ import type { ChatMessage } from '@/lib/types';
 const MapView = dynamic(() => import('@/components/MapView').then((m) => m.MapView), {
   ssr: false,
 });
+
+/** Where the graph has been ingested. Named, because the honest answer to a
+ *  request past the edge of coverage is where it stops. */
+const REGION = 'Lecco · Bergamo';
 
 export default function Home() {
   const [geometry, setGeometry] = useState<
@@ -88,14 +94,11 @@ export default function Home() {
   return (
     <main className="shell">
       <div className="chat-column">
-        {user && (
-          <div className="session-bar">
-            <span title={user.email ?? undefined}>{user.email}</span>
-            <button type="button" className="link" onClick={() => void signOut()}>
-              Sign out
-            </button>
-          </div>
-        )}
+        <AppHeader
+          region={REGION}
+          email={user?.email}
+          onSignOut={user ? () => void signOut() : undefined}
+        />
         {user && conversations.length > 0 && (
           <ConversationList
             conversations={conversations}
@@ -113,7 +116,7 @@ export default function Home() {
         {/* Trail geometry, paths and POIs in every answer are OSM-derived, so
             the credit belongs in the app chrome and not only on the map — a
             user reading results never has to open the map to see it. */}
-        <footer className="data-credit">
+        <footer className="data-credit vv-body-sm">
           Trails, paths and places from{' '}
           <a
             href="https://www.openstreetmap.org/copyright"
@@ -133,9 +136,18 @@ export default function Home() {
           . Conditions change — check locally before you go.
         </footer>
       </div>
+      {/* The canvas is its own row so the layer tabs and the elevation panel
+          are chrome around it rather than overlays on top of it — and so the
+          tile attribution keeps its place at the foot of the map itself. */}
       <div className="map">
-        <MapView geometry={geometry} />
-        {!geometry && <p className="map-empty">Pick a trail to see it drawn here.</p>}
+        <MapLayerTabs />
+        <div className="map-canvas">
+          <MapView geometry={geometry} />
+          {!geometry && (
+            <p className="map-empty vv-body-sm">Pick a trail to see it drawn here.</p>
+          )}
+        </div>
+        <ElevationPanel />
       </div>
     </main>
   );

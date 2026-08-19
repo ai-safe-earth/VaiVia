@@ -68,8 +68,8 @@ test.describe('VaiVia smoke', () => {
     test.skip(!hasStored, 'no stored conversation for this account yet');
 
     await stored.click();
-    // History renders at least one user bubble without any network turn.
-    await expect(page.locator('.bubble.user').first()).toBeVisible();
+    // History renders at least one user turn without any network turn.
+    await expect(page.locator('.turn-user').first()).toBeVisible();
 
     // "+ New chat" resets to the empty state with suggestions.
     await conversations.getByRole('button', { name: '+ New chat' }).click();

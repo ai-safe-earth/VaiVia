@@ -12,6 +12,7 @@ import { isAuthConfigured } from '@/lib/supabaseClient';
 import type { ChatMessage, Loop, Trail } from '@/lib/types';
 
 import { LoopCard } from './LoopCard';
+import { QueryReading } from './QueryReading';
 import { TrailCard } from './TrailCard';
 
 const SUGGESTIONS = [
@@ -180,22 +181,25 @@ export function ChatPanel({
 
   return (
     <section className="chat">
-      <header>
-        <h1>VaiVia</h1>
-        <span>Lake Como · Lecco</span>
-      </header>
-
       {!isAuthConfigured() && (
-        <p className="banner">
-          Supabase is not configured, so requests will be rejected by the gateway. Set
-          NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to sign in.
-        </p>
+        <div className="notice">
+          <div className="notice-bar" />
+          <div className="notice-body">
+            <span className="vv-label vv-label-hazard">Not configured</span>
+            <p className="vv-body">
+              Supabase is not configured, so the gateway will reject requests. Set
+              NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to sign in.
+            </p>
+          </div>
+        </div>
       )}
 
       <div className="messages">
         {messages.length === 0 && (
-          <div className="bubble assistant">
-            Ask for a trail the way you would ask a local.
+          <>
+            <div className="turn turn-assistant">
+              <p className="vv-body">Ask for a trail the way you would ask a local.</p>
+            </div>
             <div className="suggestions">
               {SUGGESTIONS.map((suggestion) => (
                 <button key={suggestion} type="button" onClick={() => void submit(suggestion)}>
@@ -203,14 +207,28 @@ export function ChatPanel({
                 </button>
               ))}
             </div>
-          </div>
+          </>
         )}
 
+        {/* The transcript is a ruled document: full-width turns separated by
+            hairlines, the user's quoted on --vv-panel. No bubbles. */}
         {messages.map((message, index) => (
-          <div key={index} className="cards">
-            <div className={`bubble ${message.role}`}>
-              {message.content || (message.streaming ? '…' : '')}
+          <div key={index}>
+            <div className={`turn turn-${message.role}`}>
+              {message.role === 'user' && (
+                <span className="turn-label vv-label">You asked</span>
+              )}
+              <p className="vv-body">
+                {message.content || (message.streaming ? '…' : '')}
+              </p>
             </div>
+
+            {/* Inactive until the backend returns the composed plan — see
+                QueryReading. It sits between the answer and the routes because
+                that is where a correction would be made. */}
+            {message.role === 'assistant' && message.results && !message.streaming && (
+              <QueryReading />
+            )}
 
             {message.results?.suggestions && message.results.suggestions.length > 0 && (
               <div className="suggestions">
@@ -248,7 +266,15 @@ export function ChatPanel({
               />
             ))}
 
-            {message.error && <div className="bubble error">{message.error}</div>}
+            {message.error && (
+              <div className="notice">
+                <div className="notice-bar" />
+                <div className="notice-body">
+                  <span className="vv-label vv-label-hazard">No answer</span>
+                  <p className="vv-body">{message.error}</p>
+                </div>
+              </div>
+            )}
           </div>
         ))}
         <div ref={endRef} />
@@ -264,11 +290,11 @@ export function ChatPanel({
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Find me a trail…"
+          placeholder="Type what you want to do"
           aria-label="Your message"
           disabled={busy}
         />
-        <button className="primary" type="submit" disabled={busy || !input.trim()}>
+        <button className="ask" type="submit" disabled={busy || !input.trim()}>
           {busy ? '…' : 'Ask'}
         </button>
       </form>

@@ -1,0 +1,89 @@
+/* Copied verbatim from assets/brand/tokens.css (brand system v1.0).
+   That file is the source of truth; re-copy it rather than editing here.
+   Next cannot import CSS from outside the app root, hence the copy. */
+
+/* VaiVia brand tokens v1.0 — acid direction, dark ground.
+   Import once, globally, before application styles.
+   Do not hardcode these values in components. */
+
+:root {
+  /* Surfaces */
+  --vv-ground: #0D0F0E;
+  --vv-panel: #1A1E1B;
+  --vv-map: #12150F;
+
+  /* Hairlines */
+  --vv-line: #2A2E2B;
+  --vv-line-2: #1A1E1B;
+
+  /* Text */
+  --vv-text: #F2F3F0;
+  --vv-muted: #A7ADA6;
+
+  /* Accents — lime = route/action/confirmed, flare = hazard/stale/missing */
+  --vv-lime: #CCFF3B;
+  --vv-flare: #FF6B3D;
+
+  /* Light fallback: print, email, embeds. NOT the app. */
+  --vv-ground-light: #F2F3F0;
+  --vv-text-light: #0D0F0E;
+  --vv-flare-light: #C4451F;
+
+  /* Type */
+  --vv-sans: "Helvetica Neue", Helvetica, sans-serif;
+  --vv-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Space scale */
+  --vv-s1: 6px;  --vv-s2: 9px;  --vv-s3: 12px; --vv-s4: 14px;
+  --vv-s5: 16px; --vv-s6: 18px; --vv-s7: 20px; --vv-s8: 22px;
+  --vv-s9: 26px; --vv-s10: 34px; --vv-s11: 46px;
+
+  --vv-radius: 0;
+  --vv-chat-width: 400px;
+}
+
+/* Text roles — apply as classes or copy the declarations. */
+.vv-display-xl { font: 700 52px/0.95 var(--vv-sans); letter-spacing: -0.05em; text-transform: uppercase; color: var(--vv-text); }
+.vv-display    { font: 700 44px/0.95 var(--vv-sans); letter-spacing: -0.05em; text-transform: uppercase; color: var(--vv-text); }
+.vv-title      { font: 700 28px/0.98 var(--vv-sans); letter-spacing: -0.045em; text-transform: uppercase; color: var(--vv-text); }
+.vv-figure     { font: 700 25px/1 var(--vv-sans); letter-spacing: -0.04em; color: var(--vv-text); }
+.vv-figure-key { color: var(--vv-lime); }
+.vv-subtitle   { font: 600 19px/1.2 var(--vv-sans); letter-spacing: -0.02em; color: var(--vv-text); }
+.vv-body       { font: 400 13.5px/1.55 var(--vv-sans); color: var(--vv-text); text-wrap: pretty; }
+.vv-body-sm    { font: 400 12px/1.5 var(--vv-sans); color: var(--vv-muted); }
+.vv-label      { font: 400 9.5px/1 var(--vv-sans); letter-spacing: 0.11em; text-transform: uppercase; color: var(--vv-muted); }
+.vv-label-hazard { color: var(--vv-flare); }
+.vv-data       { font: 400 11.5px/1.5 var(--vv-mono); color: var(--vv-text); }
+.vv-data-key   { color: var(--vv-muted); }
+
+/* Structure */
+.vv-hairline   { border-top: 1px solid var(--vv-line); }
+.vv-hairline-2 { border-top: 1px solid var(--vv-line-2); }
+.vv-panel      { background: var(--vv-panel); }
+
+/* Actions */
+.vv-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 19px var(--vv-s6); border: 0; border-radius: var(--vv-radius);
+  background: var(--vv-lime); color: var(--vv-ground);
+  font: 600 12.5px/1 var(--vv-sans); letter-spacing: 0.06em;
+  text-transform: uppercase; cursor: pointer;
+}
+.vv-btn-secondary {
+  background: transparent; color: var(--vv-text);
+  border-left: 1px solid var(--vv-line);
+}
+
+/* Hazard: 6px flare bar, calm body text. */
+.vv-hazard { display: flex; border-top: 1px solid var(--vv-line); }
+.vv-hazard-bar { flex: none; width: 6px; background: var(--vv-flare); }
+.vv-hazard-body { padding: 15px var(--vv-s6); }
+
+/* Focus — always visible. */
+.vv-focusable:focus-visible,
+.vv-btn:focus-visible { outline: 2px solid var(--vv-lime); outline-offset: 2px; }
+
+/* Coverage texture densities. */
+.vv-coverage-dense { opacity: 1; }
+.vv-coverage-thin  { opacity: 0.75; }
+.vv-coverage-none  { opacity: 0.45; }

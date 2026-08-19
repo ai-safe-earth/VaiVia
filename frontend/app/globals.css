@@ -1,29 +1,14 @@
-:root {
-  --bg: #0f1512;
-  --panel: #16201b;
-  --panel-2: #1d2a23;
-  --line: #2a3a31;
-  --text: #e8f0ea;
-  --muted: #93a89b;
-  --accent: #6fcf97;
-  --accent-dim: #3d7a56;
-  --danger: #e08e79;
-  --radius: 12px;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f6f8f6;
-    --panel: #ffffff;
-    --panel-2: #eef3ef;
-    --line: #d8e2da;
-    --text: #16201b;
-    --muted: #5c7266;
-    --accent: #1f7a4d;
-    --accent-dim: #a8d9bd;
-    --danger: #b3492c;
-  }
-}
+/*
+ * VaiVia application styles — brand system v1.0 (assets/brand/BRAND-SPEC.md).
+ *
+ * Every colour, family and space value comes from tokens.css. There are no hex
+ * literals in this file or in any component: the one place a brand colour is
+ * read in JavaScript is MapView, which pulls --vv-lime off the root because
+ * MapLibre paint properties cannot take a CSS variable.
+ *
+ * Three rules the layout depends on: square corners everywhere, no box-shadow,
+ * and separation by 1px hairline rather than by surface colour.
+ */
 
 * {
   box-sizing: border-box;
@@ -34,16 +19,30 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
+  background: var(--vv-ground);
+  color: var(--vv-text);
+  font: 400 13.5px/1.55 var(--vv-sans);
 }
+
+/* The dark ground is the whole design; a light theme is out of scope for this
+   pass, so the media query the old palette carried is deliberately absent. */
+
+::selection {
+  background: var(--vv-lime);
+  color: var(--vv-ground);
+}
+
+:focus-visible {
+  outline: 2px solid var(--vv-lime);
+  outline-offset: 2px;
+}
+
+/* ── Shell ────────────────────────────────────────────────────────────────
+   Chat column fixed at the spec width, map takes the rest. */
 
 .shell {
   display: grid;
-  grid-template-columns: minmax(360px, 4fr) 6fr;
+  grid-template-columns: var(--vv-chat-width) 1fr;
   height: 100vh;
 }
 
@@ -54,360 +53,749 @@ body {
   }
 }
 
-.chat {
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  min-height: 0;
-}
-
-.chat header {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.chat header h1 {
-  font-size: 16px;
-  margin: 0;
-  letter-spacing: -0.01em;
-}
-
-.chat header span {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.bubble {
-  max-width: 92%;
-  padding: 10px 13px;
-  border-radius: var(--radius);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.bubble.user {
-  align-self: flex-end;
-  background: var(--accent-dim);
-  color: var(--text);
-}
-
-.bubble.assistant {
-  align-self: flex-start;
-  background: var(--panel-2);
-}
-
-.bubble.error {
-  align-self: flex-start;
-  background: transparent;
-  border: 1px solid var(--danger);
-  color: var(--danger);
-}
-
-.cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-self: stretch;
-}
-
-.card {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 11px 13px;
-  background: var(--panel-2);
-  cursor: pointer;
-  text-align: left;
-  color: inherit;
-  font: inherit;
-  transition: border-color 0.15s ease;
-}
-
-.card:hover,
-.card:focus-visible {
-  border-color: var(--accent);
-}
-
-.card[aria-pressed="true"] {
-  border-color: var(--accent);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.card h3 {
-  margin: 0 0 4px;
-  font-size: 14.5px;
-}
-
-.card .external {
-  display: inline-block;
-  margin-top: 6px;
-  color: var(--accent);
-  font-size: 12.5px;
-  text-decoration: none;
-}
-
-.card .external:hover {
-  text-decoration: underline;
-}
-
-.stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 7px;
-}
-
-.tag {
-  font-size: 11.5px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-}
-
-.tag.warn {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.note {
-  margin-top: 7px;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
-.composer {
-  display: flex;
-  gap: 8px;
-  padding: 12px 14px;
-  border-top: 1px solid var(--line);
-}
-
-.composer input {
-  flex: 1;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-}
-
-.composer input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-
-button.primary {
-  padding: 10px 16px;
-  border-radius: var(--radius);
-  border: none;
-  background: var(--accent);
-  color: #06120c;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button.primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.map {
-  position: relative;
-  min-height: 0;
-}
-
-.map-empty {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-  pointer-events: none;
-  text-align: center;
-  padding: 24px;
-}
-
-.suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 10px;
-}
-
-.suggestions button {
-  border: 1px dashed var(--line);
-  background: transparent;
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 5px 11px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.suggestions button:hover {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.banner {
-  margin: 12px 18px 0;
-  padding: 9px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-  font-size: 13px;
-}
-
-/* ── Auth & conversations (added with the sign-in page) ─────────────────── */
-
 .shell.centered {
-  display: grid;
   grid-template-columns: 1fr;
   place-items: center;
-}
-
-.auth {
-  width: min(360px, 90vw);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 28px;
-}
-
-.auth h1 {
-  font-size: 1.3rem;
-  margin: 0;
-}
-
-.auth form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.auth input {
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  color: inherit;
-  font: inherit;
-}
-
-.link {
-  background: none;
-  border: none;
-  color: var(--accent, #2f6f4f);
-  cursor: pointer;
-  font: inherit;
-  padding: 0;
-  text-align: left;
-  text-decoration: underline;
 }
 
 .chat-column {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--vv-ground);
+  border-right: 1px solid var(--vv-line);
 }
 
-.chat-column .chat {
-  border-right: none;
+.chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────
+   54px, bottom hairline. Mark 17px, wordmark 18px, region at a 26px gap. */
+
+.app-header {
+  flex: none;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  gap: var(--vv-s2);
+  padding: 0 var(--vv-s6);
+  border-bottom: 1px solid var(--vv-line);
+}
+
+.wordmark {
+  margin: 0;
+  font: 700 18px/1 var(--vv-sans);
+  letter-spacing: -0.05em;
+  text-transform: lowercase;
+  color: var(--vv-text);
+}
+
+.wordmark .via,
+.auth h1 .via {
+  color: var(--vv-lime);
+}
+
+.app-header .region {
+  margin-left: var(--vv-s9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-header .spacer {
+  flex: 1;
+}
+
+.app-header .account {
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The account action is the one lime block in the chrome. */
+.header-action {
+  flex: none;
+  padding: 7px var(--vv-s3);
+  border: 0;
+  background: var(--vv-lime);
+  color: var(--vv-ground);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* ── Conversations ────────────────────────────────────────────────────────
+   The map-chrome tab pattern: flush row, hairline dividers, active is a lime
+   block with ground text. */
+
+.conversations {
+  flex: none;
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--vv-line);
+}
+
+.conversations button {
+  flex: none;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: var(--vv-s2) var(--vv-s4);
+  border: 0;
+  border-right: 1px solid var(--vv-line-2);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.conversations button:hover {
+  color: var(--vv-lime);
+}
+
+.conversations button.active {
+  background: var(--vv-lime);
+  color: var(--vv-ground);
+}
+
+.conversations button.active:hover {
+  color: var(--vv-ground);
+}
+
+/* ── Transcript ───────────────────────────────────────────────────────────
+   A ruled document, not bubbles: every turn is a full-width block and the
+   hairlines do the separating. */
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.turn {
+  border-bottom: 1px solid var(--vv-line);
+}
+
+.turn-user {
+  background: var(--vv-panel);
+  padding: var(--vv-s5) var(--vv-s7);
+}
+
+.turn-assistant {
+  padding: var(--vv-s5) var(--vv-s7);
+}
+
+.turn-label {
+  display: block;
+  margin-bottom: var(--vv-s1);
+}
+
+.turn p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── Suggestions ──────────────────────────────────────────────────────────
+   Sentences, so they stay sentence case in Body small — not Labels. */
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vv-s2);
+  padding: var(--vv-s4) var(--vv-s7) var(--vv-s5);
+}
+
+.suggestions button {
+  padding: var(--vv-s1) var(--vv-s3);
+  border: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 12px/1.5 var(--vv-sans);
+  cursor: pointer;
+}
+
+.suggestions button:hover:enabled {
+  border-color: var(--vv-lime);
+}
+
+.suggestions button:disabled {
+  color: var(--vv-muted);
+  cursor: not-allowed;
+}
+
+/* ── How I read it ────────────────────────────────────────────────────────
+   Inactive: the composed plan does not reach the browser yet, so the grid
+   below is unreachable and the pending line is what renders. */
+
+.reading {
+  display: block;
+  padding: var(--vv-s4) var(--vv-s7);
+  border-bottom: 1px solid var(--vv-line);
+}
+
+.reading > .vv-label {
+  display: block;
+  margin-bottom: var(--vv-s2);
+}
+
+.reading-pending {
+  margin: 0;
+}
+
+.reading-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px var(--vv-s4);
+}
+
+.reading-row {
+  display: flex;
+  gap: var(--vv-s2);
+  min-width: 0;
+}
+
+.reading-value {
+  color: var(--vv-lime);
+  overflow-wrap: anywhere;
+}
+
+.reading-edit {
+  display: inline-block;
+  margin: var(--vv-s3) 0 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--vv-lime);
+}
+
+/* ── Route card ───────────────────────────────────────────────────────────
+   A band in the transcript delimited by hairlines: no border, no radius. The
+   3px left edge marks the route drawn on the map — transparent when it is not,
+   so picking one never shifts the layout. */
+
+.route-card {
+  border-bottom: 1px solid var(--vv-line);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+
+.route-card:hover .route-name {
+  color: var(--vv-lime);
+}
+
+.route-card[aria-pressed='true'] {
+  border-left-color: var(--vv-lime);
+}
+
+.route-name {
+  margin: 0;
+  padding: var(--vv-s7) var(--vv-s7) 0;
+}
+
+.figures {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--vv-s4);
+  padding: var(--vv-s4) var(--vv-s7);
+}
+
+.figure {
+  flex: 1;
+  min-width: 0;
+}
+
+.figure.grade {
+  flex: none;
+}
+
+.figure .unit {
+  display: block;
+  margin-top: var(--vv-s1);
+}
+
+/* SAC T1–T6 as 8px rotated squares. Filled to the route's grade, hollow
+   beyond it — there is no user-stated limit in the payload, so nothing here
+   is ever flare. */
+.sac {
+  display: flex;
+  gap: 5px;
+  height: 25px;
+  align-items: center;
+}
+
+.sac i {
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  border: 1px solid var(--vv-muted);
+}
+
+.sac i.on {
+  background: var(--vv-lime);
+  border-color: var(--vv-lime);
+}
+
+.key-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--vv-line-2);
+}
+
+.key-facts > div {
+  padding: var(--vv-s3) var(--vv-s7);
+  min-width: 0;
+}
+
+.key-facts > div + div {
+  border-left: 1px solid var(--vv-line-2);
+}
+
+.key-facts .fact {
+  margin: var(--vv-s1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.poi-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vv-s1) var(--vv-s3);
+  margin-top: var(--vv-s1);
+}
+
+.poi {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--vv-text);
+}
+
+.route-note {
+  margin: 0;
+  padding: 0 var(--vv-s7) var(--vv-s5);
+}
+
+.route-link {
+  display: inline-block;
+  margin: 0 var(--vv-s7) var(--vv-s5);
+  padding-bottom: 2px;
+  color: var(--vv-text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--vv-lime);
+}
+
+/* ── Hazard ───────────────────────────────────────────────────────────────
+   6px flare bar, calm body text. The structure comes from tokens.css
+   (.vv-hazard); only the label spacing is application detail. */
+
+.vv-hazard-body .vv-label {
+  display: block;
+  margin-bottom: var(--vv-s1);
+}
+
+.vv-hazard-body p {
+  margin: 0;
+}
+
+/* ── Sources disclosure ───────────────────────────────────────────────────
+   Always present on a route. Collapsed: one Label row with a lime sign.
+   Expanded: panel ground, mono rows, then the conditions caveat. */
+
+.sources {
+  border-top: 1px solid var(--vv-line-2);
+}
+
+.sources-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vv-s3);
+  padding: var(--vv-s3) var(--vv-s7);
+  border: 0;
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sources-toggle .sign {
+  color: var(--vv-lime);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sources-body {
+  background: var(--vv-panel);
+  padding: var(--vv-s3) var(--vv-s7) var(--vv-s4);
+}
+
+.source-row {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  gap: var(--vv-s3);
+  padding: 3px 0;
+}
+
+.source-row .value {
+  overflow-wrap: anywhere;
+}
+
+.source-row a {
+  color: inherit;
+}
+
+.never-merged {
+  color: var(--vv-flare);
+}
+
+.sources-note {
+  margin: var(--vv-s3) 0 0;
+  padding-top: var(--vv-s3);
+  border-top: 1px solid var(--vv-line);
+}
+
+/* ── Notices ──────────────────────────────────────────────────────────────
+   Missing data and failed turns reuse the hazard structure: the flare bar is
+   the system saying something is absent, which is what flare is for. */
+
+.notice {
+  display: flex;
+  border-bottom: 1px solid var(--vv-line);
+}
+
+.notice-bar {
+  flex: none;
+  width: 6px;
+  background: var(--vv-flare);
+}
+
+.notice-body {
+  padding: 15px var(--vv-s7);
+}
+
+.notice-body .vv-label {
+  display: block;
+  margin-bottom: var(--vv-s1);
+}
+
+.notice-body p {
+  margin: 0;
+}
+
+/* ── Composer ─────────────────────────────────────────────────────────────
+   Flush row on the bottom edge: no radius, no gap, top hairline. */
+
+.composer {
+  flex: none;
+  display: flex;
+  border-top: 1px solid var(--vv-line);
+}
+
+.composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--vv-s6);
+  border: 0;
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 13.5px/1.55 var(--vv-sans);
+}
+
+.composer input::placeholder {
+  color: var(--vv-muted);
+}
+
+.composer input:focus-visible {
+  outline-offset: -2px;
+}
+
+.composer .ask {
+  flex: none;
+  padding: 19px var(--vv-s6);
+  border: 0;
+  background: var(--vv-lime);
+  color: var(--vv-ground);
+  font: 600 12.5px/1 var(--vv-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.composer .ask:disabled {
+  background: var(--vv-panel);
+  color: var(--vv-muted);
+  cursor: not-allowed;
+}
+
+/* ── Data credit ──────────────────────────────────────────────────────────
+   ODbL attribution for the OSM data behind every answer. Always on screen and
+   never behind a toggle: flex:none keeps it as the conversation grows. */
+
+.data-credit {
+  flex: none;
+  padding: var(--vv-s2) var(--vv-s7);
+  border-top: 1px solid var(--vv-line);
+}
+
+.data-credit a {
+  color: var(--vv-muted);
+}
+
+.data-credit a:hover {
+  color: var(--vv-text);
+}
+
+/* ── Map ──────────────────────────────────────────────────────────────────*/
+
+.map {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--vv-map);
+}
+
+.map-canvas {
+  position: relative;
   flex: 1;
   min-height: 0;
 }
 
-/* ODbL attribution for the OSM data behind every answer. Quiet, but always
-   present and never behind a toggle — flex-shrink: 0 keeps it on screen when
-   the conversation grows. */
-.data-credit {
-  flex-shrink: 0;
-  padding: 8px 18px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
+/* Layer tabs: flush row, hairline dividers. Active is a lime block; the three
+   that have no data behind them are --vv-muted and really disabled, which is
+   the brand system's own "unavailable" state rather than a bespoke one. */
+
+.map-tabs {
+  flex: none;
+  display: flex;
+  border-bottom: 1px solid var(--vv-line);
 }
 
-.data-credit a {
-  color: var(--muted);
-  text-decoration: underline;
+.map-tabs button {
+  padding: var(--vv-s2) var(--vv-s4);
+  border: 0;
+  border-right: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
 }
 
-.data-credit a:hover {
-  color: var(--text);
+.map-tabs button.active {
+  background: var(--vv-lime);
+  color: var(--vv-ground);
 }
 
-.session-bar {
+.map-tabs button.unavailable {
+  color: var(--vv-muted);
+  cursor: not-allowed;
+}
+
+/* Bottom panel: the elevation profile and its three labels. Inactive — the
+   bars render the moment a height series arrives. */
+
+.map-panel {
+  flex: none;
+  padding: var(--vv-s3) var(--vv-s6);
+  border-top: 1px solid var(--vv-line);
+  background: var(--vv-ground);
+}
+
+.profile {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 46px;
+}
+
+.profile i {
+  flex: 1;
+  background: var(--vv-lime);
+}
+
+.profile-pending {
+  margin: 0;
+}
+
+.profile-labels {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 18px;
-  border-bottom: 1px solid var(--line);
-  font-size: 0.85rem;
-  opacity: 0.9;
+  gap: var(--vv-s4);
+  margin-top: var(--vv-s2);
 }
 
-.session-bar span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* A ground block with a hairline, not bare text: the basemap underneath is
+   busy enough that muted text on it stops being readable. */
+.map-empty {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  padding: var(--vv-s3) var(--vv-s5);
+  background: var(--vv-ground);
+  border: 1px solid var(--vv-line);
+  text-align: center;
+  pointer-events: none;
 }
 
-.conversations {
+/* MapLibre chrome, brought onto the dark ground. Scoped under .map because
+   maplibre-gl.css is imported by the component and lands after this file —
+   at equal specificity its own white pill would win. The attribution becomes the
+   last full-width row of the map above a hairline, as the spec asks — not a
+   corner pill. */
+
+.map .maplibregl-ctrl-bottom-right {
+  left: 0;
+  width: 100%;
+}
+
+.map .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+  margin: 0;
+}
+
+/* Their own rule is .maplibregl-ctrl.maplibregl-ctrl-attrib, so match both
+   classes or the white pill keeps its background and padding. */
+.map .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  width: 100%;
+  padding: var(--vv-s1) var(--vv-s6);
+  border-radius: 0;
+  border-top: 1px solid var(--vv-line);
+  background: var(--vv-ground);
+  color: var(--vv-muted);
+  font: 400 12px/1.5 var(--vv-sans);
+}
+
+.map .maplibregl-ctrl-attrib a {
+  color: var(--vv-muted);
+}
+
+.map .maplibregl-ctrl-attrib a:hover {
+  color: var(--vv-text);
+}
+
+/* :not(:empty) matches their own selector, which carries the drop shadow. */
+.map .maplibregl-ctrl-group,
+.map .maplibregl-ctrl-group:not(:empty) {
+  background: var(--vv-ground);
+  border: 1px solid var(--vv-line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.map .maplibregl-ctrl-group button {
+  background: transparent;
+}
+
+.map .maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--vv-line);
+}
+
+.map .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+
+/* ── Auth ─────────────────────────────────────────────────────────────────*/
+
+.auth {
+  width: min(360px, 90vw);
   display: flex;
-  gap: 8px;
-  padding: 8px 18px;
-  border-bottom: 1px solid var(--line);
-  overflow-x: auto;
-  flex-shrink: 0;
+  flex-direction: column;
+  background: var(--vv-panel);
+  border: 1px solid var(--vv-line);
 }
 
-.conversations button {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--bg);
-  color: inherit;
-  font: inherit;
-  font-size: 0.82rem;
-  padding: 5px 12px;
+.auth-head {
+  display: flex;
+  align-items: center;
+  gap: var(--vv-s2);
+  padding: var(--vv-s7) var(--vv-s7) 0;
+}
+
+.auth h1 {
+  margin: 0;
+  font: 700 18px/1 var(--vv-sans);
+  letter-spacing: -0.05em;
+  text-transform: lowercase;
+}
+
+.auth .intro {
+  margin: var(--vv-s3) 0 0;
+  padding: 0 var(--vv-s7);
+}
+
+.auth form {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--vv-s7);
+  border-top: 1px solid var(--vv-line);
+}
+
+.auth input {
+  padding: var(--vv-s4) var(--vv-s7);
+  border: 0;
+  border-bottom: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 13.5px/1.55 var(--vv-sans);
+}
+
+.auth input::placeholder {
+  color: var(--vv-muted);
+}
+
+.auth input:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Full-width primary at the bottom edge: no gap, no radius. */
+.auth .primary {
+  width: 100%;
+  padding: 19px var(--vv-s6);
+  border: 0;
+  background: var(--vv-lime);
+  color: var(--vv-ground);
+  font: 600 12.5px/1 var(--vv-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   cursor: pointer;
-  white-space: nowrap;
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.conversations button.active {
-  border-color: var(--accent, #2f6f4f);
-  font-weight: 600;
+.auth .primary:disabled {
+  background: var(--vv-panel);
+  color: var(--vv-muted);
+  cursor: not-allowed;
+}
+
+.auth .switch {
+  padding: var(--vv-s4) var(--vv-s7);
+  border: 0;
+  border-top: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 12px/1.5 var(--vv-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.auth .switch:hover {
+  color: var(--vv-lime);
+}
+
+.auth .notice {
+  border-bottom: 0;
+  border-top: 1px solid var(--vv-line);
 }

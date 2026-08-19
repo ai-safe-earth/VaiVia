@@ -4,6 +4,8 @@ import { useState } from 'react';
 
 import { signIn, signUp } from '@/lib/auth';
 
+import { Mark } from './brand';
+
 type Mode = 'sign-in' | 'sign-up';
 
 export function AuthPanel() {
@@ -35,14 +37,18 @@ export function AuthPanel() {
   if (pendingConfirm) {
     return (
       <section className="auth">
-        <h1>VaiVia</h1>
-        <p className="note">
-          Almost there — we sent a confirmation link to <strong>{email}</strong>. Click
-          it, then sign in here.
+        <div className="auth-head">
+          <Mark size={17} />
+          <h1>
+            vai<span className="via">via</span>
+          </h1>
+        </div>
+        <p className="intro vv-body">
+          We sent a confirmation link to {email}. Open it, then sign in here.
         </p>
         <button
           type="button"
-          className="link"
+          className="switch"
           onClick={() => {
             setPendingConfirm(false);
             setMode('sign-in');
@@ -56,8 +62,13 @@ export function AuthPanel() {
 
   return (
     <section className="auth">
-      <h1>VaiVia</h1>
-      <p className="note">Trail chat for Lake Como &amp; Lecco. Sign in to start.</p>
+      <div className="auth-head">
+        <Mark size={17} />
+        <h1>
+          vai<span className="via">via</span>
+        </h1>
+      </div>
+      <p className="intro vv-body">Trails around Lecco and Lake Como. Sign in to start.</p>
 
       <form
         onSubmit={(event) => {
@@ -91,11 +102,19 @@ export function AuthPanel() {
         </button>
       </form>
 
-      {error && <p className="banner">{error}</p>}
+      {error && (
+        <div className="notice">
+          <div className="notice-bar" />
+          <div className="notice-body">
+            <span className="vv-label vv-label-hazard">Not signed in</span>
+            <p className="vv-body">{error}</p>
+          </div>
+        </div>
+      )}
 
       <button
         type="button"
-        className="link"
+        className="switch"
         onClick={() => {
           setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in');
           setError(null);
