@@ -70,6 +70,30 @@ services:
       retries: 5
       start_period: 300s
 
+  postgis:
+    # The geodata pipeline's working store (pipeline/, docs/plan.md): staging,
+    # curated route map, QA layers. Deliberately NOT the Supabase Postgres —
+    # bulk geometry and raster tiles do not belong in the database production
+    # auth depends on. The pgrouting image is postgis/postgis plus pgRouting,
+    # which Phase 4's route enumeration (pgr_ksp) needs.
+    image: pgrouting/pgrouting:17-3.5-3.8
+    container_name: vaivia-postgis
+    ports:
+      - "127.0.0.1:${POSTGIS_PORT:-5433}:5432" # 5433: 5432 is Supabase's local pooler neighbourhood
+    environment:
+      POSTGRES_DB: ${POSTGIS_DB:-vaivia_geo}
+      POSTGRES_USER: ${POSTGIS_USER:-vaivia}
+      POSTGRES_PASSWORD: ${POSTGIS_PASSWORD:?set POSTGIS_PASSWORD in .env}
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGIS_USER:-vaivia} -d ${POSTGIS_DB:-vaivia_geo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # backend and gateway services are added when their Dockerfiles land
   # (Phases 2 and 3 in docs/plan.md).
 
@@ -77,6 +101,7 @@ networks:
   internal:
 
 volumes:
+  postgis_data:
   neo4j_data:
   neo4j_logs:
   graphhopper_cache:

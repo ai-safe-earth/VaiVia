@@ -1,0 +1,41 @@
+[project]
+name = "vaivia-pipeline"
+version = "0.1.0"
+description = "VaiVia geodata pipeline: sources -> PostGIS -> curated route map -> Neo4j"
+requires-python = ">=3.11"
+dependencies = [
+    # Division of labour (docs/metadata-rules.md): PostGIS does set-based work
+    # over whole tables; Python does procedural logic, per-feature judgement,
+    # and anything that needs a unit test or a plot.
+    "geopandas>=1.0",       # dataframe transforms, QA analysis, testable geometry logic
+    "shapely>=2.0",         # vectorised geometry, no DB in the test loop
+    "pyproj>=3.6",          # real CRS handling: 4326 <-> 32632
+    "osmium>=4.0",          # streaming the Geofabrik PBF, tag-complete
+    "rasterio>=1.3",        # DEM sampling in tests; the Phase 0 DEM comparison
+    "psycopg[binary]>=3.2", # the PostGIS boundary
+    "geoalchemy2>=0.15",    # geometry types over SQLAlchemy
+    "sqlalchemy>=2.0",
+    "gtfs-kit>=6.0",        # transit reachability for the start rule
+    "networkx>=3.0",        # component diagnostics; routing stays in pgRouting/GraphHopper
+    "matplotlib>=3.8",      # near-miss histograms, profile renders
+    "httpx>=0.27",          # source downloads
+    "pydantic-settings>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "black>=24.0",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.black]
+line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
