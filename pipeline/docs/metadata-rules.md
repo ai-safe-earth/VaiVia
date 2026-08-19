@@ -83,6 +83,100 @@ staleness by comparing the network run ids recorded in `build_run` against the r
 in `curated.edge`. An empty table is visibly missing, a partly-stale one lies — which is
 `curated.vertex_degree`'s lesson, applied before it could be repeated.
 
+## Elevation (`curated.vertex.elevation_m`, `curated.edge.profile_m`, written 2026-08-20)
+
+Copernicus GLO-30, sampled onto the network. Two decisions, both measured rather than
+assumed, because both defaults are wrong here.
+
+### Bilinear, not nearest-neighbour
+
+OSM points sit a median **9.4 m** apart and the DEM cell is **30 m**: the network is
+sampled three times finer than the raster it reads. Nearest-neighbour therefore returns the
+same cell value several points running and then jumps a whole cell. Over 33,023 consecutive
+point pairs:
+
+| sampling | median \|dz\| | p90 \|dz\| | pairs implying >100% slope | ascent over the sample |
+|---|---|---|---|---|
+| nearest | 0.024 m | 8.61 m | 1,926 (5.83%) | 42,014 m |
+| **bilinear** | 1.049 m | 4.13 m | 38 (0.12%) | **28,610 m** |
+
+A median of 24 mm punctuated by 8 m steps is a staircase, not a hillside, and summing the
+positive part of a staircase **invents 47% of the climb**. This is the same family as the
+`ST_Dimension` and CTE traps below: the reading is plausible, cheap and wrong.
+
+### No noise threshold — and that was measured too
+
+The obvious next move is to discard small `dz` as DEM noise. Binning the same pairs by
+point spacing says not to:
+
+| dx band | pairs | median \|dz\| | median slope |
+|---|---|---|---|
+| 0–2 m | 790 | 0.12 m | 9.4% |
+| 2–5 m | 5,976 | 0.50 m | 14.1% |
+| 5–10 m | 10,056 | 0.93 m | 12.8% |
+| 10–20 m | 9,850 | 1.46 m | 10.7% |
+| 20–30 m | 3,431 | 2.09 m | 8.6% |
+
+`|dz|` scales with distance and **never plateaus** — 0.12 m at sub-2 m spacing, not the
+~1 m a noise floor would leave behind — and the median implied slope holds at 9–14% across
+every band, which is what a mountain path is. There is nothing to threshold away, so a
+threshold would only delete real terrain. (Under nearest-neighbour the same table is
+bimodal. That bimodality *was* the artefact, and choosing bilinear removed it at the
+source rather than filtering it afterwards.)
+
+### Absolute accuracy: judge it on saddles, never on peaks
+
+| class | n | mean bias | median bias | median \|err\| |
+|---|---|---|---|---|
+| saddle | 160 | +0.5 m | +0.2 m | **4.1 m** |
+| peak | 385 | −23.3 m | −11.0 m | 11.5 m |
+| viewpoint | 11 | −14.3 m | −8.3 m | 8.3 m |
+
+A 30 m cell averages a summit with the slopes falling away from it, so sharp convex
+features read low **by design**. Saddles sit on gentle ground and are the honest test; the
+DEM passes it at ~4 m. Trails run on slopes, so 4 m is the figure that describes this
+network — but **a peak's elevation must come from its `ele` tag, never from the DEM**.
+
+### What is stored, and why the profile and not just the summary
+
+| field | rule |
+|---|---|
+| `curated.vertex.elevation_m` | one authoritative value per vertex — the routing graph is vertex-based and `elevation_change` on a routing edge is a difference of two of these |
+| `curated.edge.profile_m` | one sample per point of `geom`, in geometry order. `array_length` **must** equal `ST_NPoints(geom)`; the sampler refuses to write climb if it does not |
+| `curated.edge.ascent_m` / `descent_m` | **Directional**, in the same sense as `oneway` and `incline`: measured along the stored geometry, so reversing a piece **swaps them** |
+
+The profile is kept, not just its summary, because the "on join" rule above requires a
+route's ascent to come from the altitude profile — so the profile has to survive assembly.
+Concatenating two edges concatenates two real profiles.
+
+**A gap makes the climb unknown, not smaller.** 57 vertices sit north of 46.0001 where the
+single GLO-30 tile ends (the loader keeps a whole way that touches a region bbox, so ways
+spill past it). One missing sample and the edge's `ascent_m` is NULL — 75 edges, 56.8 km.
+Summing the covered part would report a smaller climb with nothing to say it was partial,
+which is the failure the 503-not-empty rule exists to prevent.
+
+### What it produced
+
+101,951 edges profiled, 101,876 with climb; 80,056 vertices from 192 m to 2,396 m;
+**592,685 m of ascent and 555,837 m of descent** across 9,238 km.
+
+Two independent checks that it is not merely self-consistent. Sentiero 33, Pasturo to
+Grignone, reads 9.27 km and **1,827 m of ascent, 649 m to 2,393 m** — Pasturo sits at
+~640 m and the Grignone summit is 2,410 m, so the real gain is ~1,770 m against a measured
+net of 1,744 m. And the steepest edges in the network, found purely from the DEM, are
+Ferrata Maurizio, Canalone Belasa, Canale dei Camosci and Cresta OSA — every one of them
+already tagged `sac_scale=alpine_hiking` or harder by a mapper who never saw this raster.
+
+### An aggregate over `edge_route` must collapse the link first
+
+`curated.edge_route` is keyed on `(edge_id, rel_id, member_index)` so a way listed twice in
+one relation keeps both visits. That grain is right for the link and **wrong for any
+aggregate over edges**: `qa.v_route` summed length per link and so counted 123 edges twice
+across 20 relations, reporting the Dorsale Orobica Lecchese as 44.17 km against an actual
+41.13. Join through `SELECT DISTINCT rel_id, edge_id` before summing anything (`sql/0009`).
+The tell was that the edge COUNT was right — it was already `count(DISTINCT edge_id)` —
+while the kilometres beside it were not.
+
 ## Where an operation runs
 
 If it is naturally **one SQL statement over a table** — noding, snapping, line-merging,

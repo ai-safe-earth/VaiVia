@@ -86,6 +86,15 @@ LAYERS: list[tuple[str, str]] = [
                   edges, km, pieces, geom
            FROM qa.v_route""",
     ),
+    # The same 752 lines with height on them. Separate from `route` because a
+    # reviewer asking "is this climb plausible" is not asking "did the join
+    # land", and one layer answering both is one layer styled for neither.
+    (
+        "route_elevation",
+        """SELECT rel_id, ref, name, route_kind, km, ascent_m, descent_m,
+                  lowest_m, highest_m, edges_without_profile, geom
+           FROM qa.v_route_elevation""",
+    ),
 ]
 
 # Edges near the findings that need a human decision. The other rules are

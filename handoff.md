@@ -787,6 +787,92 @@ members into links is per-feature branching (member types to skip, an empty role
 listed twice, a member way the network does not hold), so it lives in Python where a test
 can pin it, and each case in the test file was measured against the real 752 first.
 
+## 2026-08-20 (later) - Height on the network, and a view that was quietly wrong
+
+225 Copernicus GLO-30 tiles had been loaded on 2026-08-19 and read by nothing.
+`pipeline/curate/elevation.py` samples them onto the network: an elevation on every vertex,
+and on every edge an altitude profile with one value per geometry point.
+
+80,056 vertices carry a height (192 to 2,396 m); 101,951 edges carry a profile and 101,876
+carry ascent and descent. **592,685 m up, 555,837 m down** across 9,238 km. The run takes
+about five minutes.
+
+### Both defaults were wrong, and both were measured rather than argued
+
+**Bilinear, not nearest-neighbour.** OSM points sit a median 9.4 m apart and the DEM cell is
+30 m, so the network is sampled three times finer than the raster it reads.
+Nearest-neighbour therefore returns the same cell value several points running and then
+jumps a whole cell:
+
+| sampling | median abs dz | p90 abs dz | pairs implying >100% slope | ascent over the sample |
+|---|---|---|---|---|
+| nearest | 0.024 m | 8.61 m | 1,926 (5.83%) | 42,014 m |
+| bilinear | 1.049 m | 4.13 m | 38 (0.12%) | 28,610 m |
+
+A median of 24 mm punctuated by 8 m steps is a staircase, not a hillside. Summing the
+positive part of a staircase invents **47% of the climb**. Same family as the ST_Dimension
+trap from #13: plausible, cheap, and wrong.
+
+**No noise threshold.** The obvious next move is to discard small dz as DEM noise. Binning
+the same pairs by point spacing says not to: median abs dz runs 0.12 / 0.50 / 0.93 / 1.46 /
+2.09 m across the 0-2, 2-5, 5-10, 10-20 and 20-30 m bands, scaling with distance and never
+plateauing, while the median implied slope holds at 9-14% throughout - which is what a
+mountain path is. There is no noise floor to subtract, so a threshold would only delete
+real terrain. Under nearest-neighbour the same table is bimodal; that bimodality WAS the
+artefact, and bilinear removed it at the source instead of filtering it afterwards.
+
+### Judge the DEM on saddles, never on peaks
+
+Against the OSM `ele` tag: saddles n=160, median error **4.1 m**; peaks n=385, mean bias
+**-23.3 m**. A 30 m cell averages a summit with the slopes falling away from it, so sharp
+convex features read low by design. Trails run on slopes, so the saddle figure is the one
+that describes this network - but a peak's height must come from its `ele` tag, never from
+the DEM.
+
+Two checks that the climb is not merely self-consistent. Sentiero 33, Pasturo to Grignone,
+reads 9.27 km and **1,827 m of ascent, 649 to 2,393 m**; Pasturo sits at ~640 m and the
+Grignone summit is 2,410 m, so the real gain is ~1,770 m against a measured net of 1,744.
+And the steepest edges in the network, found purely from the raster, are Ferrata Maurizio,
+Canalone Belasa, Canale dei Camosci and Cresta OSA - every one already tagged
+`sac_scale=alpine_hiking` or harder by a mapper who never saw this DEM.
+
+### What is stored, and the rule for a gap
+
+The profile is kept, not just its summary, because metadata-rules.md requires a route's
+ascent to come from the altitude profile - so the profile has to survive assembly.
+`profile_m` is aligned to `geom` point by point and the sampler refuses to write climb if
+the lengths disagree. `ascent_m` / `descent_m` are **directional** in the same sense as
+`oneway` and `incline`: reversing a piece swaps them.
+
+**A gap makes the climb unknown, not smaller.** 57 vertices sit north of 46.0001 where the
+single GLO-30 tile ends - the loader keeps a whole way that touches a region bbox, so ways
+spill past it - and the 75 edges touching that band (56.8 km) get NULL ascent rather than
+the climb of the covered part. Fetching tile N46 E009 closes it.
+
+### A view from this morning was quietly double-counting
+
+`qa.v_route`, written earlier the same day, summed edge length per LINK. `curated.edge_route`
+is keyed on (edge_id, rel_id, member_index) precisely so a way listed twice in one relation
+keeps both visits, and that grain is right for the link and wrong for any aggregate over
+edges. 123 links across 20 relations resolve to an edge already counted, so the Dorsale
+Orobica Lecchese reported 44.17 km against an actual 41.13.
+
+The tell is worth keeping: the edge COUNT beside it was right, because it was already
+`count(DISTINCT edge_id)`. A view can be half-correct in a way that looks entirely correct.
+`sql/0009` collapses the join through `SELECT DISTINCT rel_id, edge_id` before aggregating,
+in both that view and the coverage one.
+
+### Where this leaves the pipeline
+
+Three of the six staged sources are now in use: OSM ways, the route relations, the DEM.
+POIs, settlements and GTFS stops remain loaded and unread, and they are the same shape of
+job as each other - nearest vertex within a threshold - which is the next step. The 164
+overlaps are still the only open QA queue.
+
+Pipeline suite: 71 tests, 9 of them new. Sampling is one statement over a whole table so
+PostGIS does it; turning a profile into ascent and descent is per-feature branching over
+missing samples, so Python does it, in `curate/profile.py`, where the tests pin the rule.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1246,6 +1332,18 @@ can pin it, and each case in the test file was measured against the real 752 fir
         {
           "date": "2026-08-20",
           "text": "Route-relation membership is a link table (curated.edge_route) keyed on (edge_id, rel_id, member_index), never a column on edge: 5,295 edges carry more than one route and 140 way-in-relation pairs repeat. The relation's tags stay in staging; direction is not resolved at the link, only order"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "DEM sampling is bilinear with no noise threshold, both measured: nearest-neighbour invents 47% of the climb on this network because OSM points are 3x finer than the 30 m cell, and |dz| never plateaus as spacing falls so there is no noise floor to subtract"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "DEM accuracy is judged on saddles (median error 4.1 m), never on peaks (-23.3 m mean bias): a 30 m cell reads sharp convex features low by design, so a peak's height comes from its OSM ele tag"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "The altitude profile is stored per edge, not just ascent and descent, so a route's climb can come from the profile as metadata-rules.md requires; ascent/descent are directional and swap when assembly reverses a piece"
         }
       ]
     }
@@ -1425,13 +1523,6 @@ can pin it, and each case in the test file was measured against the real 752 fir
       "plan": "redesign"
     },
     {
-      "title": "Sample the DEM onto curated.vertex so climb per edge, route profiles and the elevation panel have data; 225 GLO-30 tiles are loaded and unread",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
       "title": "Snap POIs, GTFS stops and settlements to the network (nearest vertex within a threshold) - the start rule and the Places layer both need it",
       "est": 1,
       "owner": "oscar",
@@ -1448,6 +1539,20 @@ can pin it, and each case in the test file was measured against the real 752 fir
     {
       "title": "Decide the matched_fraction floor a generated route must clear, so a 27-route tail like BI-12 (2 of 646 ways matched) cannot become a route under a famous name",
       "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Fetch GLO-30 tile N46 E009 and re-run curate.elevation, closing the 75 edges (56.8 km) north of 46.0001 that have no profile",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Use profile_m rather than per-edge ascent_m when assembling a route, and swap ascent/descent on any piece the assembly reverses",
+      "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -1512,6 +1617,13 @@ can pin it, and each case in the test file was measured against the real 752 fir
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

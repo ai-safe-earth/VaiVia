@@ -98,7 +98,20 @@ uses ("segui il 33"); waymark symbols for "follow the red-white flashes" instruc
 `from`/`to` **named endpoint pairs** — the naming source for starts (219 of 257 current
 trailheads are nameless) and the seed list for out-and-back destinations.
 
-## 3. Elevation — Copernicus GLO-30: ADOPT. EU-DEM: REJECT. SRTM 90 m: keep for GraphHopper only
+## 3. Elevation — Copernicus GLO-30: ADOPT, and **sampled onto the network 2026-08-20**. EU-DEM: REJECT. SRTM 90 m: keep for GraphHopper only
+
+**Status.** One tile (`N45 E009`, 225 raster tiles in `staging.dem`) sampled onto the
+network by `curate/elevation.py`: 80,056 vertices carry an elevation and 101,876 edges
+carry ascent and descent, 592,685 m of climb across 9,238 km. Sampling is **bilinear** with
+no noise threshold; both were measured rather than chosen, and the tables are in
+`docs/metadata-rules.md`. Validated against the OSM `ele` tag on saddles (median error
+**4.1 m**) and against the Pasturo–Grignone ascent (1,827 m measured, ~1,770 m real).
+
+**Known gap.** 57 vertices sit north of 46.0001, where this single tile ends — the loader
+keeps a whole way that touches a region bbox, so ways spill past it. The 75 edges touching
+that band (56.8 km) carry NULL climb rather than a partial sum. Fetching tile `N46 E009`
+closes it.
+
 
 **Copernicus GLO-30** — 30 m global DEM, [hosted free on AWS Open
 Data](https://registry.opendata.aws/copernicus-dem/) as Cloud-Optimised GeoTIFFs

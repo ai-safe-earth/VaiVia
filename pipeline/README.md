@@ -20,7 +20,7 @@ sources/    acquire (Geofabrik PBF, GLO-30 tiles, GTFS, CLC+, REL, Infomont)
 load/       into staging_* tables
 topology/   noding, metadata propagation, QA detectors and automated repairs
 draw/       route enumeration (loops, out-and-back) and assembly
-curate/     route-relation join (edge_route), aggregation rules, scoring, dedup
+curate/     route-relation join (edge_route), DEM sampling (elevation), scoring, dedup
 export/     to Neo4j
 sql/        migrations, applied in filename order by migrate.py
 tests/      pure-function tests (no database in the loop)
@@ -75,6 +75,8 @@ Ready-made layers, latest run only — add these by name rather than filtering b
 | `qa.v_route` | **one line per named route** (752 features): ref, name, network, km, and `pieces` — how many disconnected parts it comes out in |
 | `qa.v_route_edge` | every edge that carries a route, with the route's identity as real columns |
 | `qa.v_route_coverage` | how much of each relation the network holds; `matched_fraction` near 0 is a route clipped away by the region bboxes |
+| `qa.v_elevation` | every edge with ascent, descent and **gradient** — style the network by steepness |
+| `qa.v_route_elevation` | the 752 routes with climb, lowest and highest point |
 
 `qa.finding` and `qa.fix` are the underlying tables; `qa.fix` carries before/after geometry
 for every automated repair, so a repair pass is reviewable after the fact and reversible if
@@ -92,11 +94,22 @@ uv run python -m topology.repair                   # repair, recording every cha
 uv run python -m curate.routes --dry-run           # what the route join would write
 uv run python -m curate.routes                     # join route relations onto the network
 uv run python -m curate.routes --check             # is the stored join still current?
+
+uv run python -m curate.elevation --dry-run        # DEM coverage + the check against OSM ele tags
+uv run python -m curate.elevation                  # sample the DEM onto vertices and edges (~5 min)
+uv run python -m curate.elevation --check          # is the stored profile still aligned?
 ```
 
-The route join runs **after** build and repair, and both of those clear it: it holds
-`edge_id`s, so it is true only of the network that produced them. `--check` says whether
-the stored link still describes the network in the database.
+The route join and the elevation sample both run **after** build and repair, and both of
+those clear them: the join holds `edge_id`s and the profile is aligned to `geom` point by
+point, so each is true only of the network that produced it. `--check` says whether what is
+stored still describes the network in the database.
+
+Elevation is sampled **bilinear**, and there is deliberately no noise threshold. Both were
+measured, not chosen — nearest-neighbour sampling invents 47% of the climb on this network,
+and `|dz|` never plateaus as point spacing falls, so there is no noise floor to subtract.
+The tables are in `docs/metadata-rules.md`. Judge the DEM's accuracy on **saddles** (~4 m),
+never on peaks: a 30 m cell reads a summit ~23 m low by design.
 
 Repairs consume the **latest QA run's findings**, so what you judged in QGIS is what
 changes. `qa.fix` holds before/after geometry for every one of them. The check that a pass

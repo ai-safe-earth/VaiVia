@@ -648,6 +648,25 @@ def main() -> None:
                 f"cleared {links:,} route links — they described the pre-repair "
                 "network. Re-run `python -m curate.routes`."
             )
+
+        # Elevation goes the same way, and for a sharper reason: profile_m is
+        # aligned to geom POINT BY POINT, so a repaired edge's profile describes
+        # the line the edge used to be. A split edge keeps a profile of the
+        # whole; a welded end keeps a height for a point that moved.
+        (profiled,) = conn.execute(
+            "SELECT count(*) FROM curated.edge WHERE profile_m IS NOT NULL"
+        ).fetchone()
+        if profiled:
+            conn.execute(
+                "UPDATE curated.edge SET profile_m = NULL, ascent_m = NULL,"
+                " descent_m = NULL"
+            )
+            conn.execute("UPDATE curated.vertex SET elevation_m = NULL")
+            print(
+                f"cleared elevation on {profiled:,} edges — the profiles were "
+                "aligned to the pre-repair geometry. Re-run "
+                "`python -m curate.elevation`."
+            )
         conn.execute(
             "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
