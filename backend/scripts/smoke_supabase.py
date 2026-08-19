@@ -21,6 +21,7 @@ from uuid import uuid4
 import asyncpg
 
 from chat.store import PostgresStore
+from core.pg import asyncpg_ssl
 from scripts.apply_migrations import load_database_url, redact
 
 
@@ -65,7 +66,7 @@ def check(label: str, condition: bool, detail: str = "") -> None:
 
 async def run(url: str) -> int:
     print(f"target : {redact(url)}\n")
-    conn = await asyncpg.connect(url, ssl="require", statement_cache_size=0)
+    conn = await asyncpg.connect(url, ssl=asyncpg_ssl(url), statement_cache_size=0)
     tx = conn.transaction()
     await tx.start()
     try:
