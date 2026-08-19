@@ -28,3 +28,15 @@ def test_regions_match_backend() -> None:
 def test_crs_pair() -> None:
     assert core.CRS_STORAGE == 4326
     assert core.CRS_METRIC == 32632
+
+
+def test_sqlalchemy_url_selects_psycopg3(monkeypatch) -> None:
+    # A bare postgresql:// resolves to psycopg2, which is not installed and is
+    # not the driver this pipeline uses.
+    monkeypatch.setenv("PIPELINE_DATABASE_URL", "postgresql://u:p@127.0.0.1:5433/db")
+    assert core.sqlalchemy_url() == "postgresql+psycopg://u:p@127.0.0.1:5433/db"
+
+
+def test_sqlalchemy_url_leaves_an_explicit_dialect_alone(monkeypatch) -> None:
+    monkeypatch.setenv("PIPELINE_DATABASE_URL", "postgresql+psycopg://u:p@h/db")
+    assert core.sqlalchemy_url() == "postgresql+psycopg://u:p@h/db"

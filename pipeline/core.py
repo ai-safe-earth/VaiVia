@@ -52,6 +52,22 @@ def database_url() -> str:
     )
 
 
+def sqlalchemy_url() -> str:
+    """The same connection, spelled for SQLAlchemy.
+
+    SQLAlchemy resolves a bare `postgresql://` to psycopg2, which is not
+    installed and would not be the right choice anyway — the pipeline uses
+    psycopg 3. The `+psycopg` dialect selects it explicitly. GeoPandas builds a
+    SQLAlchemy engine internally, so anything going through read_postgis needs
+    this rather than database_url().
+    """
+    url = database_url()
+    prefix = "postgresql://"
+    if url.startswith(prefix):
+        return "postgresql+psycopg://" + url[len(prefix) :]
+    return url
+
+
 def connect() -> psycopg.Connection:
     """A plain connection. Loopback and dev-only, so no TLS decision needed here;
     if this store ever leaves localhost, port the host-based rule from
