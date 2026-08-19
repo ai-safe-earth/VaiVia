@@ -165,7 +165,7 @@ two-yearly updates (2018/2021/2023 releases).
 **Licence.** Copernicus full/open/free (Regulation 1159/2013): commercial use permitted,
 source credit required, modifications must be stated.
 
-**Coverage.** Wall-to-wall by construction; no gap risk in-region. Adoption check is only
+**Coverage.** Wall-to-wall by construction; no gap risk in-region. **Access note (checked 2026-08-19):** the download requires a free EU Login/EIONET account — a one-time manual step, so the tile lands in `pipeline/data/` by hand and the loader takes it from there. Adoption check is only
 resolution fitness: 10 m against a 2–3 m wide path means the class *along* the line, not
 of the path surface itself — fine for "through woodland vs open pasture", which is the
 question asked.
