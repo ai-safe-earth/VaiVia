@@ -706,13 +706,94 @@ the old GeoPackage open.
   worse are bike-routable and only 15 of those carry any mtb:scale. A SAC ceiling in
   `load/legality.py` is a small, testable change; it needs a reload to take effect.
 
+## 2026-08-20 - The network has names: route relations joined
+
+752 OSM route relations had been loaded on 2026-08-19 and read by nothing. Their members
+are OSM way ids and `curated.edge.way_id` is the same id, so the join already existed in
+the data and had simply never been written. `pipeline/curate/routes.py` writes it into
+`curated.edge_route`.
+
+| | |
+|---|---|
+| relations joined | **752 of 752** |
+| links written | 25,719 |
+| distinct member ways the network holds | 10,246 of 15,392 |
+| edges carrying a named route | 17,118 - **2,469.5 km** of 9,238.0 |
+| edges with no `name` of their own that now carry one | **10,361** |
+| routes that merge into a single continuous line | 621 of 752 |
+| edges carrying more than one route | 5,295 |
+
+The network itself is untouched, and the check is the same one every pipeline pass uses:
+9,238.0 km before, 9,238.0 km after. The 5,146 member ways the network does not hold are
+outside the two region bboxes or were excluded by `load/legality.py` - expected, and the
+reason `qa.v_route_coverage` exists.
+
+### Why it is a table and not a column
+
+5,295 edges belong to more than one relation - a sentiero shared with a Bicitalia route, a
+variante rejoining its parent. A column on `edge` would pick one and silently discard the
+rest. The key is `(edge_id, rel_id, member_index)` rather than `(edge_id, rel_id)`, because
+a way may appear **twice in the same relation**: 140 measured cases, an out-and-back leg
+walked in both directions, and collapsing the second visit loses half the route.
+
+The relation's own tags are deliberately not copied in. `staging.osm_relation` stays the
+source of truth for ref/name/network/osmc:symbol and the views do the join - the same
+argument that keeps edge tags inside `tags` instead of promoting them to columns.
+
+Direction is not resolved either. A member way can be walked backwards along the route, and
+`member_index` + `piece_index` state the ORDER without claiming the heading. Resolving it is
+route assembly's job (`pipeline/docs/metadata-rules.md`, "on join"). Store provenance,
+derive direction later - the rule everywhere else in `curated`.
+
+### The link describes one build of the network, and says so
+
+`edge_route` holds `edge_id`s, so it is true only of the network that produced them.
+`build_network` replaces the network and `topology/repair` splits and deletes edges; both
+now clear the table and print that they did, and `curate.routes --check` reports staleness
+by comparing the network run ids recorded in `build_run` against the ones now in
+`curated.edge`. The foreign key makes it impossible to forget: PostgreSQL refuses to
+TRUNCATE `curated.edge` while `edge_route` references it.
+
+That is `curated.vertex_degree`'s lesson from 2026-08-19 applied before it could be
+repeated. A partly-stale link table would have been silent in exactly the same way.
+
+### Two new judgement queues, both visible in QGIS
+
+The join produced numbers no rule can decide, so they are layers rather than repairs:
+
+- **27 routes match less than 20% of their member ways.** These are long-distance routes
+  that only clip the two provinces: BI-12, the Ciclovia Pedemontana Alpina from Trieste to
+  Savona, matches 2 of its 646 ways. A route generator must filter on `matched_fraction` -
+  two matched ways under a famous name is a fragment, not a route.
+- **131 routes come out in more than one piece** (`qa.v_route.pieces`, worst is 29). Some
+  of that is coverage clipping at the bbox edge; some is a real gap in the network along a
+  named route, which is a different defect from anything the topology rules can see - they
+  look at loose ends, not at whether a route runs through.
+
+Three layers: `qa.v_route` (752 lines, one per route - open this one first),
+`qa.v_route_edge` (every edge that carries a route, route identity as real columns), and
+`qa.v_route_coverage`. `route` also travels in the review bundle now, so the judgement can
+happen off-machine.
+
+### Where this leaves the pipeline
+
+Of the six staged sources, two are now in use: OSM ways and the route relations. The DEM,
+POIs, settlements and GTFS stops are still loaded and unread. The order in
+`Oscar_continua_desde_aqui.md` section 8 is unchanged - the 164 overlaps are still the only
+open QA queue, and elevation is the next join, because everything about difficulty needs it.
+
+Pipeline suite: 62 tests, 11 of them new and all pure - the expansion of a relation's
+members into links is per-feature branching (member types to skip, an empty role, a way
+listed twice, a member way the network does not hold), so it lives in Python where a test
+can pin it, and each case in the test file was measured against the real 752 first.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-19",
+  "updated": "2026-08-20",
   "deadline": null,
   "people": [
     "oscar"
@@ -1161,6 +1242,10 @@ the old GeoPackage open.
         {
           "date": "2026-08-19",
           "text": "qa.py refuses to run when curated.vertex_degree is stale. A matview left over from an earlier network made the same 101,870 edges report 9 dangle pairs and then 19, with nothing changed between - and repairs would have been chosen from those numbers. build_network now refreshes it, where 0004 always claimed it did."
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Route-relation membership is a link table (curated.edge_route) keyed on (edge_id, rel_id, member_index), never a column on edge: 5,295 edges carry more than one route and 140 way-in-relation pairs repeat. The relation's tags stay in staging; direction is not resolved at the link, only order"
         }
       ]
     }
@@ -1338,6 +1423,34 @@ the old GeoPackage open.
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
+    },
+    {
+      "title": "Sample the DEM onto curated.vertex so climb per edge, route profiles and the elevation panel have data; 225 GLO-30 tiles are loaded and unread",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Snap POIs, GTFS stops and settlements to the network (nearest vertex within a threshold) - the start rule and the Places layer both need it",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Judge the 131 routes that come out in more than one piece in qa.v_route: coverage clipping at the bbox edge, or a real gap along a named route that the topology rules cannot see",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide the matched_fraction floor a generated route must clear, so a 27-route tail like BI-12 (2 of 646 ways matched) cannot become a route under a famous name",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     }
   ],
   "sessions": [
@@ -1399,6 +1512,13 @@ the old GeoPackage open.
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
