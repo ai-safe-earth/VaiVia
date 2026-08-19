@@ -60,3 +60,6 @@ logs/
 # that trusts the matching JWKS.
 infra/supabase/signing_keys.json
 **/signing_keys*.json
+
+# Pipeline source downloads (large, reproducible from the URLs in sources/)
+pipeline/data/

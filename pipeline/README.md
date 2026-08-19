@@ -35,6 +35,14 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d postgis
 # from pipeline/: deps, then schema
 uv sync
 uv run python migrate.py     # idempotent; --dry-run lists files
+
+# base layers (Phase 2). Downloads land in pipeline/data/ (gitignored):
+#   nord-ovest-latest.osm.pbf   https://download.geofabrik.de/europe/italy/
+#   glo30_N45_E009.tif          s3://copernicus-dem-30m/Copernicus_DSM_COG_10_N45_00_E009_00_DEM/
+#   trenord_gtfs.zip            https://www.dati.lombardia.it/download/3z4k-mxz9/application/zip
+uv run python -m load.osm  --pbf data/nord-ovest-latest.osm.pbf
+uv run python -m load.dem  --tif data/glo30_N45_E009.tif
+uv run python -m load.gtfs --zip data/trenord_gtfs.zip --feed trenord
 ```
 
 Checks before a PR (from `pipeline/`): `uv run ruff check .`,
