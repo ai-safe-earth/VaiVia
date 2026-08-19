@@ -543,13 +543,91 @@ The numbers are list-price API equivalents. On a subscription plan nothing here
 is billed per token — `/usage` is what reflects real plan consumption. Build
 cost through Phase 5 was roughly $62.
 
+## 2026-08-19 - Brand system v1.0 on the frontend
+
+The frontend now wears the brand system in `assets/brand/` (spec, tokens, four
+logo files, ten icons): dark ground, two accents with fixed meanings, square
+corners, 1px hairlines, no shadows. `assets/` had never been committed; it is in
+this commit alongside the code that implements it.
+
+The visible changes: the transcript is a ruled document rather than chat
+bubbles, the route card is a hairline-delimited band with a figure row (distance
+lime, then ascent, walking time and grade), hazards are a 6px flare bar with a
+calm sentence instead of red pills, and every route carries a Sources disclosure
+saying in the UI that the two sources are matched by proximity and never merged.
+Tokens are imported once globally and no component holds a hex literal; the only
+exception is MapView, which resolves `--vv-lime` off the root because MapLibre
+paint properties cannot read a CSS variable. The basemap is desaturated and
+darkened at the raster layer rather than by a CSS filter over the canvas, which
+would have taken the route line down with it.
+
+### Five blocks ship inactive, and each is waiting on the backend
+
+They are in the UI, in their right places, visibly unavailable rather than
+absent, so the work needed to finish them is obvious instead of forgotten. The
+unavailable map tabs use the brand system's own `--vv-muted` unavailable state
+and are really `disabled`, not merely grey.
+
+| Block | Where | Waiting on |
+|---|---|---|
+| "How I read it" | between the answer and the routes | `/chat` streams results, not the plan the composer merged |
+| Elevation profile | map bottom panel | the payload has total ascent, not a height series |
+| Places layer | map tab | POIs do not travel with map geometry |
+| Hazards layer | map tab | hazards are per trail, not per segment, so there is nothing to draw them on |
+| Coverage layer | map tab | nothing exposes where coverage stops |
+
+The Sources disclosure has the same shape of gap. The brand spec asks it to show
+OSM way ids, the Trailforks id and a MAPS_TO distance; the payload carries none
+of them, so it shows what is real (graph id, OSM/ODbL) and the component already
+takes `osmWayIds` and `matchDistanceM` for the day the API returns them. The
+mockups' sample ids are deliberately not shipped. Note also that **MAPS_TO does
+not exist** - the model's single link is `COMPOSED_OF {seq, match_confidence}` -
+so the spec's label is stale and the row is labelled `link`.
+
+### Judgement calls worth knowing
+
+- The Trailforks credit ("terms pending", per the spec) renders only when a
+  trail actually carries a `trailforks_url`. No Trailforks data has ever entered
+  the system, and an unconditional credit would claim a source we do not use.
+- The composer placeholder is "Type what you want to do", not the spec's "Speak,
+  or type": there is no voice input on web, and the spec's own web composer has
+  no mic button. The banned "Find me a trail..." string is gone.
+- SAC difficulty squares render only for hiking routes with a `hike_rating`,
+  filled to the grade and hollow beyond, never flare - there is no user-stated
+  limit in the payload to compare against. MTB routes show the worded grade;
+  rendering `mtb:scale` as SAC squares would invent a grade.
+- MapLibre's stylesheet is imported by the component and so lands after
+  `globals.css`; its white attribution pill and control shadow won at equal
+  specificity. The overrides are scoped under `.map`.
+- IBM Plex Mono is not loaded - the token's `ui-monospace` fallback is what
+  renders. Loading it means `next/font` and a build-time font fetch.
+
+Verified: 40 frontend unit tests, `tsc --noEmit` and `next build` all clean, and
+the result driven in a real browser against fixture data - zero rounded corners,
+zero box-shadows, ground `#0D0F0E` on every surface, attribution a full-width
+dark row. The harness route that rendered the fixtures was deleted before the
+commit.
+
+Two things this session found that are not about branding. `npm run lint` in
+`frontend/` is broken independently of this work: `next lint` is deprecated and
+prompts interactively because there is no ESLint config in the repo. CI runs
+`npm test` and `npm run build`, so nothing is red - but the lint script does not
+work if you type it. And `CLAUDE.md` had drifted two tiers behind the repo (no
+`pipeline/`, gateway and frontend still marked as future phases); it was brought
+up to date in the same commit.
+
+Three blockers below were removed because the repo contradicts them: Supabase is
+back on against the local stack (commit 4b3c445), and `feat/route-catalogue` is
+both pushed and merged into `develop`, with a clean working tree. The credential
+rotations are still open.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-18",
+  "updated": "2026-08-19",
   "deadline": null,
   "people": [
     "oscar"
@@ -821,7 +899,7 @@ cost through Phase 5 was roughly $62.
         },
         {
           "date": "2026-08-16",
-          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) \u2014 never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
+          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) — never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
         },
         {
           "date": "2026-08-16",
@@ -829,7 +907,7 @@ cost through Phase 5 was roughly $62.
         },
         {
           "date": "2026-08-16",
-          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node \u2014 the lake's node sits ~400 m off its own shoreline path"
+          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node — the lake's node sits ~400 m off its own shoreline path"
         },
         {
           "date": "2026-08-16",
@@ -990,6 +1068,10 @@ cost through Phase 5 was roughly $62.
         {
           "date": "2026-08-18",
           "text": "Routing ways and area POIs are told apart by TAGS, not by shape. With `out geom` a lake outline arrives with geometry and a node list exactly like a path, and having no highway tag it took the 'path' default and became routable -- 1,673 outlines entered the routing graph. A routing way must now have a highway tag and an area POI must not. The dangerous part was the default itself: tags.get('highway', 'path') turned a filter bug into routable water instead of failing loudly"
+        },
+        {
+          "date": "2026-08-19",
+          "text": "Brand system v1.0 applied to the frontend. Blocks with no data behind them ship inactive and visibly unavailable rather than being left out, so the backend work they need stays visible: How I read it, elevation profile, and the places/hazards/coverage map layers. Nothing invents a value it does not have - no sample ids, no zeroes standing in for missing measurements."
         }
       ]
     }
@@ -1018,27 +1100,58 @@ cost through Phase 5 was roughly $62.
       "severity": "high",
       "owner": "oscar",
       "since": "2026-08-16"
-    },
-    {
-      "text": "Supabase is being switched off, so auth is bypassed via GATEWAY_DEV_NO_AUTH=true. While parked: LLM quotas are NOT enforced and chat history is in-memory. Reconnecting means uncommenting the three gitignored .env files AND rebuilding the frontend, because NEXT_PUBLIC_* is inlined at build time",
-      "severity": "medium",
-      "owner": "oscar",
-      "since": "2026-08-18"
-    },
-    {
-      "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed \u2014 it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
-      "severity": "high",
-      "owner": "oscar",
-      "since": "2026-08-18"
-    },
-    {
-      "text": "Seven files are modified and uncommitted on feat/route-catalogue (the area-POI boundary work). A Lecco re-ingest was in flight and the graph still shows only 12 POI boundaries where ~1,686 are expected, so lake matching is not yet working. Finish the re-ingest and verify before building anything on top",
-      "severity": "high",
-      "owner": "oscar",
-      "since": "2026-08-18"
     }
   ],
   "nextSteps": [
+    {
+      "title": "Return the composed plan with /chat results so the \"How I read it\" block can render the constraints it understood",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Return a height series with route geometry so the elevation profile can be drawn",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Carry POIs with map geometry so the Places map layer can render",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Attach hazards to segments rather than only to trails so the Hazards map layer has geometry to draw",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Expose where coverage stops so the Coverage layer can name the edge instead of failing silently",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Return OSM way ids and the proximity match distance on trail results so the Sources disclosure shows them",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Add an ESLint config to frontend/ - npm run lint currently prompts interactively and does nothing",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Finish the interrupted Lecco re-ingest and verify ~1,686 POI boundaries and ~104,812 segments, then commit the seven modified files",
       "est": 0.25,
@@ -1171,6 +1284,13 @@ cost through Phase 5 was roughly $62.
       "date": "2026-08-18",
       "model": "opus-5",
       "credits": 98,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
       "person": "oscar",
       "hours": null
     }
