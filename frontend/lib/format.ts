@@ -57,3 +57,41 @@ export function primaryDuration(trail: {
   if (!formatted) return null;
   return { label: isBike ? 'ride' : 'walk', value: formatted };
 }
+
+/**
+ * The brand system writes a measurement as a loud figure with its unit as a
+ * Label beneath it, so the display string has to come apart. These wrap the
+ * formatters above rather than re-deriving them: one rounding rule, one place.
+ */
+export interface Figure {
+  value: string;
+  unit: string;
+}
+
+export function distanceFigure(metres: number): Figure {
+  return metres < 1000
+    ? { value: String(Math.round(metres)), unit: 'm' }
+    : { value: (metres / 1000).toFixed(1), unit: 'km' };
+}
+
+export function elevationFigure(metres: number | null): Figure | null {
+  return metres === null ? null : { value: String(Math.round(metres)), unit: 'm up' };
+}
+
+/** Walking or riding time. Hours and minutes read as 4:12 so the figure stays
+ *  a figure; the unit carries which of the two it is. */
+export function durationFigure(trail: {
+  activity: string;
+  duration_hike_min: number | null;
+  duration_mtb_min: number | null;
+}): Figure | null {
+  const isBike = trail.activity === 'mtb';
+  const minutes = isBike ? trail.duration_mtb_min : trail.duration_hike_min;
+  if (minutes === null || minutes <= 0) return null;
+  const verb = isBike ? 'ride' : 'walk';
+  const hours = Math.floor(minutes / 60);
+  const rest = Math.round(minutes % 60);
+  if (hours === 0) return { value: String(rest), unit: `min ${verb}` };
+  if (rest === 0) return { value: String(hours), unit: `h ${verb}` };
+  return { value: `${hours}:${String(rest).padStart(2, '0')}`, unit: `h ${verb}` };
+}

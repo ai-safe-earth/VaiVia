@@ -1,5 +1,8 @@
 import type { Metadata } from 'next';
 
+// Brand tokens first: every application rule below is written against these
+// variables, and nothing outside this import may hardcode a brand colour.
+import './tokens.css';
 import './globals.css';
 
 export const metadata: Metadata = {

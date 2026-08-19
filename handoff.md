@@ -634,7 +634,7 @@ the old GeoPackage open.
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-18",
+  "updated": "2026-08-19",
   "deadline": null,
   "people": [
     "oscar"
@@ -1111,27 +1111,58 @@ the old GeoPackage open.
       "severity": "high",
       "owner": "oscar",
       "since": "2026-08-16"
+    }
+  ],
+  "nextSteps": [
+    {
+      "title": "Return the composed plan with /chat results so the \"How I read it\" block can render the constraints it understood",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     },
     {
-      "text": "Supabase is being switched off, so auth is bypassed via GATEWAY_DEV_NO_AUTH=true. While parked: LLM quotas are NOT enforced and chat history is in-memory. Reconnecting means uncommenting the three gitignored .env files AND rebuilding the frontend, because NEXT_PUBLIC_* is inlined at build time",
-      "severity": "medium",
+      "title": "Return a height series with route geometry so the elevation profile can be drawn",
+      "est": 1,
       "owner": "oscar",
-      "since": "2026-08-18"
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     },
     {
       "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed — it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
       "severity": "high",
       "owner": "oscar",
-      "since": "2026-08-18"
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     },
     {
-      "text": "Seven files are modified and uncommitted on feat/route-catalogue (the area-POI boundary work). A Lecco re-ingest was in flight and the graph still shows only 12 POI boundaries where ~1,686 are expected, so lake matching is not yet working. Finish the re-ingest and verify before building anything on top",
-      "severity": "high",
+      "title": "Attach hazards to segments rather than only to trails so the Hazards map layer has geometry to draw",
+      "est": 2,
       "owner": "oscar",
-      "since": "2026-08-18"
-    }
-  ],
-  "nextSteps": [
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Expose where coverage stops so the Coverage layer can name the edge instead of failing silently",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Return OSM way ids and the proximity match distance on trail results so the Sources disclosure shows them",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Add an ESLint config to frontend/ - npm run lint currently prompts interactively and does nothing",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Judge the 164 overlap findings in QGIS: duplicate, bridge, or a legitimately shared stretch. The only QA rule that cannot be automated",
       "est": 2,
@@ -1285,6 +1316,13 @@ the old GeoPackage open.
       "date": "2026-08-18",
       "model": "opus-5",
       "credits": 98,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
       "person": "oscar",
       "hours": null
     }

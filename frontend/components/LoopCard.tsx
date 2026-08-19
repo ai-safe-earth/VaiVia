@@ -1,7 +1,9 @@
 'use client';
 
-import { distance, elevation, primaryDuration } from '@/lib/format';
+import { distance, distanceFigure, durationFigure, elevationFigure } from '@/lib/format';
 import type { Loop } from '@/lib/types';
+
+import { Sources } from './Sources';
 
 interface Props {
   loop: Loop;
@@ -38,21 +40,36 @@ function difficultyLabel(loop: Loop): string | null {
   return table[rating] ?? null;
 }
 
+/** SAC T1–T6 as rotated squares, filled to the route's grade. Hiking only:
+ *  mtb:scale is a different scale and rendering it in SAC squares would be
+ *  inventing a grade the route does not have. */
+function SacScale({ rating }: { rating: number }) {
+  return (
+    <div className="sac" role="img" aria-label={`SAC grade ${rating} of 6`}>
+      {[1, 2, 3, 4, 5, 6].map((step) => (
+        <i key={step} className={step <= rating ? 'on' : undefined} />
+      ))}
+    </div>
+  );
+}
+
 export function LoopCard({ loop, selected, onSelect }: Props) {
-  const time = primaryDuration(loop);
-  const climb = elevation(loop.ascent_m);
+  const length = distanceFigure(loop.distance_m);
+  const climb = elevationFigure(loop.ascent_m);
+  const time = durationFigure(loop);
   const grade = difficultyLabel(loop);
+  const sac = loop.activity === 'mtb' ? null : loop.hike_rating;
   // 81% of routes are named after something they pass. The rest genuinely have
   // no name, so show what the route IS rather than an id or a made-up label.
   const heading = loop.name ?? `${distance(loop.distance_m)} ${loop.activity} loop`;
 
   // A div with button semantics, matching TrailCard, so the two lists behave
-  // identically to a keyboard and share the .card styling.
+  // identically to a keyboard and share the route-card styling.
   return (
     <div
       role="button"
       tabIndex={0}
-      className="card"
+      className="route-card"
       aria-pressed={selected}
       onClick={() => onSelect(loop)}
       onKeyDown={(event) => {
@@ -62,29 +79,59 @@ export function LoopCard({ loop, selected, onSelect }: Props) {
         }
       }}
     >
-      <h3>{heading}</h3>
-      <div className="stats">
-        {grade && <span>{grade}</span>}
-        <span>{distance(loop.distance_m)}</span>
-        {time && (
-          <span>
-            {time.value} {time.label}
-          </span>
+      <h3 className="route-name vv-title">{heading}</h3>
+
+      <div className="figures">
+        <div className="figure">
+          <span className="vv-figure vv-figure-key">{length.value}</span>
+          <span className="unit vv-label">{length.unit}</span>
+        </div>
+        {climb && (
+          <div className="figure">
+            <span className="vv-figure">{climb.value}</span>
+            <span className="unit vv-label">{climb.unit}</span>
+          </div>
         )}
-        {climb && <span>↑ {climb}</span>}
+        {time && (
+          <div className="figure">
+            <span className="vv-figure">{time.value}</span>
+            <span className="unit vv-label">{time.unit}</span>
+          </div>
+        )}
+        {(sac !== null || grade) && (
+          <div className="figure grade">
+            {sac !== null ? (
+              <SacScale rating={sac} />
+            ) : (
+              <span className="vv-subtitle">{grade}</span>
+            )}
+            <span className="unit vv-label">{grade ?? 'grade'}</span>
+          </div>
+        )}
       </div>
 
-      {loop.named_pois.length > 0 && (
-        <div className="tags">
-          {loop.named_pois.slice(0, 4).map((name) => (
-            <span className="tag" key={name}>
-              {name}
-            </span>
-          ))}
+      {(loop.named_pois.length > 0 || loop.trailhead_name) && (
+        <div className="key-facts">
+          <div>
+            <span className="vv-label">Starts at</span>
+            <p className="fact vv-body-sm">{loop.trailhead_name ?? 'an unnamed junction'}</p>
+          </div>
+          {loop.named_pois.length > 0 && (
+            <div>
+              <span className="vv-label">Along the way</span>
+              <div className="poi-list">
+                {loop.named_pois.slice(0, 3).map((name) => (
+                  <span className="poi vv-body-sm" key={name}>
+                    {name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {loop.trailhead_name && <p className="note">Starts at {loop.trailhead_name}</p>}
+      <Sources id={loop.id} />
     </div>
   );
 }
