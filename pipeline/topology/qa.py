@@ -17,6 +17,12 @@ The detectors:
                     an undershoot (stops short of the road) or an overshoot
                     (crosses it and stops). Needs splitting the target edge,
                     not welding two endpoints, so it is a separate rule.
+  gap_dangle_junction
+                    a loose end within tolerance of a junction that already
+                    exists. The largest gap class at 2 m, and the one the other
+                    two rules cannot see between them — see the SQL below.
+                    Repairs cleanly: the junction is real, so only the dangle
+                    moves.
   island            a connected component too small to hold a real route. Not
                     a defect to repair -- often a genuinely isolated fragment
                     at the bbox edge -- but a coverage fact worth seeing, and
@@ -80,6 +86,34 @@ JOIN curated.edge e
 WHERE d.degree = 1
 """
 
+GAP_DANGLE_JUNCTION = """
+-- A loose end stopping just short of a junction that already exists. Found by
+-- reconciling the near-miss histogram against the two rules above: at 2 m they
+-- account for 106 of 231 loose ends between them, and this is most of the rest.
+-- Neither could see it — the pair rule requires both ends to be dangles, and
+-- the edge rule excludes anything near an endpoint to avoid double-reporting
+-- the pair case, which excluded near-junction gaps along with it.
+--
+-- Excludes the pair the two vertices already share an edge with: a genuinely
+-- short edge between a dangle and a junction is a stub, not a gap.
+SELECT ST_MakeLine(d.geom, j.geom) AS geom,
+       json_build_object(
+           'vertex', d.vertex_id, 'junction', j.vertex_id,
+           'distance_m', round(ST_Distance(d.geom::geography, j.geom::geography)::numeric, 2)
+       )::text AS note
+FROM curated.vertex_degree d
+JOIN curated.vertex_degree j
+  ON j.degree >= 2
+ AND j.vertex_id <> d.vertex_id
+ AND ST_DWithin(d.geom::geography, j.geom::geography, %(tol)s)
+WHERE d.degree = 1
+  AND NOT EXISTS (
+      SELECT 1 FROM curated.edge e
+      WHERE (e.source = d.vertex_id AND e.target = j.vertex_id)
+         OR (e.target = d.vertex_id AND e.source = j.vertex_id)
+  )
+"""
+
 ISLAND = """
 WITH sizes AS (
     SELECT component_id, count(*) AS n FROM curated.vertex
@@ -129,6 +163,7 @@ WHERE m >= %(min_overlap_m)s
 DETECTORS: list[tuple[str, str, str]] = [
     ("gap_dangle_pair", "error", GAP_DANGLE_PAIR),
     ("gap_dangle_edge", "error", GAP_DANGLE_EDGE),
+    ("gap_dangle_junction", "error", GAP_DANGLE_JUNCTION),
     ("island", "info", ISLAND),
     ("degenerate", "warning", DEGENERATE),
     ("overlap", "warning", OVERLAP),
@@ -176,6 +211,29 @@ def measure(tol_m: float, max_m: float) -> None:
     )
 
 
+def assert_degrees_fresh(conn) -> None:
+    """Refuse to detect against a stale vertex_degree.
+
+    Every rule here reads the materialised degree, so a matview left over from
+    an earlier network measures a graph that no longer exists — and the repair
+    pass then welds vertices chosen from those numbers. It happened once: a
+    rebuild did not refresh, and the same network reported 9 dangle pairs before
+    and 19 after, with no edge changed between the two. A count mismatch is the
+    cheapest possible detection of it.
+    """
+    vertices, degrees = conn.execute(
+        "SELECT (SELECT count(*) FROM curated.vertex),"
+        "       (SELECT count(*) FROM curated.vertex_degree)"
+    ).fetchone()
+    if vertices != degrees:
+        raise SystemExit(
+            f"curated.vertex_degree is stale ({degrees:,} rows against "
+            f"{vertices:,} vertices). Run:\n"
+            "  psql -c 'REFRESH MATERIALIZED VIEW curated.vertex_degree'\n"
+            "or rebuild with `python -m topology.build_network`, which refreshes it."
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -200,6 +258,9 @@ def main() -> None:
     parser.add_argument("--max-measure-m", type=float, default=100.0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+
+    with connect() as conn:
+        assert_degrees_fresh(conn)
 
     if args.measure:
         measure(args.tolerance_m, args.max_measure_m)

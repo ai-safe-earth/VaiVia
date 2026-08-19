@@ -8,11 +8,15 @@ snapshot of what a decision was made against.
 One GeoPackage holds every layer, so QGIS opens the whole review with one
 drag-and-drop and each layer keeps its own geometry type and attributes.
 
-Context is deliberately clipped. The full network is 101,870 edges; a third of
+Context is deliberately clipped. The full network is ~102,000 edges; a third of
 it lies within 200 m of some finding, which is not "context" but a copy of the
-database. Only the neighbourhoods of the findings that need JUDGEMENT — the two
-gap rules — are carried, because a gap layer with no surrounding lines is nine
-unexplained marks on white.
+database. Only the neighbourhoods of the findings that need JUDGEMENT — the gap
+rules and overlap — are carried, because a gap layer with no surrounding lines
+is nine unexplained marks on white.
+
+If you need the whole network, connect QGIS to PostGIS and add `curated.edge`
+(pipeline/README.md). This bundle is for reviewing findings away from the
+machine, not for holding the network.
 
 Run from pipeline/:
     uv run python -m export.review_bundle
@@ -44,6 +48,11 @@ LAYERS: list[tuple[str, str]] = [
            FROM qa.v_gap_dangle_edge""",
     ),
     (
+        "gap_dangle_junction",
+        """SELECT finding_id, distance_m, vertex_id, junction_id, geom
+           FROM qa.v_gap_dangle_junction""",
+    ),
+    (
         "overlap",
         "SELECT finding_id, shared_m, edge_a, edge_b, geom FROM qa.v_overlap",
     ),
@@ -52,6 +61,14 @@ LAYERS: list[tuple[str, str]] = [
         "SELECT finding_id, length_m, self_loop, geom FROM qa.v_degenerate",
     ),
     ("island", "SELECT finding_id, vertices, component_id, geom FROM qa.v_island"),
+    # What the last repair pass changed, so a repair is reviewable off-machine
+    # too. Deletions are in qa.fix with geometry before only; this layer is the
+    # edits, with how far each end moved.
+    (
+        "fix",
+        """SELECT fix_id, rule, target, note, start_moved_m, end_moved_m, geom
+           FROM qa.v_fix""",
+    ),
     (
         "poi",
         """SELECT osm_type, osm_id, poi_type, name, ele_m, regions, geom
@@ -60,7 +77,10 @@ LAYERS: list[tuple[str, str]] = [
 ]
 
 # Edges near the findings that need a human decision. The other rules are
-# counted, not judged one by one.
+# counted, not judged one by one. Overlap joined that list once the gap rules
+# were repairable and it became the standing queue: it is the rule that cannot
+# be automated, because the same ground mapped twice can be a duplicate, a
+# bridge, or two ways that legitimately share a stretch.
 CONTEXT = """
 SELECT DISTINCT e.edge_id, e.way_id, e.length_m,
        e.tags ->> 'highway' AS highway,
@@ -71,7 +91,12 @@ SELECT DISTINCT e.edge_id, e.way_id, e.length_m,
 FROM curated.edge e
 JOIN qa.finding f
   ON ST_DWithin(e.geom::geography, f.geom::geography, %(context_m)s)
-WHERE f.rule IN ('gap_dangle_pair', 'gap_dangle_edge')
+-- Latest run only, like every qa.v_* view. Without it the context accumulates
+-- the neighbourhoods of every run ever made: after five runs it was carrying
+-- 7,219 edges as "context" for nine findings.
+JOIN qa.latest_run r ON r.run_id = f.run_id
+WHERE f.rule IN ('gap_dangle_pair', 'gap_dangle_edge', 'gap_dangle_junction',
+                 'overlap')
 """
 
 DOCS = [

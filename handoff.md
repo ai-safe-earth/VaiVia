@@ -543,6 +543,91 @@ The numbers are list-price API equivalents. On a subscription plan nothing here
 is billed per token — `/usage` is what reflects real plan consumption. Build
 cost through Phase 5 was roughly $62.
 
+## 2026-08-19 (later) - The QA loop closes: repairs, and a missing rule
+
+`topology/repair.py` now exists — the second half of the loop `qa.py` opens, and the
+thing the 2 m tolerance was measured for. It repairs the FINDINGS of the latest QA run
+rather than a fresh scan, so what was judged in QGIS is exactly what changes.
+
+Against the two provinces, all four repairable rules went to zero and the network kept
+every metre:
+
+| rule | before | after |
+|---|---|---|
+| gap_dangle_pair | 9 | 0 |
+| gap_dangle_edge | 92 | 0 |
+| gap_dangle_junction | 15 | 0 |
+| degenerate | 488 | 0 |
+| island | 389 | 370 |
+| overlap | 128 (972.6 m) | 164 (1,168.5 m) |
+
+Loose ends 14,769 -> 14,586. Components 407 -> 387. **Total length 9,238.0 km, unchanged** —
+that is the check that matters, because a repair pass which moves the length of the
+network has either invented ground or thrown some away.
+
+### A third gap class nobody could see
+
+Reconciling the histogram against the detectors was supposed to be bookkeeping and instead
+found a missing rule. Of the 231 loose ends within 2 m of an edge they are not joined to:
+129 are **stubs** (their own edge ends at a junction under 2 m away, so that junction's
+other edges register as a near miss — nothing is broken), and 102 are real. The pair rule
+saw 14 of those, the edge rule 92, and the remaining ones were invisible: a loose end
+stopping just short of an EXISTING junction. The pair rule needs both ends to be dangles;
+the edge rule excludes anything near an endpoint, to avoid double-reporting the pair case,
+which excluded near-junction gaps along with it. That is `gap_dangle_junction`, 15 of them,
+and it now has a QGIS layer like every other rule.
+
+### Two mistakes in the degenerate rule, both the same mistake
+
+Both were caught by looking at the numbers after the first pass rather than trusting it,
+and both are a defect in the ROUTING GRAPH being treated as a defect in the GROUND:
+
+- **Self-loops are real.** A loop trail mapped as one closed way has source = target, which
+  no shortest path can enter. Deleting them removed **26.3 km of network**, the longest a
+  640 m loop way. They are split at the midpoint now.
+- **Sub-metre edges carry a connection.** Deleting 245 of them severed the joins they
+  carried and created **129 new loose ends**. They are collapsed now — weld the two ends,
+  the edge disappears, the neighbours stay joined.
+
+The network was rebuilt from staging to undo that first pass, which is exactly what
+"replace, not merge" in build_network is for. Only a zero-length ring is deleted now.
+
+### A materialised view that lied
+
+`curated.vertex_degree` is read by every detector, and 0004 said `build_network.py`
+refreshed it after a rebuild. It did not. A rebuilt network was therefore measured with the
+PREVIOUS network's degrees — the same 101,870 edges reported 9 dangle pairs before a
+rebuild and 19 after, with nothing changed in between, and a repair pass driven by those
+numbers would have welded vertices chosen off a graph that no longer existed. The refresh
+now happens where the comment always claimed it did, and `topology/qa.py` refuses to run
+when the matview's row count does not match `curated.vertex`.
+
+This is the one to remember: it was silent, it was in a file whose comment asserted the
+opposite, and only a number that changed when nothing had changed exposed it.
+
+### Where the review bundle stands
+
+`export/review_bundle.py` gained a `gap_dangle_junction` layer and a `fix` layer (what the
+last pass changed, with how far each end moved), and two fixes of its own: context is
+scoped to the latest run (it had been accumulating every run's neighbourhoods — 7,219
+edges of "context" for nine findings) and now follows overlap as well, since overlap is
+what is left to judge. A refreshed bundle was written outside the repo because QGIS held
+the old GeoPackage open.
+
+### Open, and honest about it
+
+- **Overlap is the one number that moved the wrong way**: 128 findings / 972.6 m before,
+  164 / 1,168.5 m after. Welding two near-duplicate ways together makes duplication
+  measurable where before it was two lines with a gap between them. Not repaired
+  automatically — it needs judgement per case, and it sits in `qa.v_overlap` waiting for it.
+- 370 islands remain, deliberately. They are a coverage fact, not a defect.
+- `routable_bike` is true on 97.9% of edges. Legality works (bicycle=no is honoured, steps
+  are excluded, access is honoured with the specific-key override), but footways with no
+  bicycle tag stay bikeable by design, and the comfort model that justifies that lives in
+  `backend/core/comfort.py` — which no longer produces data. 198 edges at sac_scale T4 or
+  worse are bike-routable and only 15 of those carry any mtb:scale. A SAC ceiling in
+  `load/legality.py` is a small, testable change; it needs a reload to take effect.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -821,7 +906,7 @@ cost through Phase 5 was roughly $62.
         },
         {
           "date": "2026-08-16",
-          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) \u2014 never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
+          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) — never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
         },
         {
           "date": "2026-08-16",
@@ -829,7 +914,7 @@ cost through Phase 5 was roughly $62.
         },
         {
           "date": "2026-08-16",
-          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node \u2014 the lake's node sits ~400 m off its own shoreline path"
+          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node — the lake's node sits ~400 m off its own shoreline path"
         },
         {
           "date": "2026-08-16",
@@ -990,6 +1075,14 @@ cost through Phase 5 was roughly $62.
         {
           "date": "2026-08-18",
           "text": "Routing ways and area POIs are told apart by TAGS, not by shape. With `out geom` a lake outline arrives with geometry and a node list exactly like a path, and having no highway tag it took the 'path' default and became routable -- 1,673 outlines entered the routing graph. A routing way must now have a highway tag and an area POI must not. The dangerous part was the default itself: tags.get('highway', 'path') turned a filter bug into routable water instead of failing loudly"
+        },
+        {
+          "date": "2026-08-19",
+          "text": "Repairs land as their own pass over the latest QA run findings, never a fresh scan, so what was reviewed in QGIS is what changes. Self-loops are split rather than deleted and sub-metre edges collapsed rather than deleted: a defect in the routing graph is not a defect in the ground. The check that a pass went right is that the total length of the network did not move."
+        },
+        {
+          "date": "2026-08-19",
+          "text": "qa.py refuses to run when curated.vertex_degree is stale. A matview left over from an earlier network made the same 101,870 edges report 9 dangle pairs and then 19, with nothing changed between - and repairs would have been chosen from those numbers. build_network now refreshes it, where 0004 always claimed it did."
         }
       ]
     }
@@ -1026,7 +1119,7 @@ cost through Phase 5 was roughly $62.
       "since": "2026-08-18"
     },
     {
-      "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed \u2014 it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
+      "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed — it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
       "severity": "high",
       "owner": "oscar",
       "since": "2026-08-18"
@@ -1039,6 +1132,27 @@ cost through Phase 5 was roughly $62.
     }
   ],
   "nextSteps": [
+    {
+      "title": "Judge the 164 overlap findings in QGIS: duplicate, bridge, or a legitimately shared stretch. The only QA rule that cannot be automated",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Add a SAC ceiling to load/legality.py so alpine terrain is not bike-routable without an explicit mtb:scale or bicycle=yes (198 edges at T4+, 15 with any MTB grade). Needs a reload",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Flatten bicycle/access/mtb:scale/tracktype into qa.v_network so QGIS can style on them without a jsonb expression",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Finish the interrupted Lecco re-ingest and verify ~1,686 POI boundaries and ~104,812 segments, then commit the seven modified files",
       "est": 0.25,

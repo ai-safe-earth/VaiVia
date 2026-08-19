@@ -66,10 +66,12 @@ Ready-made layers, latest run only — add these by name rather than filtering b
 | `qa.v_network` | every edge, with highway/surface/sac_scale/name — the context the findings sit on |
 | `qa.v_gap_dangle_pair` | two loose ends within tolerance, not joined. **The classic gap** |
 | `qa.v_gap_dangle_edge` | a loose end near another edge's interior: under/overshoot |
+| `qa.v_gap_dangle_junction` | a loose end stopping just short of an existing junction |
 | `qa.v_overlap` | the same ground mapped twice, with `shared_m` |
 | `qa.v_degenerate` | sub-metre edges and self-loops |
 | `qa.v_island` | components too small to hold a route |
 | `qa.v_dangle` | all loose ends — for judging whether a dangle is a defect or a real dead end |
+| `qa.v_fix` | what the last repair pass changed, with how far each end moved |
 
 `qa.finding` and `qa.fix` are the underlying tables; `qa.fix` carries before/after geometry
 for every automated repair, so a repair pass is reviewable after the fact and reversible if
@@ -81,7 +83,15 @@ uv run python -m topology.qa --measure             # the near-miss distribution
 uv run python -m topology.histogram                # the same, as a PNG to look at
 uv run python -m topology.qa --dry-run             # counts, writes nothing
 uv run python -m topology.qa --tolerance-m 2.0     # write findings
+uv run python -m topology.repair --dry-run         # what would change, writes nothing
+uv run python -m topology.repair                   # repair, recording every change
 ```
+
+Repairs consume the **latest QA run's findings**, so what you judged in QGIS is what
+changes. `qa.fix` holds before/after geometry for every one of them. The check that a pass
+went right is the total length of the network: it must not move. See
+`docs/metadata-rules.md` for what each rule repairs and the two ways the degenerate rule
+was wrong before it was right.
 
 **Look before repairing.** The tolerance comes from the histogram and from opening
 examples in QGIS at each candidate distance — see `docs/metadata-rules.md`, which records
