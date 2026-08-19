@@ -25,6 +25,8 @@ from pathlib import Path
 
 import asyncpg
 
+from core.pg import asyncpg_ssl
+
 MIGRATIONS = Path(__file__).resolve().parents[2] / "infra" / "supabase" / "migrations"
 
 
@@ -66,7 +68,7 @@ async def apply(url: str, dry_run: bool) -> int:
             print(f"  would apply {path.name} ({size} bytes)")
         return 0
 
-    conn = await asyncpg.connect(url, ssl="require", statement_cache_size=0)
+    conn = await asyncpg.connect(url, ssl=asyncpg_ssl(url), statement_cache_size=0)
     try:
         for path in files:
             sql = path.read_text(encoding="utf-8")

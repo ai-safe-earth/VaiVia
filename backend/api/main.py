@@ -15,6 +15,7 @@ from api.models import HealthResponse
 from api.routes import chat, routing, trails
 from core.config import get_settings
 from core.logging import configure_logging
+from core.pg import asyncpg_ssl
 from graph.neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # statements are not safe across pooled connections.
             app.state.pg_pool = await asyncpg.create_pool(
                 settings.database_url,
-                ssl="require",
+                ssl=asyncpg_ssl(settings.database_url),
                 statement_cache_size=0,
                 min_size=1,
                 max_size=5,

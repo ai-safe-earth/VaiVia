@@ -190,3 +190,43 @@ Silently naming an untagged way a path is what turned a filter bug into
 routable water instead of a loud failure at ingestion. The default is now gone:
 a way with no `highway` tag is logged and skipped, so the line that decides
 what a segment *is* can no longer invent it. A test pins that too.
+
+## 13. RLS Policies Without Grants Read As Working, Because The Platform Was Granting For Us
+
+**Risk:** The browser reads `conversations` and `messages` directly from
+Supabase under the select-only policies in migration `0001`. That migration
+enables RLS and writes one policy per table — and never grants `select` on any
+of them. It worked against the hosted project because Supabase used to expose
+entities created in `public` to `anon`, `authenticated` and `service_role`
+automatically.
+
+**That default is gone.** New projects revoke by default, and the CLI's
+`auto_expose_new_tables` escape hatch is documented as removed on **2026-10-30**.
+So a migration that has been verified live against one project would have failed
+against the next one created — most likely the production project, on the day it
+was created, with:
+
+    42501  permission denied for table conversations
+
+which reads like a policy bug and is not one. **A policy can only narrow a
+privilege that already exists**; with no grant there is nothing for it to
+narrow, and the two failure modes look nothing alike from the client: a missing
+policy returns an empty list, a missing grant returns an error.
+
+It surfaced on the first run of the local stack, where the new default is
+already in force — which is the argument for developing against a real local
+instance rather than a bypass. `GATEWAY_DEV_NO_AUTH` would never have found it,
+because with auth off the browser never reads as `authenticated` at all.
+
+**Our mitigation:** Migration `0002_data_api_grants.sql` grants `select` to
+`anon` and `authenticated` explicitly, so the privilege no longer depends on a
+platform default. `anon` is included deliberately: the policies are
+`auth.uid() = user_id`, so an anonymous caller matches no row and reads zero of
+them — the behaviour verified against the hosted project. Confidentiality is
+RLS's job; the grant only decides whether the table is addressable. Writes are
+unaffected — they go through the backend, which connects as the owner.
+
+**The lesson to keep:** when a security control is verified live and passes,
+check *which layer* actually granted the access it was narrowing. A platform
+default that silently does half the work is indistinguishable from a migration
+that does all of it, right up until the default changes.

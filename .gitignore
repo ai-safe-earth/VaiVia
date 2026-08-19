@@ -54,3 +54,9 @@ desktop.ini
 # Logs
 *.log
 logs/
+
+# Supabase local JWT signing keys. These are private keys: the local stack signs
+# every access token with them, so a leak forges a session against any stack
+# that trusts the matching JWKS.
+infra/supabase/signing_keys.json
+**/signing_keys*.json

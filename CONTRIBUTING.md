@@ -53,7 +53,65 @@ lives in `infra/`. The container needs both **APOC** and **GDS**. If
 `gds.version()` comes back unknown, the plugin installer lost its network race
 on a cold Docker start: recreate the container rather than debugging it.
 
-### 4. Seed the graph
+### 4. Start Supabase (auth, chat history, quotas)
+
+Development runs against a **local** Supabase stack, not a hosted project. The
+config lives in `infra/supabase/`, so the CLI is pointed at it:
+
+```bash
+cd infra && supabase start
+supabase status          # prints the URL, the anon/publishable key and the DB URL
+```
+
+First run pulls several GB of images; later ones take seconds. `supabase stop`
+shuts it down and keeps the data, `supabase stop --no-backup` throws it away.
+
+Two things about this stack are deliberate.
+
+**It signs with ES256.** `infra/supabase/signing_keys.json` holds a locally
+generated asymmetric key, so the local Auth service publishes a JWKS endpoint
+and the gateway verifies tokens through exactly the code path it uses against a
+hosted project. A symmetric local secret would have meant developing against an
+auth path that production never runs. **That file is a private key**: it is
+gitignored, and it must stay that way. Regenerate with
+`supabase gen signing-key --algorithm ES256`.
+
+**Only auth, Postgres and PostgREST are enabled.** Realtime, Storage, Edge
+Functions and the analytics collector are switched off in `config.toml`, because
+nothing in VaiVia reaches them and every container left running is memory spent
+on nothing.
+
+The stack seeds a development account and one stored conversation
+(`infra/supabase/seed.sql`), so a fresh clone has something to sign in as and
+something to resume:
+
+```
+dev@vaivia.local / vaivia-local-dev
+```
+
+That password is in the repository on purpose. The stack binds to loopback,
+holds nothing but fixture data, and `supabase db reset` recreates it — a shared,
+documented local account is what makes the setup reproducible. It follows that
+it must never be used for anything that is not this stack. The Playwright suite
+signs in as it:
+
+```bash
+cd frontend
+E2E_EMAIL=dev@vaivia.local E2E_PASSWORD=vaivia-local-dev npm run test:e2e
+```
+
+Three of the four tests run against the local stack. The fourth spends a real
+OpenAI turn and stays behind `E2E_LIVE=1`.
+
+Migrations under `infra/supabase/migrations/` are applied when the stack starts.
+Against a hosted project, apply them with the repo's own runner instead — the
+Supabase CLI expects a linked project and its own directory layout:
+
+```bash
+cd backend && uv run python -m scripts.apply_migrations
+```
+
+### 5. Seed the graph
 
 ```bash
 cd backend
@@ -66,7 +124,7 @@ Local dev and CI ingestion must stay **offline**: always `--mock` for
 Trailforks, never the live API. OSM ingestion does hit live Overpass; it is
 idempotent, so re-running is cheap in graph terms but not in Overpass load.
 
-### 5. Run the checks
+### 6. Run the checks
 
 From `backend/`, before every PR:
 
