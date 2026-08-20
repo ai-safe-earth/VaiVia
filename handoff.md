@@ -1124,6 +1124,56 @@ instead of rebuilding it in four queries per route, the run went from about 18 m
 
 Pipeline suite: 122 tests, 27 of them new.
 
+## 2026-08-20 (seventh) - Routes are generated: pipeline/draw/ exists
+
+Branch feat/pipeline-draw, on top of the metadata branch. The step everything else this
+week existed for: anchor x distance x seed -> pgRouting draws a loop over our own edges ->
+assembly along the walked sequence -> score -> keep the best distinct few. First
+catalogue: **72 distinct routes from 12 car-free starts** (stations and Trenord stops) in
+139 seconds, 93% true loops (retrace <= 10%), every one with a full altitude profile, 20
+MTB-rideable. All 72 emitted as route documents that validate against the schema, beside
+the OSM ones in review/routes/.
+
+### The two rules that were waiting for this, landed
+
+**The route id derives from the ground** (draw/route_id.py): coordinates rounded to 5
+decimals (~1.1 m), direction-normalised, hashed. A weld moving an endpoint 40 cm cannot
+rename a route - a comment would orphan (docs/social-layer.md) - while a real reroute is a
+NEW route. Never a sequence number, a run_id, or a vertex id; vertex ids do not survive a
+rebuild.
+
+**Direction is explicit per walked edge.** pgr_dijkstra's node tells which way each edge
+is entered; route_edge.forward stores it; a reversed edge SWAPS ascent and descent and
+reverses its profile - the oneway/incline inversion from metadata-rules.md, finally
+executing. The test that pins it is the one that catches a mountain loop reported as flat.
+
+### The spike's caveat, repaired where it said it would be
+
+The MTB verdict runs the access conjunction ALONG THE SEQUENCE - a route that walks a
+forbidden edge is not a bike route, and there is no corridor for a 6 m crossing slip to
+flip a verdict. Difficulty is the ratified >=5% rule over walked spans; climb is null if
+any edge is unprofiled (absent is not zero); score is descriptive and never a filter,
+with weights as parameters.
+
+### Calibrated on first data, same discipline as the 2 m tolerance
+
+The via-ring radius began at target/3.6 (equilateral arithmetic). The first catalogue
+measured median actual/target at 1.43 (5 km asks at 1.62), so the constant is now
+target/5.0 - medians 1.05-1.25 after. Loop legs soft-penalise already-walked edges (x3
+cost) rather than excluding them: sometimes the same valley is the only way home, and
+retrace_share reports it instead of hiding it.
+
+### Honest numbers from the first catalogue
+
+42 of 72 routes are under 30% off-road, because the 12 starts are car-free by design and
+stations sit on valley floors. That is a start-selection fact, not a generation defect:
+the next catalogue mixes in high-anchor car parks. qa.v_draw carries offroad_class /
+climb_class / shape_class / mtb_class, is in the review bundle, and the emitters now each
+delete only the files they own (the review_bundle lesson, applied before it bit again).
+
+21 new pure tests (143 in the pipeline suite). Schema 0013; build_network and repair
+clear the catalogue like every derived table.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1635,6 +1685,14 @@ Pipeline suite: 122 tests, 27 of them new.
         {
           "date": "2026-08-20",
           "text": "Photos, comments and likes will be three MongoDB collections keyed to route.id with binaries in object storage (docs/social-layer.md, designed not built), which imposes now that a generated route's id be derived from geometry so it survives a rebuild"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Routes are generated over our own edges with pgRouting, so every route is a walked edge sequence: direction explicit per edge (reversed swaps ascent/descent), MTB conjunction along the sequence, no corridor matching anywhere in generation"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Generated route ids derive from rounded, direction-normalised geometry (draw/route_id.py) so they survive rebuilds; the via-ring radius is calibrated from measured overshoot (target/5.0), not assumed"
         }
       ]
     }
@@ -1870,13 +1928,6 @@ Pipeline suite: 122 tests, 27 of them new.
       "plan": "redesign"
     },
     {
-      "title": "Build pipeline/draw/: bounded route generation over the 6,112 start vertices, now that names, height and places all exist",
-      "est": 3,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
       "title": "Review the refreshed bundle in QGIS: colour network by steepness_class, route by continuity_class, place_link by distance_band, start by reachability_class",
       "est": 0.5,
       "owner": "oscar",
@@ -1892,6 +1943,27 @@ Pipeline suite: 122 tests, 27 of them new.
     },
     {
       "title": "Make Neo4j, the API and the frontend read the route document rather than each deriving route fields - the inversion docs/route-document.md ratifies",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Review the 72 generated routes in QGIS (qa.v_draw by offroad_class) and judge a few by eye: does the loop look like something you would walk?",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Generate the second catalogue mixing high-anchor car parks with the car-free starts, and scale --starts once the shape is judged good",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Export the route documents (OSM + generated) to Neo4j so the app selects from this catalogue - the inversion the pipeline exists for",
       "est": 2,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -1957,6 +2029,13 @@ Pipeline suite: 122 tests, 27 of them new.
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

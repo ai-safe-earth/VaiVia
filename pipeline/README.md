@@ -22,7 +22,7 @@ Read first:
 sources/    acquire (Geofabrik PBF, GLO-30 tiles, GTFS, CLC+, REL, Infomont)
 load/       into staging_* tables
 topology/   noding, metadata propagation, QA detectors and automated repairs
-draw/       route enumeration (loops, out-and-back) and assembly
+draw/       loop generation over the network (pgRouting), sequence assembly
 curate/     route join (edge_route), DEM sampling (elevation), place snapping (place)
 schemas/    the route document contract, read by every downstream tier
 export/     to Neo4j
@@ -81,6 +81,7 @@ Ready-made layers, latest run only — add these by name rather than filtering b
 | `qa.v_route_coverage` | how much of each relation the network holds; `matched_fraction` near 0 is a route clipped away by the region bboxes |
 | `qa.v_elevation` | every edge with ascent, descent and **gradient** — style the network by steepness |
 | `qa.v_route_elevation` | the 752 routes with climb, lowest and highest point |
+| `qa.v_draw` | **the generated catalogue**: loops from real starts, with score, off-road, retrace, MTB — all as classes |
 | `qa.v_place` | every snapped POI, settlement and stop, with `distance_m` and the start verdict |
 | `qa.v_place_link` | **the layer for judging a snap**: a line from each place to the vertex it attached to — sort by `distance_m` descending |
 | `qa.v_start` | where a walk can begin: one point per vertex, with what makes it a start |
@@ -131,6 +132,20 @@ was wrong before it was right.
 **Look before repairing.** The tolerance comes from the histogram and from opening
 examples in QGIS at each candidate distance — see `docs/metadata-rules.md`, which records
 why 2 m and not 5.
+
+## Generating routes
+
+```bash
+uv run python -m draw.generate --dry-run           # which starts, how many asks
+uv run python -m draw.generate --starts 12         # the catalogue (~2 min)
+uv run python -m draw.emit                         # route documents for it
+```
+
+anchor × distance × seed → pgRouting draws the loop over our own edges, assembly reads
+the walked sequence (direction explicit — a reversed edge swaps ascent and descent),
+score is descriptive and never a filter. Layer: `qa.v_draw`, coloured by
+`offroad_class` / `climb_class` / `mtb_class`. Route ids derive from geometry so they
+survive rebuilds; build and repair clear the catalogue like every derived table.
 
 ## The product: route documents
 

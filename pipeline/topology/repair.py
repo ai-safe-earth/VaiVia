@@ -649,6 +649,17 @@ def main() -> None:
                 "network. Re-run `python -m curate.routes`."
             )
 
+        # Generated routes hold edge sequences, so a repair that splits or
+        # deletes an edge leaves them describing a network that moved. Same
+        # rule as everything derived: cleared, and said out loud.
+        (routes,) = conn.execute("SELECT count(*) FROM curated.route").fetchone()
+        if routes:
+            conn.execute("TRUNCATE curated.route_edge, curated.route")
+            print(
+                f"cleared {routes:,} generated routes — they walked the "
+                "pre-repair edges. Re-run `python -m draw.generate`."
+            )
+
         # Places hold vertex_ids too. A repair welds vertices together and
         # deletes the ones it merged away, so a place can be left pointing at a
         # vertex that no longer exists (the FK takes it with it) or, worse, at

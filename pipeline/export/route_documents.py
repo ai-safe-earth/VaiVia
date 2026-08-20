@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import uuid
 from pathlib import Path
 
@@ -297,9 +296,13 @@ def main() -> None:
     args = parser.parse_args()
 
     out = Path(args.out)
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
+    out.mkdir(parents=True, exist_ok=True)
+    # Remove only what THIS emitter owns. Generated routes (draw/emit.py) share
+    # the directory, and an rmtree here would delete the other half of the
+    # catalogue — the same near-miss review_bundle.py already had.
+    for stale in out.glob("osm-relation-*.json"):
+        stale.unlink()
+    (out / "routes.geojson").unlink(missing_ok=True)
 
     run_id = f"export-{uuid.uuid4().hex[:8]}"
     with connect() as conn:
