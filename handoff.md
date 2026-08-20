@@ -1124,6 +1124,58 @@ instead of rebuilding it in four queries per route, the run went from about 18 m
 
 Pipeline suite: 122 tests, 27 of them new.
 
+## 2026-08-20 (sixth) - The provider spike: four sources, one methodology, a dashboard
+
+Branch spike/route-providers. The question: run the methodology (get -> routes? enrich :
+draw then enrich -> POIs and route<->POI) against OSM, OpenRouteService, TrailSplits and
+FreeRoute, and find the wisest combination for routes with difficulty and an MTB option.
+The decision surface is review/spike-providers/dashboard.html - generated from the same
+payload as results.json so it cannot drift - and the findings are
+pipeline/docs/provider-comparison.md. Verified in a real browser via Playwright.
+
+What each provider turned out to BE, probed live (responses cached in
+pipeline/data/spike_cache/):
+
+- **TrailSplits is OSM route relations repackaged.** Its relation endpoint returns the
+  same osm_relation_ids our store holds, verified on the DOL. Keyless, but carries no
+  surface/SAC/MTB, ignores its own type=mtb parameter, and its terms are the Trailforks
+  shape: free non-commercial, commercial requires outreach.
+- **ORS is a routing engine over OSM** - exercised live with Oscar's key: point-to-point
+  hiking and MTB profiles plus a generated round-trip loop. Its lines matched our network
+  at 100%, which is the finding that makes pipeline/draw/ engine-agnostic: everything we
+  know about our ground transfers onto whatever an engine draws.
+- **FreeRoute names its own profiles in a 400 and then 500s every routing request**,
+  driving-car in central Milan included. Facade up, engine down.
+- **OSM is the baseline** holding both methodology branches already.
+
+Every candidate went through the same enrichment: 25 m corridor match onto curated.edge
+(followed at >=50% inside, matched_share reported so the corridor is checkable), the
+ratified >=5% rule for SAC, the access conjunction for MTB (one forbidding piece forbids,
+nothing matched means unknown never yes), and curated.place within 100 m positioned along
+the line. Twelve candidates: OSM and ORS at 100% matched; TrailSplits' local trails at
+100% and its full-length DOL at 47-49% - exactly what qa.v_route_coverage predicts from
+the bbox clip.
+
+**The verdict: nobody sells metadata.** Every working provider is OSM geometry in
+different clothes, so difficulty and the MTB option cannot be bought from a source - they
+are derived against the network that carries the tags. Wisest combination is a division of
+labour: OSM as backbone, a pluggable routing engine as the pen for routes that do not
+exist yet, our enrichment on top. TrailSplits rejected (adds nothing we hold, needs
+consent we gain nothing by seeking). FreeRoute rejected (broken).
+
+An honest caveat the dashboard shows live: the MTB conjunction over a corridor match is
+strict - sentiero 14 fails on 6 m of blocked edge grabbed at a crossing. Real rule,
+corridor artefact; the production answer is the conjunction along the routed edge
+sequence, which draw/ will have.
+
+Two mechanical lessons: transport errors must not be cached (a timeout is weather, not a
+finding - one froze into "returned 0" on the first run), and a giant corridor polygon
+needs ST_Subdivide plus the planar edge index - minutes per route without, 15 s for the
+100 km worst case with.
+
+13 new pure tests (135 in the pipeline suite). The ORS key was shared in plaintext and
+lives in the gitignored .env - rotate it with the others before production.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1635,6 +1687,14 @@ Pipeline suite: 122 tests, 27 of them new.
         {
           "date": "2026-08-20",
           "text": "Photos, comments and likes will be three MongoDB collections keyed to route.id with binaries in object storage (docs/social-layer.md, designed not built), which imposes now that a generated route's id be derived from geometry so it survives a rebuild"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Provider spike verdict: nobody sells metadata - TrailSplits is OSM relations repackaged, ORS routes over the same OSM ways (100% matched), FreeRoute is broken. OSM stays the backbone, routing engines are a pluggable pen for generated routes, enrichment is ours and provider-independent"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "TrailSplits rejected as a data source: adds no data we do not hold for our bbox and its commercial terms need consent (the Trailforks shape); FreeRoute rejected as broken"
         }
       ]
     }
@@ -1663,6 +1723,12 @@ Pipeline suite: 122 tests, 27 of them new.
       "severity": "high",
       "owner": "oscar",
       "since": "2026-08-16"
+    },
+    {
+      "text": "ORS API key was shared in plaintext and must be rotated before any deployment (in .env, gitignored, spike-only use)",
+      "severity": "medium",
+      "owner": "oscar",
+      "since": "2026-08-20"
     }
   ],
   "nextSteps": [
@@ -1896,6 +1962,20 @@ Pipeline suite: 122 tests, 27 of them new.
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
+    },
+    {
+      "title": "Decide from the spike dashboard (review/spike-providers/dashboard.html) whether pipeline/draw/ uses self-hosted GraphHopper or self-hosted ORS as its pluggable engine",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Run the MTB conjunction along the routed edge sequence in draw/, not a corridor match, so a 6 m slip at a crossing cannot flip a 10 km ride to not-rideable",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     }
   ],
   "sessions": [
@@ -1957,6 +2037,13 @@ Pipeline suite: 122 tests, 27 of them new.
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
