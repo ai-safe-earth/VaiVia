@@ -1022,6 +1022,108 @@ after every step that changes the store, give every styled field a category twin
 views rather than replacing them. A bundle that lags the database is worse than no bundle,
 because it looks current.
 
+## 2026-08-20 (fifth) - The product is the route document, not the database
+
+A framing correction from Oscar, and it is the load-bearing kind.
+
+CLAUDE.md said "the database is the product", which came out of a real fix: the backend used
+to ingest OSM and derive its own geometry, and moving that upstream into PostGIS stopped two
+tiers producing the same data differently. That part stands. But PostGIS is where the VALUE
+accumulates, not what the project DELIVERS. What VaiVia hands downstream is a structured
+JSON and a map, one per route.
+
+So: **the route document is the product; PostGIS is the working store that holds the
+value.** docs/route-document.md is the ratified statement of it.
+
+### Everything else is a reader
+
+The same inversion that made backend/ stop producing data now applies one level up. Neo4j
+holds the document for graph and vector search, the API serves it, the frontend renders it,
+user content will key to its id - and none of them redefines a route. A field a reader needs
+goes IN the document, never into that reader, or two tiers describe a route differently
+again.
+
+Three consequences worth keeping:
+
+- The document is **versioned** (schema_version), because readers outlive producers.
+- The document is **self-contained**: attribution, licence and provenance travel inside it.
+  The document IS the ODbL Produced Work, so a consumer rendering the geometry elsewhere
+  cannot strip the obligation by accident. The schema REQUIRES a non-empty sources array and
+  a test asserts that it does - otherwise the next producer omits it and nothing notices.
+- Two runs of the same route produce **byte-identical** JSON. A diff means the data moved.
+
+### 752 documents exist, and they are real
+
+Emitted from the 752 OSM route relations - the routes that exist today. pipeline/draw/ will
+generate its own and emits through the same module: a generated route is a different kind,
+not a different document.
+
+All 752 validate against the schema. 724 carry a full altitude profile. 11,541 place
+references across them. Difficulty by the 5% rule: 384 mountain hiking, 133 hiking, 106
+ungraded, 91 demanding mountain, 34 alpine, 3 demanding alpine, 1 difficult alpine.
+
+214 carry a quality warning and are emitted anyway, because a route this network holds in
+three pieces is still a real route and the reader deciding whether to show it needs to know
+which one it is.
+
+### Three rules carried in rather than reinvented
+
+**Difficulty is the hardest grade covering at least 5% of the length**, never the max - the
+rule backend/graph/graphhopper.py::_weighted_max already proved. **Surface is a distribution
+kept whole** plus a dominant; untagged length is reported as unknown rather than
+renormalised away. **Absent is not zero**: a route with any unprofiled edge reports ascent_m
+null, not a partial sum.
+
+And **duration is deliberately absent**. DIN 33466 rates the classic Grigna ascent at 10
+hours against a guidebook 6-8, so the figure this codebase can compute today is one a user
+would not trust. measures is a CLOSED object in the schema so a miscalibrated figure cannot
+arrive by accident. An absent field invites the calibration; a wrong one ships.
+
+### What a route passes is computed here, and that vindicates an earlier decision
+
+metadata-rules.md puts POI positioning at assembly, against the MERGED line with
+ST_LineLocatePoint - which is exactly why curated.place snaps to a vertex and there is
+deliberately no precomputed place-to-edge table. That table would have answered "what does
+this route pass" with a radius nobody chose, at 66,572 rows for 25 m. The one bound here is
+100 m, which is where qa.distance_band already puts "near" (measured: median 7 places per
+route, p90 34, against 12 and 59 at 250 m), and every place carries offset_m so a reader
+wanting 30 m filters on it.
+
+### The social layer, designed and not built
+
+docs/social-layer.md: photos, comments and reactions as three Mongo collections keyed to
+route.id, binaries in object storage rather than GridFS, reactions as documents rather than
+a counter, status on everything instead of hard deletes, EXIF stripped on upload because a
+photo taken at home carries the user's home coordinates.
+
+The honest note is in there too: this is a THIRD datastore, and the Supabase Postgres
+already running could hold all of it with RLS putting the ownership check in the database
+rather than in application code. What earns Mongo its place is the expectation that these
+shapes move. Worth revisiting when the feature is specified.
+
+**And the requirement that lands NOW, before pipeline/draw/ is written: a route id must be
+stable across rebuilds.** A comment keys to it. osm-relation-<id> already is; a generated
+route's id must come from its geometry, never a sequence number, a run_id, or a vertex id -
+build_network truncates and reassigns those. Finding that out after people had commented
+would be expensive.
+
+### Two bugs found on the way
+
+**The review bundle would have deleted the product.** review_bundle.py rmtree'd the whole
+review/ directory, which was safe while the bundle was the only thing in it and stopped
+being safe the moment route documents landed in review/routes/. It now removes only the
+files it owns.
+
+**curated.place had no planar index.** 0010 added one to every table the snap READS and not
+to the table it WRITES, because nothing read it yet. Emitting documents reads it once per
+route, and without the index that was a sequential scan of 12,476 places with a
+reprojection each. Same lesson 0004 already recorded: a predicate that reads naturally and
+quietly cannot use an index. With it, plus materialising each route's merged line once
+instead of rebuilding it in four queries per route, the run went from about 18 minutes to
+2m45s.
+
+Pipeline suite: 122 tests, 27 of them new.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1517,6 +1619,22 @@ because it looks current.
         {
           "date": "2026-08-20",
           "text": "Views are DROP + CREATE, never CREATE OR REPLACE (except qa.latest_run, which others depend on): migrate.py replays the whole chain, so a later migration widening a view otherwise makes the earlier one fail on the next replay"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "CORRECTION to the earlier framing: the route document (structured JSON + map, one per route) is the product; PostGIS is the working store that holds the value. Neo4j, the API, the frontend and any social layer are readers of that document and none of them redefines a route"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "The route document is versioned and self-contained: attribution, licence and provenance travel inside it because the document is the ODbL Produced Work, and the schema requires a non-empty sources array"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Duration stays out of the route document until DIN 33466 is calibrated; measures is a closed object in the schema so a figure a user would not trust cannot arrive by accident"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Photos, comments and likes will be three MongoDB collections keyed to route.id with binaries in object storage (docs/social-layer.md, designed not built), which imposes now that a generated route's id be derived from geometry so it survives a rebuild"
         }
       ]
     }
@@ -1548,6 +1666,13 @@ because it looks current.
     }
   ],
   "nextSteps": [
+    {
+      "title": "Give generated routes an id derived from geometry, not a sequence number or run_id, so photos and comments cannot orphan on a rebuild (docs/social-layer.md)",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Return the composed plan with /chat results so the \"How I read it\" block can render the constraints it understood",
       "est": 1,
@@ -1757,6 +1882,20 @@ because it looks current.
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
+    },
+    {
+      "title": "Calibrate duration before adding it to the route document: DIN 33466 gives 10 h for the Grigna ascent against a guidebook 6-8, and the schema deliberately refuses the field until then",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Make Neo4j, the API and the frontend read the route document rather than each deriving route fields - the inversion docs/route-document.md ratifies",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     }
   ],
   "sessions": [
@@ -1818,6 +1957,13 @@ because it looks current.
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

@@ -20,6 +20,10 @@ dependencies = [
     "matplotlib>=3.8",      # near-miss histograms, profile renders
     "httpx>=0.27",          # source downloads
     "pydantic-settings>=2.0",
+    # The route document is the product (docs/route-document.md), and its schema
+    # is a contract other tiers read. Validating the emitter against it in the
+    # test suite is what stops the contract and the producer drifting apart.
+    "jsonschema>=4.0",
 ]
 
 [dependency-groups]

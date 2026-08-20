@@ -1,8 +1,11 @@
 # VaiVia geodata pipeline
 
-Sources → PostGIS → curated route map → (tiles, dashboard, Neo4j export).
+Sources → PostGIS → **route documents (JSON + map)** → (the API, Neo4j, the frontend).
 
-**The database is the product.** Curated routes, POIs and starts live in PostGIS
+**The route document is the product; this database is the working store that holds the
+value** (`docs/route-document.md`). Curated geometry, elevation, routes and places live in
+PostGIS and `export/route_documents.py` emits one structured JSON + map per route — that is
+what everything downstream reads. Curated routes, POIs and starts live in PostGIS
 (`vaivia-postgis` in `infra/docker-compose.yml`); the tile server, the dashboard, QGIS and
 the Neo4j export are all readers of it. `backend/` consumes the export; it no longer
 produces the data.
@@ -21,6 +24,7 @@ load/       into staging_* tables
 topology/   noding, metadata propagation, QA detectors and automated repairs
 draw/       route enumeration (loops, out-and-back) and assembly
 curate/     route join (edge_route), DEM sampling (elevation), place snapping (place)
+schemas/    the route document contract, read by every downstream tier
 export/     to Neo4j
 sql/        migrations, applied in filename order by migrate.py
 tests/      pure-function tests (no database in the loop)
@@ -127,6 +131,27 @@ was wrong before it was right.
 **Look before repairing.** The tolerance comes from the histogram and from opening
 examples in QGIS at each candidate distance — see `docs/metadata-rules.md`, which records
 why 2 m and not 5.
+
+## The product: route documents
+
+```bash
+uv run python -m export.route_documents --limit 5    # a handful, to look at
+uv run python -m export.route_documents              # all 752 (~3 min)
+```
+
+Writes `review/routes/<id>.json` per route — identity, geometry, measures, altitude
+profile, surface distribution, difficulty, what it passes, where it starts, quality
+warnings and provenance — plus `review/routes/routes.geojson`, one FeatureCollection of
+every route for dropping straight onto a map.
+
+The contract is `schemas/route-document.schema.json` and the emitter is validated against
+it in the test suite: a contract nothing checks is a comment. `docs/route-document.md` (at
+the repo root) has the reasoning behind each field, including why **duration is
+deliberately absent** and why attribution travels inside the document.
+
+Today the routes are the 752 OSM route relations, because those are the routes that exist.
+`draw/` will generate its own and emits through the same module — a generated route is a
+different `kind`, not a different document.
 
 ## The review bundle
 

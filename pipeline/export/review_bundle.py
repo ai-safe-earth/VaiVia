@@ -650,16 +650,20 @@ def main() -> None:
     args = parser.parse_args()
 
     out = Path(args.out)
-    # REVIEW.md is written per round and says what each layer is FOR; a rebuild
-    # of the layers must not silently delete the questions asked against them.
-    review_note = out / "REVIEW.md"
-    kept = review_note.read_text(encoding="utf-8") if review_note.is_file() else None
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
-    if kept is not None:
-        review_note.write_text(kept, encoding="utf-8")
-    gpkg = out / "vaivia-qa.gpkg"
+    out.mkdir(parents=True, exist_ok=True)
+
+    # Remove only what THIS exporter owns, never the whole directory. It used to
+    # rmtree `out`, which was safe while the bundle was the only thing in
+    # review/ and stopped being safe the moment route documents landed in
+    # review/routes/ — a refresh of the layers would have deleted the product.
+    # REVIEW.md survives for the older reason: it is written per round and says
+    # what is being ASKED of these layers, and the questions must outlive a
+    # rebuild of the thing they are about.
+    for owned in [gpkg_name := "vaivia-qa.gpkg", "README.md", *(t for _s, t in DOCS)]:
+        target = out / owned
+        if target.is_file():
+            target.unlink()
+    gpkg = out / gpkg_name
     url = sqlalchemy_url()
 
     exported: list[tuple[Layer, pd.DataFrame]] = []
