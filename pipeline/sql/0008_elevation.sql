@@ -93,7 +93,8 @@ COMMENT ON COLUMN curated.vertex.elevation_m IS
 -- `gradient` is the net rise over the run, signed along the stored direction;
 -- it is NOT the mean of the local slopes, which is why a switchbacked edge can
 -- climb 40 m at a 5% gradient.
-CREATE OR REPLACE VIEW qa.v_elevation AS
+DROP VIEW IF EXISTS qa.v_elevation;
+CREATE VIEW qa.v_elevation AS
 SELECT e.edge_id,
        e.way_id,
        e.length_m,
@@ -127,7 +128,8 @@ FROM curated.edge e;
 -- traversal direction. So read it as "the climb contained in this route's
 -- edges", not "the climb of walking it end to end". Generating the walked
 -- profile is route assembly's job, and profile_m is stored so it can.
-CREATE OR REPLACE VIEW qa.v_route_elevation AS
+DROP VIEW IF EXISTS qa.v_route_elevation;
+CREATE VIEW qa.v_route_elevation AS
 SELECT r.rel_id,
        r.tags ->> 'ref'   AS ref,
        r.tags ->> 'name'  AS name,

@@ -10,6 +10,11 @@
 -- must not become a way to silently edit findings. Repairs go through
 -- topology/repair.py, which records qa.fix.
 
+-- The one view here that is REPLACED rather than dropped: every rule view below
+-- selects from it, so a plain DROP fails on the dependency and a DROP CASCADE
+-- would take them all with it and rely on the rest of the chain to rebuild them
+-- in the right order. Its column list is frozen at one column for exactly this
+-- reason -- widening it would need the cascade this avoids.
 CREATE OR REPLACE VIEW qa.latest_run AS
 SELECT run_id
 FROM build_run
@@ -17,7 +22,8 @@ WHERE stage = 'topology' AND parameters ? 'detector'
 ORDER BY started_at DESC
 LIMIT 1;
 
-CREATE OR REPLACE VIEW qa.v_gap_dangle_pair AS
+DROP VIEW IF EXISTS qa.v_gap_dangle_pair;
+CREATE VIEW qa.v_gap_dangle_pair AS
 SELECT f.finding_id, f.severity, f.geom, f.note,
        (f.note::json ->> 'distance_m')::float AS distance_m,
        (f.note::json ->> 'a')::bigint AS vertex_a,
@@ -25,7 +31,8 @@ SELECT f.finding_id, f.severity, f.geom, f.note,
 FROM qa.finding f, qa.latest_run r
 WHERE f.rule = 'gap_dangle_pair' AND f.run_id = r.run_id;
 
-CREATE OR REPLACE VIEW qa.v_gap_dangle_edge AS
+DROP VIEW IF EXISTS qa.v_gap_dangle_edge;
+CREATE VIEW qa.v_gap_dangle_edge AS
 SELECT f.finding_id, f.severity, f.geom, f.note,
        (f.note::json ->> 'distance_m')::float AS distance_m,
        (f.note::json ->> 'vertex')::bigint AS vertex_id,
@@ -33,7 +40,8 @@ SELECT f.finding_id, f.severity, f.geom, f.note,
 FROM qa.finding f, qa.latest_run r
 WHERE f.rule = 'gap_dangle_edge' AND f.run_id = r.run_id;
 
-CREATE OR REPLACE VIEW qa.v_overlap AS
+DROP VIEW IF EXISTS qa.v_overlap;
+CREATE VIEW qa.v_overlap AS
 SELECT f.finding_id, f.severity, f.geom, f.note,
        (f.note::json ->> 'shared_m')::float AS shared_m,
        (f.note::json ->> 'a')::bigint AS edge_a,
@@ -41,14 +49,16 @@ SELECT f.finding_id, f.severity, f.geom, f.note,
 FROM qa.finding f, qa.latest_run r
 WHERE f.rule = 'overlap' AND f.run_id = r.run_id;
 
-CREATE OR REPLACE VIEW qa.v_degenerate AS
+DROP VIEW IF EXISTS qa.v_degenerate;
+CREATE VIEW qa.v_degenerate AS
 SELECT f.finding_id, f.severity, f.geom, f.note,
        (f.note::json ->> 'length_m')::float AS length_m,
        (f.note::json ->> 'self_loop')::boolean AS self_loop
 FROM qa.finding f, qa.latest_run r
 WHERE f.rule = 'degenerate' AND f.run_id = r.run_id;
 
-CREATE OR REPLACE VIEW qa.v_island AS
+DROP VIEW IF EXISTS qa.v_island;
+CREATE VIEW qa.v_island AS
 SELECT f.finding_id, f.severity, f.geom, f.note,
        (f.note::json ->> 'vertices')::int AS vertices,
        (f.note::json ->> 'component_id')::bigint AS component_id
@@ -57,7 +67,8 @@ WHERE f.rule = 'island' AND f.run_id = r.run_id;
 
 -- The network itself, for context beneath the findings: without a basemap of
 -- what the edges are, a gap layer is nine unexplained lines on white.
-CREATE OR REPLACE VIEW qa.v_network AS
+DROP VIEW IF EXISTS qa.v_network;
+CREATE VIEW qa.v_network AS
 SELECT e.edge_id, e.way_id, e.geom, e.length_m,
        e.tags ->> 'highway' AS highway,
        e.tags ->> 'surface' AS surface,
@@ -68,7 +79,8 @@ FROM curated.edge e;
 
 -- Loose ends, the input to the gap rules: useful on its own when judging
 -- whether a dangle is a defect or a real dead end.
-CREATE OR REPLACE VIEW qa.v_dangle AS
+DROP VIEW IF EXISTS qa.v_dangle;
+CREATE VIEW qa.v_dangle AS
 SELECT vertex_id, geom, component_id
 FROM curated.vertex_degree
 WHERE degree = 1;

@@ -128,6 +128,31 @@ was wrong before it was right.
 examples in QGIS at each candidate distance — see `docs/metadata-rules.md`, which records
 why 2 m and not 5.
 
+## The review bundle
+
+```bash
+uv run python -m export.review_bundle          # -> review/
+uv run python -m export.review_bundle --zip    # and review.zip beside it
+```
+
+**Run this after every step that changes the store.** A bundle that lags the database is
+worse than no bundle, because it looks current.
+
+It writes one GeoPackage holding every layer, and a `README.md` **generated from live
+queries** — the state, what is settled, what is open, every layer with the field to colour
+it by, and every field with its meaning and its full list of categories and counts. Nothing
+in it is hand-written except what each field means, so it cannot drift from the layers
+beside it.
+
+`review/REVIEW.md`, if you write one, is the opposite: hand-written, saying what is being
+asked of this round. A rebuild **preserves** it — the questions asked against a set of
+layers must outlive a rebuild of those layers.
+
+Every styled field has a `*_class` or `*_band` twin (`steepness_class`,
+`coverage_class`, `distance_band`, …) so a review is Symbology → Categorized → *Classify*,
+never an expression written by hand. The leading digit is deliberate: QGIS sorts categories
+by value, and without it `flat` lands between `gentle` and `moderate`.
+
 ## Provenance
 
 Every curated row carries the `run_id` that produced it; `build_run` records each run's

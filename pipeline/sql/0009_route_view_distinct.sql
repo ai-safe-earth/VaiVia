@@ -15,7 +15,8 @@
 -- already count(DISTINCT edge_id) and therefore correct, which is exactly why
 -- the discrepancy was invisible: the edge count was right while the kilometres
 -- beside it were not.
-CREATE OR REPLACE VIEW qa.v_route AS
+DROP VIEW IF EXISTS qa.v_route;
+CREATE VIEW qa.v_route AS
 SELECT r.rel_id,
        r.tags ->> 'ref'         AS ref,
        r.tags ->> 'name'        AS name,
@@ -34,7 +35,8 @@ GROUP BY r.rel_id, r.tags, r.regions;
 
 -- Same collapse for the coverage view, which counted matched_edges off the raw
 -- link table. matched_ways was already DISTINCT and unaffected.
-CREATE OR REPLACE VIEW qa.v_route_coverage AS
+DROP VIEW IF EXISTS qa.v_route_coverage;
+CREATE VIEW qa.v_route_coverage AS
 WITH members AS (
     SELECT r.rel_id,
            count(*) FILTER (WHERE m ->> 'type' = 'w') AS way_members,

@@ -14,7 +14,8 @@
 -- also the easiest to repair correctly: the junction is real and already
 -- carries two or more edges, so the dangle moves and the junction never does.
 
-CREATE OR REPLACE VIEW qa.v_gap_dangle_junction AS
+DROP VIEW IF EXISTS qa.v_gap_dangle_junction;
+CREATE VIEW qa.v_gap_dangle_junction AS
 SELECT f.finding_id, f.severity, f.geom, f.note,
        (f.note::json ->> 'distance_m')::float AS distance_m,
        (f.note::json ->> 'vertex')::bigint AS vertex_id,
@@ -24,7 +25,8 @@ WHERE f.rule = 'gap_dangle_junction' AND f.run_id = r.run_id;
 
 -- Repairs are reviewable after the fact: every fix carries before/after
 -- geometry, so this is the layer for "what did the last repair pass do".
-CREATE OR REPLACE VIEW qa.v_fix AS
+DROP VIEW IF EXISTS qa.v_fix;
+CREATE VIEW qa.v_fix AS
 SELECT x.fix_id, x.rule, x.target, x.note,
        x.geom_after AS geom,
        x.geom_before,

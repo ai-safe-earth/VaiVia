@@ -80,7 +80,8 @@ DROP INDEX IF EXISTS curated.tmp_edge_utm;
 DROP INDEX IF EXISTS curated.tmp_vertex_utm;
 
 -- Every place, for QGIS. Point layer; style by `kind`, filter on `is_start`.
-CREATE OR REPLACE VIEW qa.v_place AS
+DROP VIEW IF EXISTS qa.v_place;
+CREATE VIEW qa.v_place AS
 SELECT p.source, p.source_id, p.kind, p.name, p.ele_m,
        p.vertex_id, p.distance_m, p.is_start, p.start_note, p.n_trips,
        p.regions, v.component_id, p.geom
@@ -91,7 +92,8 @@ JOIN curated.vertex v ON v.vertex_id = p.vertex_id;
 -- vertex it attached to. A wrong snap is invisible as a number and obvious as a
 -- line reaching across a valley or through a wall. Sort by distance_m
 -- descending and look at the top of the list.
-CREATE OR REPLACE VIEW qa.v_place_link AS
+DROP VIEW IF EXISTS qa.v_place_link;
+CREATE VIEW qa.v_place_link AS
 SELECT p.source, p.source_id, p.kind, p.name, p.distance_m, p.is_start,
        ST_MakeLine(p.geom, v.geom) AS geom
 FROM curated.place p
@@ -107,7 +109,8 @@ WHERE NOT ST_Equals(p.geom, v.geom);
 -- that naming one from a nearby feature is unsolved. `names` here is whatever
 -- the anchors actually carry; inventing a name from the nearest peak is a
 -- decision that has not been made yet.
-CREATE OR REPLACE VIEW qa.v_start AS
+DROP VIEW IF EXISTS qa.v_start;
+CREATE VIEW qa.v_start AS
 SELECT p.vertex_id,
        v.component_id,
        vd.degree,

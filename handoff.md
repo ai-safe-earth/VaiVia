@@ -949,6 +949,79 @@ valley.
 
 Pipeline suite: 95 tests, 24 of them new.
 
+## 2026-08-20 (fourth) - The review bundle becomes the review surface
+
+Oscar's loop is visual: open a layer, colour it by a category, see whether the step did
+what it claimed. The layers did not support that. They carried raw measures - gradient as a
+float, matched_fraction as a float, distance_m as a float - and every one of them needed a
+QGIS expression and a hand-built class ramp before it showed anything. A class ramp built in
+a dialog also lives in one .qgz on one machine rather than in the database that is the
+product.
+
+Three changes, and a rule so it does not decay.
+
+### Every styled field has a category twin
+
+steepness_class, difficulty_class, surface_class, route_class, access_class, profile_class,
+continuity_class, climb_class, length_class, scope_class, coverage_class, distance_band,
+role_class, reachability_class, naming_class. They live in the qa.v_* views, not in the
+exporter, so a direct QGIS-to-PostGIS connection gets them too.
+
+Boundaries come from the distributions already measured, not from round numbers: the
+gradient bands are where the network actually falls (48.6% under 5%, 0.3% over 50%), the
+place bands where the snap distributions separate.
+
+The leading digit on every value is deliberate. QGIS sorts categories by value, so
+"gentle / moderate / steep / very steep / flat" puts flat between gentle and moderate and
+the ramp reads backwards. A digit fixes the order for every renderer and survives export to
+GeoPackage, which an ordering defined in a style file does not.
+
+One category earns its place on its own: difficulty_class has a "9 invalid tag" bucket and
+12 edges land in it. Folding raw OSM junk into "ungraded" would have hidden it for good.
+
+### The bundle README is generated, never written
+
+review/README.md now comes out of live queries at export time: state, what is settled, what
+is open with a count and a sentence each, every layer with the field to colour it by and the
+field to sort by, and every field with its meaning and its full list of categories and
+counts. The only hand-maintained part is what a field MEANS.
+
+That last table is the useful one - it says what you will get when you press Classify
+before you press it.
+
+review/REVIEW.md stays the opposite and is still preserved across rebuilds: hand-written,
+saying what is being asked of this round.
+
+### The full network is in the bundle now, which reverses an earlier decision
+
+It was left out while the bundle only had to explain nine gap findings. Once the layers grew
+names, height and places, a review without the network underneath them is a review of marks
+on white. One layer and not two: the elevation columns sit on network rather than in a second
+copy of the same 101,951 geometries, which is the difference between a 65 MB file and a
+99 MB one.
+
+### A migration bug this uncovered, and it was the serious part
+
+migrate.py replays the WHOLE chain every run, and its own docstring says replay is the normal
+case, not an error. Adding a class column beside the measure it classifies inserts a column
+in the MIDDLE of a view, which CREATE OR REPLACE VIEW refuses outright - and worse, once 0011
+widened qa.v_elevation, the next replay ran the narrower definition from 0008 over it and
+failed with "cannot drop columns from view". The store had become un-migratable from its own
+history.
+
+Every view in 0005-0011 is now DROP VIEW IF EXISTS + CREATE VIEW, which makes the chain
+order-independent. The single exception is qa.latest_run: every rule view selects from it, so
+a plain DROP fails on the dependency and a DROP CASCADE would take them all and rely on the
+rest of the chain rebuilding them in the right order. Its column list is frozen at one column
+for exactly that reason. Verified by running migrate.py three times in a row.
+
+### The rule
+
+CLAUDE.md now carries it, so it is not something anyone has to remember: refresh the bundle
+after every step that changes the store, give every styled field a category twin, and drop
+views rather than replacing them. A bundle that lags the database is worse than no bundle,
+because it looks current.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1432,6 +1505,18 @@ Pipeline suite: 95 tests, 24 of them new.
         {
           "date": "2026-08-20",
           "text": "Proximity search is planar (GiST on ST_Transform(geom,32632)) while stored distances stay geodesic: geography indexes serve range predicates well and polygon nearest-neighbour badly, 2.6 s against four minutes for 7,471 car parks"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "The review bundle is refreshed after every step that changes the store, and its README is generated from live queries rather than hand-written, so it cannot look current while lagging the database"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Every field that gets styled carries a *_class or *_band twin in its qa view with a leading digit, so a review is Categorized-and-Classify rather than a hand-written QGIS expression and a class ramp trapped in one .qgz"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Views are DROP + CREATE, never CREATE OR REPLACE (except qa.latest_run, which others depend on): migrate.py replays the whole chain, so a later migration widening a view otherwise makes the earlier one fail on the next replay"
         }
       ]
     }
@@ -1665,6 +1750,13 @@ Pipeline suite: 95 tests, 24 of them new.
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
+    },
+    {
+      "title": "Review the refreshed bundle in QGIS: colour network by steepness_class, route by continuity_class, place_link by distance_band, start by reachability_class",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     }
   ],
   "sessions": [
@@ -1726,6 +1818,13 @@ Pipeline suite: 95 tests, 24 of them new.
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

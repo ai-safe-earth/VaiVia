@@ -48,7 +48,8 @@ CREATE INDEX IF NOT EXISTS edge_route_edge_idx ON curated.edge_route (edge_id);
 -- that belongs to a route, with the route's identity as real columns so it can
 -- be styled and filtered without a jsonb expression. An edge in two relations
 -- appears twice, once per route -- that is the point of the table.
-CREATE OR REPLACE VIEW qa.v_route_edge AS
+DROP VIEW IF EXISTS qa.v_route_edge;
+CREATE VIEW qa.v_route_edge AS
 SELECT er.edge_id,
        er.rel_id,
        er.member_index,
@@ -75,7 +76,8 @@ JOIN staging.osm_relation r ON r.rel_id = er.rel_id;
 -- MULTILINESTRING where they do not -- a route in several pieces LOOKS like a
 -- route in several pieces, which is exactly what wants judging before anything
 -- is generated on top of it.
-CREATE OR REPLACE VIEW qa.v_route AS
+DROP VIEW IF EXISTS qa.v_route;
+CREATE VIEW qa.v_route AS
 SELECT r.rel_id,
        r.tags ->> 'ref'         AS ref,
        r.tags ->> 'name'        AS name,
@@ -97,7 +99,8 @@ GROUP BY r.rel_id, r.tags, r.regions;
 -- bboxes or when load/legality.py excluded it (a road no one may walk). The
 -- number that matters is matched_ways / way_members: a route at 0.9 is clipped
 -- at the edge of coverage, a route at 0.1 is a route this network cannot hold.
-CREATE OR REPLACE VIEW qa.v_route_coverage AS
+DROP VIEW IF EXISTS qa.v_route_coverage;
+CREATE VIEW qa.v_route_coverage AS
 WITH members AS (
     SELECT r.rel_id,
            count(*) FILTER (WHERE m ->> 'type' = 'w') AS way_members,
