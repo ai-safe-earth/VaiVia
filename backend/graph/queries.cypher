@@ -399,87 +399,94 @@ RETURN p.osm_id AS osm_id, p.name AS name, p.type AS type,
        p.description_url AS description_url
 
 // name: search_loops
-// Stage 7: the chat layer SELECTS from the precomputed catalogue instead of
-// computing a route per request (docs/route-pipeline.md). Everything expensive
-// -- generation, scoring, dedup, the POI map-back -- already happened offline,
-// so a turn is a filter and an ORDER BY.
+// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
+// from precomputed routes instead of computing one per request. The catalogue
+// is loaded by pipeline/export/neo4j_load.py from the route documents, which
+// stay canonical -- geometry and the profile are fetched by route_id, never
+// stored here.
 //
-// Ordered by the stored score, which already folds in length accuracy, off-road
-// share, variety and climb. A caller must not re-rank on one of those alone or
-// the offline scoring is silently overridden.
-MATCH (r:Route)-[:STARTS_FROM]->(th:Trailhead)
-// Activity is a hard filter, never a preference: a foot loop over steps and a
-// T4 scramble is not a bike route, it is impassable. Catalogues are generated
-// per profile (infra/graphhopper/config.yml) precisely so this can be exact.
-// A route with no activity cannot be served: activity is a hard filter, and an
-// unlabelled route also predates elevation, so it would answer a walking
-// question with no climb figure. The 502 such rows from before the
-// per-activity catalogues were deleted on 2026-08-18; this guard stays as
-// defence, since any future schema change that adds a route without an
-// activity would otherwise leak it into results.
-WHERE r.activity IS NOT NULL
-  AND ($activity IS NULL OR r.activity = $activity)
+// warnings = 0 is not optional. The export's own smoke test proved why: the
+// unfiltered catalogue puts 0.0 km OSM fragments wearing famous names at the
+// top of any list. A route with warnings is qa's business, not an answer.
+MATCH (r:Route)
+WHERE r.warnings = 0
+  // Activity is a hard filter, never a preference: a bike question must only
+  // see bike-legal routes. The caller resolves the user's activity to the
+  // catalogue's vocabulary ('hike' covers hiking and foot relations; 'mtb' is
+  // the by-construction bike-legal family plus rideable OSM mtb relations).
+  AND ($activities IS NULL OR r.activity IN $activities)
+  AND ($mtb_only IS NULL OR r.mtb_rideable = true)
   AND ($min_distance_m IS NULL OR r.distance_m >= $min_distance_m)
   AND ($max_distance_m IS NULL OR r.distance_m <= $max_distance_m)
-  AND ($min_off_road IS NULL OR r.off_road_share >= $min_off_road)
-  // sac_scale / mtb:scale as GraphHopper decoded them. A route with no rating
-  // is NOT excluded by a ceiling: unrated is unknown, and dropping it would
-  // hide most of the catalogue behind a filter the data cannot answer.
-  AND ($max_hike_rating IS NULL OR coalesce(r.hike_rating, 0) <= $max_hike_rating)
-  AND ($max_mtb_rating IS NULL OR coalesce(r.mtb_rating, 0) <= $max_mtb_rating)
   AND ($max_ascent_m IS NULL OR coalesce(r.ascent_m, 0) <= $max_ascent_m)
-  // Duration for the activity being asked about. With no activity stated the
-  // walking figure is used: it is the slower of the two, so a route that fits
-  // the time on foot fits it on a bike, and the answer never overpromises.
-  AND ($max_duration_min IS NULL
-       OR coalesce(
-            CASE $activity WHEN 'mtb' THEN r.duration_mtb_min
-                           ELSE r.duration_hike_min END,
-            0) <= $max_duration_min)
-  AND ($near_lat IS NULL
-       OR point.distance(th.location,
-                         point({latitude: $near_lat, longitude: $near_lon}))
-          <= $near_radius_m)
+  // Difficulty ceilings compare RANKS (T1..T6 as 1..6; mtb:scale as 0..6),
+  // against sac_max -- the EXIGENT grade, the hardest metre walked (owner rule
+  // 2026-08-20): a ceiling is a safety promise, and the character grade would
+  // let a T2 walk with a T4 move through a T2 ceiling. An ungraded route is
+  // NOT excluded by a ceiling: unrated is unknown, and dropping it would hide
+  // most of the catalogue behind a filter the data cannot answer.
+  AND ($max_sac_rank IS NULL OR coalesce(r.sac_max_rank, 0) <= $max_sac_rank)
+  AND ($max_mtb_rank IS NULL OR coalesce(r.mtb_scale_rank, 0) <= $max_mtb_rank)
+  // "on trails, off the roads" as a floor. OSM relations carry no off-road
+  // share (it is a generation-time measure); null passes rather than hiding
+  // every named sentiero behind a number they do not have.
+  AND ($min_off_road IS NULL OR r.off_road_share IS NULL
+       OR r.off_road_share >= $min_off_road)
+OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
+WITH r, s
+WHERE $near_lat IS NULL
+   OR (s IS NOT NULL
+       AND point.distance(s.location,
+                          point({latitude: $near_lat, longitude: $near_lon}))
+           <= $near_radius_m)
 CALL (r) {
-  OPTIONAL MATCH (r)-[:PASSES]->(p:POI)
+  MATCH (r)-[e:PASSES]->(p:Place)
   WITH DISTINCT p
-  WHERE p IS NOT NULL AND (size($poi_types) = 0 OR p.type IN $poi_types)
-  RETURN collect(p.type) AS found_types,
-         collect({name: p.name, type: p.type})[0..8] AS pois
+  RETURN collect(p.kind) AS found_kinds,
+         collect({name: p.name, type: p.kind})[0..8] AS pois
 }
-WITH r, th, found_types, pois
-// Every requested feature must be present, not merely one of them: "past a hut
-// AND a lake" is a conjunction to a walker.
+WITH r, s, found_kinds, pois
+// Every requested feature must be present, not merely one of them: "past a
+// hut AND a lake" is a conjunction to a walker.
 WHERE size($poi_types) = 0
-   OR all(wanted IN $poi_types WHERE wanted IN found_types)
+   OR all(wanted IN $poi_types WHERE wanted IN found_kinds)
 RETURN r.route_id AS id,
        r.activity AS activity,
-       // Named after the best feature it passes (scripts/name_routes.py).
-       // Null where there is nothing worth naming it after; the client shows
-       // the distance instead rather than inventing something.
+       r.kind AS kind,
+       r.shape AS shape,
+       // Destination routes are named after where they go ("To Rifugio
+       // Elisa"); OSM relations after themselves. Null where nothing earned a
+       // name -- the client shows the distance rather than inventing one.
        r.name AS name,
+       r.ref AS ref,
+       r.destination_name AS destination_name,
        r.distance_m AS distance_m,
        r.ascent_m AS ascent_m,
-       r.duration_hike_min AS duration_hike_min,
-       r.duration_mtb_min AS duration_mtb_min,
-       r.hike_rating AS hike_rating,
-       r.mtb_rating AS mtb_rating,
+       r.sac_scale AS sac_scale,
+       r.sac_max AS sac_max,
+       r.mtb_rideable AS mtb_rideable,
+       r.mtb_scale AS mtb_scale,
        r.off_road_share AS off_road_share,
        r.score AS score,
-       r.named_pois AS named_pois,
-       th.trailhead_id AS trailhead_id,
-       th.name AS trailhead_name,
-       th.location.latitude AS start_lat,
-       th.location.longitude AS start_lon,
+       s.vertex_id AS start_vertex_id,
+       s.names AS start_names,
+       s.car_free AS car_free,
+       s.location.latitude AS start_lat,
+       s.location.longitude AS start_lon,
        pois AS pois
-ORDER BY r.score DESC
+// OSM relations carry no score; 0.5 slots them between good and poor
+// generated routes rather than at the bottom, and climb breaks the tie.
+ORDER BY coalesce(r.score, 0.5) DESC, coalesce(r.ascent_m, 0) DESC
 LIMIT $limit
 
-// name: route_geometry
-// The map payload for a catalogue route.
+// name: route_exists
+// The geometry itself lives in the route DOCUMENT (docs/route-document.md),
+// served from the documents store by the API -- never copied into the graph,
+// where a second home for it is how two truths start. This template only
+// answers "is this a catalogue route", so the endpoint can 404 honestly
+// before touching the filesystem.
 MATCH (r:Route {route_id: $route_id})
-RETURN r.route_id AS id,
-       [p IN r.geometry | [p.longitude, p.latitude]] AS coordinates
+RETURN r.route_id AS id
 
 // name: healthcheck
 RETURN 1 AS ok

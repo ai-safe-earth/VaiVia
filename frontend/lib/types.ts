@@ -29,24 +29,35 @@ export interface Trail {
 export interface Loop {
   id: string;
   activity: string;
-  /** The best feature it passes, or null when there is nothing worth naming it
-   *  after — the card shows its distance instead of inventing a name. */
+  /** 'osm_route' (a mapped relation) or 'generated'. */
+  kind: string;
+  /** 'named' | 'loop' | 'destination'. */
+  shape: string;
+  /** A destination route is named after where it goes ("To Rifugio Elisa");
+   *  an OSM relation after itself; null when nothing earned a name — the card
+   *  shows its distance instead of inventing one. */
   name: string | null;
+  ref: string | null;
+  destination_name: string | null;
   distance_m: number;
   ascent_m: number | null;
-  duration_hike_min: number | null;
-  duration_mtb_min: number | null;
-  /** OSM sac_scale and mtb:scale as GraphHopper decoded them. */
-  hike_rating: number | null;
-  mtb_rating: number | null;
-  /** Computed from map tags, never a promise about the surface underfoot. */
-  off_road_share: number;
-  score: number;
-  named_pois: string[];
-  trailhead_id: string;
-  trailhead_name: string | null;
-  start_lat: number;
-  start_lon: number;
+  /** Two grades, both true (metadata-rules.md): sac_scale is the CHARACTER
+   *  (hardest grade covering ≥5% — the label it wears), sac_max the EXIGENT
+   *  grade (hardest metre walked — what you must be able to handle). */
+  sac_scale: string | null;
+  sac_max: string | null;
+  /** The access conjunction along the walked sequence: one forbidding segment
+   *  forbids. null = unknown, which is not yes. */
+  mtb_rideable: boolean | null;
+  mtb_scale: string | null;
+  /** Generation-time measure; OSM relations carry null, not 0. */
+  off_road_share: number | null;
+  score: number | null;
+  start_vertex_id: number | null;
+  start_names: string[] | null;
+  car_free: boolean | null;
+  start_lat: number | null;
+  start_lon: number | null;
   pois: PoiRef[];
 }
 

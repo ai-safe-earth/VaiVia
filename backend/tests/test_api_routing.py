@@ -181,39 +181,91 @@ def test_gds_route_over_cap_falls_back_then_404s(client, db):
 
 # ── catalogue route geometry (GET /routes/{id}/geojson) ──────────────────────
 
-ROUTE_ID = "1461822581:hike:15000:0"
-ROUTE_GEOM = [{"id": ROUTE_ID, "coordinates": [[9.4, 45.9], [9.41, 45.91]]}]
+ROUTE_ID = "generated-abc123def4567890"
 
 
-def test_route_geojson_returns_a_linestring_feature(client, db):
-    """A catalogue route is one continuous ring, unlike a trail, which is a
-    MultiLineString of the segments it is composed of."""
-    db.when("route_geometry", ROUTE_GEOM)
+def _documents_dir(tmp_path, monkeypatch, document: dict | None):
+    """Point the app at a temp document store, on the CACHED settings object —
+    clearing the cache would re-read the real .env and wake the gateway-secret
+    middleware under the test client."""
+    import json as _json
+
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "route_documents_dir", str(tmp_path))
+    if document is not None:
+        (tmp_path / f"{ROUTE_ID}.json").write_text(
+            _json.dumps(document), encoding="utf-8"
+        )
+    return tmp_path
+
+
+DOCUMENT = {
+    "geometry": {"type": "LineString", "coordinates": [[9.4, 45.9], [9.41, 45.91]]},
+    "provenance": {"sources": [{"attribution": "© OpenStreetMap contributors"}]},
+}
+
+
+def test_route_geojson_serves_the_document(client, db, tmp_path, monkeypatch):
+    """The graph answers only "does this route exist"; the geometry comes from
+    the route DOCUMENT — the canonical artefact, served by the API
+    (docs/route-document.md). Attribution travels with the feature because the
+    document is the ODbL Produced Work."""
+    _documents_dir(tmp_path, monkeypatch, DOCUMENT)
+    db.when("route_exists", [{"id": ROUTE_ID}])
     response = client.get(f"/routes/{ROUTE_ID}/geojson")
     assert response.status_code == 200
     body = response.json()
-    assert body["type"] == "Feature"
     assert body["geometry"]["type"] == "LineString"
     assert body["geometry"]["coordinates"] == [[9.4, 45.9], [9.41, 45.91]]
     assert body["properties"]["route_id"] == ROUTE_ID
+    assert "OpenStreetMap" in body["properties"]["attribution"]
 
 
-def test_route_geojson_survives_the_colons_in_a_route_id(client, db):
-    """Route ids are "{trailhead}:{activity}:{distance}:{rank}". Colons are
-    legal in a path segment, but that is worth proving rather than assuming."""
-    db.when("route_geometry", ROUTE_GEOM)
-    response = client.get(f"/routes/{ROUTE_ID}/geojson")
-    assert response.status_code == 200
-    assert db.params_for("route_geometry")["route_id"] == ROUTE_ID
+def test_route_geojson_404s_before_touching_the_filesystem(
+    client, db, tmp_path, monkeypatch
+):
+    _documents_dir(tmp_path, monkeypatch, None)
+    db.when("route_exists", [])
+    assert client.get("/routes/nope/geojson").status_code == 404
 
 
-def test_route_geojson_404s_for_an_unknown_route(client, db):
-    db.when("route_geometry", [])
-    assert client.get("/routes/nope:hike:1:0/geojson").status_code == 404
+def test_route_geojson_503s_when_documents_are_not_mounted(client, db, monkeypatch):
+    """A catalogue route whose document store is unconfigured is a degradation,
+    never an empty shape — the semantic-search 503 rule."""
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "route_documents_dir", None)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    assert client.get(f"/routes/{ROUTE_ID}/geojson").status_code == 503
 
 
-def test_route_geojson_404s_when_the_route_has_empty_geometry(client, db):
-    """A row with no coordinates is not a usable map payload, and returning an
-    empty Feature would blank the map with no explanation."""
-    db.when("route_geometry", [{"id": ROUTE_ID, "coordinates": []}])
-    assert client.get(f"/routes/{ROUTE_ID}/geojson").status_code == 404
+def test_route_geojson_503s_when_one_document_is_missing(
+    client, db, tmp_path, monkeypatch
+):
+    _documents_dir(tmp_path, monkeypatch, None)  # dir exists, file does not
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    assert client.get(f"/routes/{ROUTE_ID}/geojson").status_code == 503
+
+
+def test_route_geojson_serves_the_longest_piece_of_a_multipart_route(
+    client, db, tmp_path, monkeypatch
+):
+    """A route the network holds in pieces is a MultiLineString in its document.
+    The map endpoint shows the longest piece and says so, never a straight line
+    across the gaps (metadata-rules.md: a broken route is never drawn whole)."""
+    document = {
+        "geometry": {
+            "type": "MultiLineString",
+            "coordinates": [
+                [[9.4, 45.9], [9.41, 45.91], [9.42, 45.92]],
+                [[9.5, 45.95], [9.51, 45.96]],
+            ],
+        },
+        "provenance": {"sources": [{"attribution": "©"}]},
+    }
+    _documents_dir(tmp_path, monkeypatch, document)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    body = client.get(f"/routes/{ROUTE_ID}/geojson").json()
+    assert len(body["geometry"]["coordinates"]) == 3
+    assert "pieces" in body["properties"]["note"]

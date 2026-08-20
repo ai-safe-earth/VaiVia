@@ -12,8 +12,10 @@ container start and silently skips installation when that fails, which we have
 observed on cold Docker starts. A routing outage should not follow from that.
 """
 
+import json
 import logging
 from contextlib import suppress
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -133,25 +135,58 @@ async def _route_via_gds(
 
 @router.get("/routes/{route_id}/geojson", response_model=RouteGeoJson)
 async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
-    """Map payload for one catalogue route.
+    """Map payload for one catalogue route, read from its ROUTE DOCUMENT.
 
-    Geometry is fetched per route rather than carried in the chat payload: the
-    same results dict is handed to the answer model, so inlining a few hundred
-    coordinate pairs per route would put tens of kilobytes of numbers into the
-    prompt on every turn.
-
-    Note the id shape — "1461822581:hike:15000:0". Colons are legal in a path
-    segment, but callers must still encode it.
+    The graph deliberately carries no geometry (a second home for it is how
+    two truths start — pipeline/export/catalogue.cypher); the document is
+    canonical and this endpoint is the API serving it. The graph answers only
+    "does this route exist", so an unknown id 404s before the filesystem is
+    touched; a catalogue route whose document store is missing or unconfigured
+    is a 503, never an empty shape — the semantic-search degradation rule.
     """
-    rows = await db.run_named("route_geometry", route_id=route_id)
-    coordinates = rows[0]["coordinates"] if rows else None
-    if not coordinates:
+    rows = await db.run_named("route_exists", route_id=route_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"unknown route {route_id!r}")
+
+    settings = get_settings()
+    if not settings.route_documents_dir:
         raise HTTPException(
-            status_code=404, detail=f"route {route_id!r} has no geometry"
+            status_code=503,
+            detail="route documents are not mounted (ROUTE_DOCUMENTS_DIR unset); "
+            "geometry is unavailable until they are",
         )
+    document_path = Path(settings.route_documents_dir) / f"{route_id}.json"
+    if not document_path.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail=f"route {route_id!r} is in the catalogue but its document is "
+            "missing from the store — re-emit the documents",
+        )
+    document = json.loads(document_path.read_text(encoding="utf-8"))
+    geometry = document["geometry"]
+    if geometry["type"] != "LineString":
+        # A route held in pieces is a MultiLineString; the response model is a
+        # LineString. Serve the longest piece rather than a line across gaps,
+        # and say so — the document remains the honest source.
+        parts = sorted(geometry["coordinates"], key=len, reverse=True)
+        coordinates = parts[0]
+        note = f"multi-part route: longest of {len(parts)} pieces shown"
+    else:
+        coordinates = geometry["coordinates"]
+        note = None
+    properties = {
+        "route_id": route_id,
+        "point_count": len(coordinates),
+        "attribution": "; ".join(
+            source["attribution"]
+            for source in document.get("provenance", {}).get("sources", [])
+        ),
+    }
+    if note:
+        properties["note"] = note
     return RouteGeoJson(
         geometry=GeoJsonLineString(coordinates=coordinates),
-        properties={"route_id": route_id, "point_count": len(coordinates)},
+        properties=properties,
     )
 
 

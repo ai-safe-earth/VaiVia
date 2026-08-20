@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     # near a town means the hills above it, not the town square.
     loop_near_radius_m: float = 8000.0
 
+    # Where the route DOCUMENTS live (docs/route-document.md): the canonical
+    # JSON per route the pipeline emits, which carries the geometry and the
+    # profile the graph deliberately does not. Unset -> the geometry endpoint
+    # returns 503, never an empty or invented shape (the semantic-search rule).
+    route_documents_dir: str | None = None
+
     trailforks_api_key: str = ""
     trailforks_base_url: str = "https://www.trailforks.com/api/1"
 

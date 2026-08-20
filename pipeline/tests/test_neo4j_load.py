@@ -96,6 +96,9 @@ def test_selection_properties_travel_and_geometry_does_not():
     assert props["name"] == "To Rifugio Elisa"
     assert props["sac_scale"] == "mountain_hiking"  # character
     assert props["sac_max"] == "alpine_hiking"  # exigent
+    # Ranks travel as ints because Cypher cannot order the grade strings.
+    assert props["sac_scale_rank"] == 2
+    assert props["sac_max_rank"] == 4
     assert props["mtb_rideable"] is True
     assert props["destination_name"] == "Rifugio Elisa"
     assert props["bbox"] == [9.33, 45.92, 9.35, 45.94]

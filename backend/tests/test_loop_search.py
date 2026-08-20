@@ -137,9 +137,12 @@ async def test_a_hiking_ask_does_not_apply_an_mtb_ceiling(db):
         LoopSearchIntent(activity="hike", max_difficulty_level=2)
     )
     _, params = next(c for c in db.calls if c[0] == "search_loops")
-    assert params["activity"] == "hike"
-    assert params["max_hike_rating"] is not None
-    assert params["max_mtb_rating"] is None
+    # 'hike' resolves to the catalogue's activity vocabulary, and the ceiling
+    # rides the SAC rank parameter (against sac_max, the exigent grade).
+    assert params["activities"] == ["hiking", "foot"]
+    assert params["mtb_only"] is None
+    assert params["max_sac_rank"] is not None
+    assert params["max_mtb_rank"] is None
 
 
 @pytest.mark.asyncio
@@ -152,7 +155,8 @@ async def test_an_unstated_activity_searches_every_catalogue(db):
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
     await orchestrator._loops(LoopSearchIntent(max_distance_m=10000))  # noqa: SLF001
     _, params = next(c for c in db.calls if c[0] == "search_loops")
-    assert params["activity"] is None
+    assert params["activities"] is None
+    assert params["mtb_only"] is None
 
 
 def test_a_single_stated_distance_becomes_a_band_not_an_equality():
@@ -232,9 +236,26 @@ def test_a_mixed_turn_still_reads_as_a_trail_search():
 
 
 @pytest.mark.asyncio
-async def test_duration_is_filterable_now_that_routes_have_one(db):
-    """ "back by lunch" is the natural way to ask, and durations exist on every
-    route, so the filter should reach the query."""
+async def test_an_mtb_ask_filters_on_the_rideability_conjunction(db):
+    """A bike question must only see bike-legal routes — and that is
+    mtb_rideable (one forbidding segment forbids), not the activity label: a
+    rideable OSM hiking relation answers a bike question too."""
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("search_loops", [])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    await orchestrator._loops(LoopSearchIntent(activity="mtb"))  # noqa: SLF001
+    _, params = next(c for c in db.calls if c[0] == "search_loops")
+    assert params["mtb_only"] is True
+    assert params["activities"] is None
+
+
+@pytest.mark.asyncio
+async def test_duration_is_deliberately_not_sent_to_the_query(db):
+    """The pipeline catalogue carries no duration until DIN 33466 is calibrated
+    (docs/route-document.md: the uncalibrated figure reads 10 h for a 6-8 h
+    classic). Filtering on a wrong number would exclude the wrong routes
+    silently, so the parameter must not reach the template at all."""
     from chat.orchestrator import ChatOrchestrator
 
     db.when("search_loops", [])
@@ -243,8 +264,7 @@ async def test_duration_is_filterable_now_that_routes_have_one(db):
         LoopSearchIntent(max_duration_min=180, activity="mtb")
     )
     _, params = next(c for c in db.calls if c[0] == "search_loops")
-    assert params["max_duration_min"] == 180
-    assert params["activity"] == "mtb"
+    assert "max_duration_min" not in params
 
 
 def test_a_zero_duration_is_dropped_as_vacuous():

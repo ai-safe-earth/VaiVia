@@ -1288,6 +1288,47 @@ on the spike branch).
 queries.cypher templates at :Route/:Place so /chat selects from this catalogue instead of
 computing over Trail/Segment.
 
+## 2026-08-21 (third) - The backend selects from the catalogue
+
+The other half of the inversion, and the discovery that made it urgent: the backend
+route-catalogue code from 2026-08-18 IS on develop (the handoff's "never pushed" note was
+stale), and its search_loops template read the OLD :Route shape the pipeline export had
+just replaced. The chat's loop search was querying a graph that no longer existed.
+
+search_loops is rewritten over the pipeline catalogue - :Route STARTS_AT :Start, PASSES
+:Place - with the owner's rules carried into the query itself: warnings = 0 in the
+template (a flawed route is qa's business, never an answer); difficulty ceilings compare
+the EXIGENT grade via sac_max_rank (a ceiling is a safety promise, and the character
+grade would let a T2 walk with a T4 move through a T2 ceiling); a bike ask filters on
+mtb_rideable - the conjunction - rather than the activity label, because a rideable OSM
+hiking relation answers a bike question too. Ranks travel as ints because Cypher cannot
+order the grade strings; the export now writes sac_scale_rank / sac_max_rank /
+mtb_scale_rank and the graph was reloaded.
+
+Duration is DELIBERATELY not filtered: the catalogue carries none until DIN 33466 is
+calibrated, and a wrong figure would exclude the wrong routes silently. The orchestrator
+drops the parameter and says why; the old "duration is filterable" test became "duration
+is deliberately not sent", with the reasoning in its docstring.
+
+The geometry endpoint completes the document-canonical design: the graph answers only
+"does this route exist" (route_exists), the ROUTE DOCUMENT supplies the shape
+(ROUTE_DOCUMENTS_DIR, backend .env -> review/routes), 503 when the store is unmounted -
+the semantic-search degradation rule - and attribution travels in the GeoJSON properties
+because the document is the ODbL Produced Work. A multi-part route serves its longest
+piece and says so, never a line across the gaps.
+
+Frontend: the Loop type and LoopCard match the new result shape - exigent SAC squares
+(the safety grade, not the label), S-grades for mtb, destination-named headings with a
+"Sentiero <ref>" fallback, the start's name and "reachable by train" from car_free.
+durationFigure stays for trails, which still carry one.
+
+Verified live against the reloaded graph: a hike ask (exigent T3 ceiling, 8-16 km,
+passes a peak) answers "To Corno dell'Arco, 11 km, up 1050, T3, starts at Vetta"; an mtb
+ask returns only conjunction-rideable routes. Backend 240 tests green, frontend 40 +
+clean build, pipeline 160.
+
+No prompt or intent schema changed, so no live intent re-check was needed.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1831,6 +1872,18 @@ computing over Trail/Segment.
         {
           "date": "2026-08-21",
           "text": "The export owns :Route/:Place/:Start and replaces them wholesale per run; the backend's Trail/Segment graph is untouched. Any consumer of the catalogue filters on the quality block (warnings = 0) - proven necessary by the first smoke run surfacing 0 km fragments"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Chat loop search runs over the pipeline catalogue with warnings=0 in the template, exigent-grade ceilings (sac_max_rank), and mtb filtering on the rideability conjunction rather than the activity label"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Route geometry is served from the route document (ROUTE_DOCUMENTS_DIR): the graph answers existence, the document supplies the shape, 503 when unmounted, attribution in the GeoJSON properties"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Duration constraints are not enforced until DIN 33466 is calibrated - dropping the filter loudly beats filtering on a figure that reads 10 h for a 6-8 h classic"
         }
       ]
     }
@@ -1863,8 +1916,8 @@ computing over Trail/Segment.
   ],
   "nextSteps": [
     {
-      "title": "Point backend/graph/queries.cypher templates at :Route/:Place so /chat selects from the catalogue - and filter on warnings = 0, as the export smoke test demonstrates",
-      "est": 2,
+      "title": "Drive the full stack in the browser against the new catalogue (sign in, ask for a loop, see LoopCards and the map) - the e2e smoke exists (npm run test:e2e)",
+      "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2216,6 +2269,13 @@ computing over Trail/Segment.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

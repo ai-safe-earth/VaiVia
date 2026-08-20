@@ -30,6 +30,18 @@ from typing import Any
 from neo4j import GraphDatabase
 
 from core import connect, env_value
+from export.document import SAC_ORDER
+
+
+def sac_rank(grade: str | None) -> int | None:
+    """T1..T6 as 1..6, because Cypher cannot order the strings."""
+    return SAC_ORDER.index(grade) + 1 if grade in SAC_ORDER else None
+
+
+def mtb_rank(grade: str | None) -> int | None:
+    """mtb:scale '0'..'6' as ints, same reason."""
+    return int(grade) if grade is not None and grade.isdigit() else None
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCUMENTS = REPO_ROOT / "review" / "routes"
@@ -92,13 +104,16 @@ def document_rows(document: dict) -> dict[str, Any]:
             "lowest_m": measures.get("lowest_m"),
             "highest_m": measures.get("highest_m"),
             "sac_scale": difficulty["sac_scale"],
+            "sac_scale_rank": sac_rank(difficulty["sac_scale"]),
             "sac_max": difficulty["sac_max"],
+            "sac_max_rank": sac_rank(difficulty["sac_max"]),
             "graded_share": difficulty["graded_share"],
             "surface_dominant": document["surface"]["dominant"],
             "continuous": document["continuity"]["continuous"],
             "pieces": document["continuity"]["pieces"],
             "mtb_rideable": generation.get("mtb_rideable"),
             "mtb_scale": generation.get("mtb_scale"),
+            "mtb_scale_rank": mtb_rank(generation.get("mtb_scale")),
             "bike_blocked_m": generation.get("bike_blocked_m"),
             "off_road_share": generation.get("off_road_share"),
             "retrace_share": generation.get("retrace_share"),
