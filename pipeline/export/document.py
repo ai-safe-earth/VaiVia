@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 # The share of length below which a grade is an incident rather than the
 # character of the route. Proven in backend/graph/graphhopper.py.
@@ -85,6 +85,38 @@ def dominant(distribution: dict[str, float]) -> str | None:
     if not known:
         return None
     return max(sorted(known), key=lambda k: known[k])
+
+
+def exigent_grade(spans: Iterable[Span], order: Sequence[str]) -> str | None:
+    """The hardest graded metre walked, however short.
+
+    Owner rule (2026-08-20): when segments disagree, a joined attribute takes
+    the MOST DEMANDING value. This is the safety twin of significant_grade —
+    "a T2 walk with a T4 move in it" is character T2, exigent T4, and both
+    facts are true and both are carried.
+    """
+    graded = [value for value, length_m in spans if value in order and length_m > 0]
+    if not graded:
+        return None
+    return max(graded, key=order.index)
+
+
+def graded_share(spans: Iterable[Span], order: Sequence[str]) -> float:
+    """How much of the length carries ANY recognised grade.
+
+    Median 16% on the first generated catalogue — which is why an "ungraded"
+    verdict needs this beside it: sparse grading is a mapping fact, and without
+    the share it reads as a failed join.
+    """
+    total = 0.0
+    graded = 0.0
+    for value, length_m in spans:
+        if length_m <= 0:
+            continue
+        total += length_m
+        if value in order:
+            graded += length_m
+    return round(graded / total, 4) if total > 0 else 0.0
 
 
 def significant_grade(spans: Iterable[Span], order: Sequence[str]) -> str | None:
@@ -168,6 +200,7 @@ def build_document(
     data moved.
     """
     surface = shares(surface_spans)
+    sac_spans = list(sac_spans)
     difficulty = shares(sac_spans)
     return {
         "schema_version": SCHEMA_VERSION,
@@ -187,9 +220,14 @@ def build_document(
         "profile": profile,
         "surface": {"distribution": surface, "dominant": dominant(surface)},
         "difficulty": {
+            # character: the label a route wears. exigent: what you must be
+            # able to handle. Both true, both carried (owner rule 2026-08-20).
             "sac_scale": significant_grade(sac_spans, SAC_ORDER),
+            "sac_max": exigent_grade(sac_spans, SAC_ORDER),
+            "graded_share": graded_share(sac_spans, SAC_ORDER),
             "distribution": difficulty,
-            "rule": "hardest grade covering at least 5% of the length",
+            "rule": "sac_scale: hardest grade covering at least 5% of the "
+            "length; sac_max: hardest graded metre, any length",
         },
         "continuity": {"pieces": pieces, "continuous": pieces == 1},
         "start": start,

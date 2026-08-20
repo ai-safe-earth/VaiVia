@@ -151,11 +151,13 @@ def test_mtb_conjunction_along_the_sequence():
     # The spike's caveat repaired: a route that WALKS a forbidden edge is not a
     # bike route; one that does not, is — no corridor to slip a crossing in.
     legal = [edge(1, bike=True, mtb_scale="1"), edge(2, bike=True, mtb_scale="1")]
-    blocked = [edge(1, bike=True), edge(2, bike=False)]
+    blocked = [edge(1, bike=True, length_m=4900), edge(2, bike=False, length_m=100)]
 
-    assert mtb(legal) == (True, "1")
-    assert mtb(blocked) == (False, None)
-    assert mtb([]) == (None, None)
+    assert mtb(legal) == (True, "1", 0.0)
+    # The verdict carries the blocked METRES: failing on 100 m and failing on
+    # 1.6 km must not read identically as "no".
+    assert mtb(blocked) == (False, None, 100.0)
+    assert mtb([]) == (None, None, 0.0)
 
 
 def test_retrace_counts_repeat_visits_whatever_the_direction():
@@ -221,37 +223,52 @@ def test_assemble_carries_every_rule_at_once():
 
 
 def test_score_prefers_off_road_loops_near_target():
-    good = Assembled(
-        [],
-        10_000,
-        None,
-        None,
-        None,
-        {},
-        None,
-        None,
-        None,
-        None,
-        off_road_share=0.9,
-        retrace_share=0.05,
-    )
-    bad = Assembled(
-        [],
-        6_000,
-        None,
-        None,
-        None,
-        {},
-        None,
-        None,
-        None,
-        None,
-        off_road_share=0.2,
-        retrace_share=0.6,
-    )
+    def assembled(distance_m, off_road_share, retrace_share):
+        return Assembled(
+            coords=[],
+            distance_m=distance_m,
+            ascent_m=None,
+            descent_m=None,
+            profile=None,
+            surface={},
+            surface_dominant=None,
+            sac_scale=None,
+            sac_max=None,
+            graded_share=0.0,
+            mtb_rideable=None,
+            mtb_scale=None,
+            bike_blocked_m=0.0,
+            off_road_share=off_road_share,
+            retrace_share=retrace_share,
+        )
+
+    good = assembled(10_000, off_road_share=0.9, retrace_share=0.05)
+    bad = assembled(6_000, off_road_share=0.2, retrace_share=0.6)
 
     assert score(good, 10_000) > score(bad, 10_000)
     assert 0.0 <= score(bad, 10_000) <= 1.0
+
+
+def test_assemble_carries_the_exigent_twin_beside_the_character():
+    # "A T2 walk with a T4 move in it": character T2, exigent T4, both true.
+    edges = [
+        edge(1, length_m=9_600, sac="mountain_hiking"),
+        edge(2, length_m=30, sac="alpine_hiking"),
+        edge(3, length_m=370, sac=None),
+    ]
+
+    result = assemble(edges)
+
+    assert result.sac_scale == "mountain_hiking"  # character (>=5%)
+    assert result.sac_max == "alpine_hiking"  # exigent (any length)
+    assert result.graded_share == pytest.approx(9_630 / 10_000)
+
+
+def test_junk_grades_do_not_become_the_exigent_grade():
+    result = assemble([edge(1, length_m=100, sac="a sentence about ruins")])
+
+    assert result.sac_max is None
+    assert result.graded_share == 0.0
 
 
 # ── Loop shapes and dedupe ───────────────────────────────────────────────────

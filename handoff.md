@@ -1174,6 +1174,51 @@ delete only the files they own (the review_bundle lesson, applied before it bit 
 21 new pure tests (143 in the pipeline suite). Schema 0013; build_network and repair
 clear the catalogue like every derived table.
 
+## 2026-08-20 (eighth) - The exigent join, and bike loops by construction
+
+Owner feedback on the first catalogue: the loops "appear not joined", and when segment
+data disagrees the route should take the MOST DEMANDING value - a loop with one segment
+not for bikes is not for bikes; and a variation sharing most of those segments could be
+bike-friendly if all of its own are.
+
+First, the diagnosis. The loops ARE geometrically joined - 12,054 edge transitions,
+zero gaps over 0.5 m, every loop closes to 0.0 m - and my first check flagged nothing but
+normal OSM point spacing. What looked un-joined was the DATA, and the owner was right
+about it twice over: the median route carries a SAC grade on only 16% of its metres, so
+the >=5% character rule read "ungraded" on routes visibly containing graded trail; and 52
+routes said mtb=false with the reason hidden - one was blocked by 6 metres of steps and
+read identically to one blocked by 1.6 km.
+
+### The rule, applied: character and exigent, both carried
+
+Every route (and every route document, schema 1.1) now carries sac_scale (CHARACTER: the
+>=5% rule, the label a route wears) AND sac_max (EXIGENT: hardest graded metre walked,
+any length - what you must be able to handle), plus graded_share so sparse grading reads
+as a mapping fact rather than a failed join, and bike_blocked_m so a "no" says why in
+metres. The rule lives once, in export/document.py, so OSM routes carry it identically.
+qa.v_draw's difficulty_class now colours by the exigent grade; the character stays as a
+column. Measured where the two diverge: 16 foot routes, including 8 "ungraded" whose
+exigent grade is real.
+
+### The second half, made mechanism: --activity mtb
+
+"Another loop that shares many of the segments could be bike friendly if all the segments
+are" is not a filter - it is a CONSTRUCTION. The mtb catalogue is drawn over
+routable_bike edges only, so the router detours around forbidden segments instead of a
+verdict flagging them afterwards. Second catalogue: 54 mtb loops, all 54 at 0 blocked
+metres. And the owner's exact observation held in the data: 18 mtb asks produced the same
+ground as an already-legal foot loop and FOLDED INTO IT by the geometry-derived id - a
+fully bike-legal foot loop IS the mtb loop over that ground, and the id knew.
+
+Catalogues are replaced per activity now (foot and mtb are siblings; regenerating one
+must not delete the other). 878 route documents on disk - 752 OSM + 126 generated - all
+valid against schema 1.1.
+
+Also this session: PR #16 had merged into #15's branch rather than develop (GitHub only
+retargets a stacked PR when its base branch is deleted); #17 landed it mechanically.
+
+145 tests in the pipeline suite.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1693,6 +1738,14 @@ clear the catalogue like every derived table.
         {
           "date": "2026-08-20",
           "text": "Generated route ids derive from rounded, direction-normalised geometry (draw/route_id.py) so they survive rebuilds; the via-ring radius is calibrated from measured overshoot (target/5.0), not assumed"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Owner rule: when segments disagree, a joined attribute takes the MOST DEMANDING value. Every route carries both grades - sac_scale (character, >=5%) and sac_max (exigent, hardest metre) - plus graded_share and bike_blocked_m, so a verdict is never invisible data"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Activities are construction, not filters: the mtb catalogue routes over routable_bike edges only, so every mtb loop is bike-legal by construction; same-ground loops across activities fold into one row by the geometry-derived id"
         }
       ]
     }
@@ -2029,6 +2082,13 @@ clear the catalogue like every derived table.
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
