@@ -28,7 +28,8 @@ from export.route_documents import PLACES_M, SOURCES
 OUT = Path(__file__).resolve().parents[2] / "review" / "routes"
 
 ROUTES = """
-SELECT r.route_id, r.activity, r.start_vertex, r.target_m, r.score, r.seed, r.run_id,
+SELECT r.route_id, r.activity, r.shape, r.name, r.destination_id, r.destination_kind,
+       r.destination_name, r.start_vertex, r.target_m, r.score, r.seed, r.run_id,
        ST_AsGeoJSON(r.geom),
        ARRAY[ST_XMin(r.geom), ST_YMin(r.geom), ST_XMax(r.geom), ST_YMax(r.geom)]
 FROM curated.route r
@@ -79,6 +80,11 @@ def emit_generated() -> None:
         for (
             rid,
             activity,
+            shape,
+            name,
+            destination_id,
+            destination_kind,
+            destination_name,
             start_vertex,
             target_m,
             score,
@@ -130,14 +136,14 @@ def emit_generated() -> None:
                 route_id=rid,
                 kind="generated",
                 identity={
-                    "name": None,
+                    "name": name,
                     "ref": None,
                     # The document's activity vocabulary is OSM's route= one.
                     "activity": "mtb" if activity == "mtb" else "hiking",
                     "network": None,
                     "waymark": None,
                     "from": None,
-                    "to": None,
+                    "to": destination_name,
                     "operator": None,
                     "regions": regions or [],
                     "osm_relation_id": None,
@@ -164,6 +170,16 @@ def emit_generated() -> None:
                     "producer": "pipeline/draw/emit.py",
                     "generation": {
                         "activity": activity,
+                        "shape": shape,
+                        "destination": (
+                            {
+                                "id": destination_id,
+                                "kind": destination_kind,
+                                "name": destination_name,
+                            }
+                            if destination_id
+                            else None
+                        ),
                         "target_m": target_m,
                         "seed": seed,
                         "score": score,
@@ -188,7 +204,10 @@ def emit_generated() -> None:
                     "geometry": document["geometry"],
                     "properties": {
                         "id": rid,
+                        "name": name,
                         "activity": activity,
+                        "shape": shape,
+                        "destination": destination_name,
                         "km": round(facts.distance_m / 1000, 2),
                         "ascent_m": facts.ascent_m,
                         "sac_scale": facts.sac_scale,

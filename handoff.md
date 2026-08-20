@@ -1219,13 +1219,51 @@ retargets a stacked PR when its base branch is deleted); #17 landed it mechanica
 
 145 tests in the pipeline suite.
 
+## 2026-08-21 - Destination routes: out to somewhere worth going, and back
+
+Owner (before the Neo4j work): routes are not just loops - some go from a start to an
+INTERESTING POI (views, a peak...) and come back. The anchors module knew half of this
+("a summit is a destination, not a trailhead"); draw/ only drew loops. Now
+`--shape destination` draws the other kind, and the catalogue replaces per
+(activity, shape) so the four families coexist.
+
+The mechanism: for each start x target, rank the reachable interesting places
+(draw/destinations.py - v0 weights as parameters, peaks and viewpoints on top, heavy
+named bonus, springs and picnic sites are waypoints not destinations), route out to the
+best few, route back with the out leg soft-penalised. Where the ground allows, the return
+comes home a different way - measured retrace on the named foot routes: 0-4%. Where the
+valley allows one way, it honestly retraces and shape_class says so.
+
+The crow-flies band is deliberately generous (measured wander spans 1.4-3.3 in these
+mountains, so no band can promise length); the score's length-fit term judges the actual
+routed distance. Selection requires main-component reachability and the POI within 100 m
+of the network - structural facts, not judgement.
+
+**Generated routes have names now.** Trailhead naming is unsolved, but destination naming
+is free: 97 of 102 destination routes are named - "To Corno dell'Arco, 11.0 km, 1050 m
+up, sac_max T3, retrace 2%" reads like a guidebook line, and "To Rifugio Elisa" is an
+answer where "generated-9f2c1ab4" is not. The name travels into the route document
+(identity.name, identity.to, and a generation.destination block).
+
+Catalogue after this session: 228 generated routes - 72 foot loops, 54 mtb loops (legal
+by construction), 59 foot destination routes, 43 mtb destination routes - plus the 752
+OSM relations. All 228 generated documents valid against schema 1.1. The draw layer in
+the bundle carries route_shape_class beside the existing classes.
+
+One number worth noticing: destination routes run visibly wilder than loops (off-road
+39-48% against the loops' 33% mean) - a destination pulls the route uphill out of the
+valley towns the car-free starts sit in.
+
+153 tests in the pipeline suite. Next: the Neo4j export of the full catalogue - the
+inversion the pipeline exists for.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-20",
+  "updated": "2026-08-21",
   "deadline": null,
   "people": [
     "oscar"
@@ -1746,6 +1784,14 @@ retargets a stacked PR when its base branch is deleted); #17 landed it mechanica
         {
           "date": "2026-08-20",
           "text": "Activities are construction, not filters: the mtb catalogue routes over routable_bike edges only, so every mtb loop is bike-legal by construction; same-ground loops across activities fold into one row by the geometry-derived id"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Routes have two shapes: loops, and out-and-backs to an interesting destination (owner rule). Destination choice is ranked interest with a heavy named bonus; the return leg soft-penalises the out leg; the catalogue replaces per (activity, shape) so the four families coexist"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Generated routes are named after their destination (To Rifugio Elisa) - destination naming is free where trailhead naming stays unsolved; an unnamed destination gives no name rather than a bad one"
         }
       ]
     }
@@ -2131,6 +2177,13 @@ retargets a stacked PR when its base branch is deleted); #17 landed it mechanica
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

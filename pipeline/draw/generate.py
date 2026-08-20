@@ -1,6 +1,6 @@
 """Generate the catalogue: bounded loops from real starts, over our own edges.
 
-anchor × distance × seed → route the triangle, assemble along the walked
+anchor x distance x seed -> route the triangle, assemble along the walked
 sequence, score, keep the best distinct few. Every knob is a CLI argument with
 a bounded default, so the catalogue size is predictable before it runs
 (docs/route-pipeline.md: reviewable before a user sees it).
@@ -34,6 +34,7 @@ import uuid
 
 from core import connect
 from draw.assemble import WalkedEdge, assemble, score
+from draw.destinations import Destination, crow_band, rank, route_name
 from draw.loops import keep_distinct, ring_points
 from draw.route_id import route_id
 
@@ -47,6 +48,27 @@ WHERE s.reachability_class = '0 main network'
   AND (s.anchors >= 2 OR s.car_free)
 ORDER BY s.car_free DESC, s.anchors DESC, s.vertex_id
 LIMIT %(limit)s
+"""
+
+# Interesting places near a start, within the crow band for this target: the
+# pool draw.destinations ranks. Reachability and adjacency are structural
+# requirements (an island destination routes nowhere; a peak 1 km off-network
+# has no path to it), not judgement calls.
+DESTINATIONS = """
+SELECT p.source || ':' || p.source_id, p.kind, p.name, p.vertex_id,
+       ST_Distance(p.geom::geography,
+                   ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)::geography)
+FROM qa.v_place p
+WHERE p.reachability_class = '0 main network'
+  AND NOT p.is_start
+  AND p.distance_m <= 100
+  AND p.kind = ANY(%(kinds)s)
+  AND ST_DWithin(ST_Transform(p.geom, 32632),
+                 ST_Transform(ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326), 32632),
+                 %(max_crow)s)
+  AND NOT ST_DWithin(ST_Transform(p.geom, 32632),
+                     ST_Transform(ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326), 32632),
+                     %(min_crow)s)
 """
 
 NEAREST_VERTEX = """
@@ -217,6 +239,48 @@ def draw_loop(
     return walked_sequence(conn, directions(conn, steps))
 
 
+def draw_out_and_back(
+    conn, activity: str, start_vertex: int, destination: Destination
+) -> list[WalkedEdge] | None:
+    """Out to the destination, back with the out leg soft-penalised.
+
+    The penalty makes the return take a different path where one exists at
+    reasonable cost, and honestly retrace where the valley allows only one way
+    - retrace_share reports which happened, and shape_class shows it.
+    """
+    if destination.vertex_id == start_vertex:
+        return None
+    out = route_leg(conn, activity, start_vertex, destination.vertex_id, set())
+    if not out:
+        return None
+    walked = {edge_id for _node, edge_id in out}
+    back = route_leg(conn, activity, destination.vertex_id, start_vertex, walked)
+    if not back:
+        return None
+    steps = out + back
+    return walked_sequence(conn, directions(conn, steps))
+
+
+def destination_pool(
+    conn, start: tuple[float, float], target_m: float
+) -> list[Destination]:
+    from draw.destinations import INTEREST
+
+    min_crow, max_crow = crow_band(target_m)
+    lon, lat = start
+    rows = conn.execute(
+        DESTINATIONS,
+        {
+            "lon": lon,
+            "lat": lat,
+            "kinds": list(INTEREST),
+            "min_crow": min_crow,
+            "max_crow": max_crow,
+        },
+    ).fetchall()
+    return [Destination(*row) for row in rows]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--starts", type=int, default=12, help="anchors to draw from")
@@ -228,6 +292,12 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=4, help="attempts per ask")
     parser.add_argument(
         "--keep", type=int, default=2, help="best distinct kept per ask"
+    )
+    parser.add_argument(
+        "--shape",
+        choices=("loop", "destination"),
+        default="loop",
+        help="loops, or out-and-back routes to an interesting place",
     )
     parser.add_argument(
         "--activity",
@@ -270,6 +340,7 @@ def main() -> None:
                     {
                         "builder": "draw.generate",
                         "activity": args.activity,
+                        "shape": args.shape,
                         "starts": args.starts,
                         "distances": targets,
                         "seeds": args.seeds,
@@ -289,10 +360,25 @@ def main() -> None:
         for vertex_id, lon, lat, _anchors, _car_free in starts:
             for target_m in targets:
                 candidates = []
-                for seed in range(args.seeds):
-                    sequence = draw_loop(
-                        conn, args.activity, vertex_id, (lon, lat), target_m, seed
+                if args.shape == "destination":
+                    # Deterministic like the seeds: the same pool ranks the
+                    # same way, so the same asks draw the same routes.
+                    pool = rank(
+                        destination_pool(conn, (lon, lat), target_m),
+                        top=args.seeds,
                     )
+                    attempts = [("destination", d) for d in pool]
+                else:
+                    attempts = [("seed", seed) for seed in range(args.seeds)]
+                for index, (mode, ask) in enumerate(attempts):
+                    if mode == "destination":
+                        sequence = draw_out_and_back(
+                            conn, args.activity, vertex_id, ask
+                        )
+                    else:
+                        sequence = draw_loop(
+                            conn, args.activity, vertex_id, (lon, lat), target_m, ask
+                        )
                     if not sequence:
                         continue
                     facts = assemble(sequence)
@@ -302,9 +388,10 @@ def main() -> None:
                             "edge_ids": {e.edge_id for e in sequence},
                             "sequence": sequence,
                             "facts": facts,
-                            "seed": seed,
+                            "seed": index,
                             "start_vertex": vertex_id,
                             "target_m": target_m,
+                            "destination": ask if mode == "destination" else None,
                         }
                     )
                 kept = keep_distinct(candidates, max_keep=args.keep)
@@ -319,9 +406,13 @@ def main() -> None:
                         f"retrace {best.retrace_share:.0%}"
                     )
 
-        # Replace, not merge — PER ACTIVITY: the foot and mtb catalogues are
-        # siblings and a regeneration of one must not silently delete the other.
-        conn.execute("DELETE FROM curated.route WHERE activity = %s", (args.activity,))
+        # Replace, not merge — PER (ACTIVITY, SHAPE): loops and destination
+        # routes are siblings the same way foot and mtb are, and regenerating
+        # one family must not silently delete the other.
+        conn.execute(
+            "DELETE FROM curated.route WHERE activity = %s AND shape = %s",
+            (args.activity, args.shape),
+        )
         inserted = 0
         for candidate in kept_total:
             facts = candidate["facts"]
@@ -339,18 +430,35 @@ def main() -> None:
             conn.execute(
                 """
                 INSERT INTO curated.route
-                    (route_id, kind, activity, start_vertex, target_m, distance_m,
+                    (route_id, kind, activity, shape, name,
+                     destination_id, destination_kind, destination_name,
+                     start_vertex, target_m, distance_m,
                      ascent_m, descent_m, sac_scale, sac_max, graded_share,
                      mtb_rideable, mtb_scale, bike_blocked_m,
                      surface, off_road_share, retrace_share, score, seed,
                      geom, run_id)
-                VALUES (%s, 'generated', %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                VALUES (%s, 'generated', %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s,
                         ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), %s)
                 """,
                 (
                     rid,
                     args.activity,
+                    args.shape,
+                    (
+                        route_name(candidate["destination"])
+                        if candidate["destination"]
+                        else None
+                    ),
+                    (
+                        candidate["destination"].place_id
+                        if candidate["destination"]
+                        else None
+                    ),
+                    candidate["destination"].kind if candidate["destination"] else None,
+                    candidate["destination"].name if candidate["destination"] else None,
                     candidate["start_vertex"],
                     candidate["target_m"],
                     facts.distance_m,
