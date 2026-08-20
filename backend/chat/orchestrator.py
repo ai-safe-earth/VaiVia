@@ -27,6 +27,7 @@ from typing import Any
 from chat.composer import ComposedPlan, TrailSearchIntent, compose
 from chat.intents import RouteIntent
 from chat.llm import LLMClient, results_to_json
+from chat.sanitize import strip_links_stream
 from chat.store import ConversationStore
 from core.config import get_settings
 from core.embeddings import Embedder
@@ -118,8 +119,11 @@ class ChatOrchestrator:
             answer_parts.append(plan.clarify.question)
             yield ChatEvent("token", {"delta": plan.clarify.question})
         else:
-            async for delta in self._llm.stream_answer(
-                message, results_to_json(results), history
+            # Links are stripped here, not asked for in the prompt: a live
+            # smoke had the model linking every route name to trailforks.com,
+            # a domain no result comes from (chat/sanitize.py).
+            async for delta in strip_links_stream(
+                self._llm.stream_answer(message, results_to_json(results), history)
             ):
                 answer_parts.append(delta)
                 yield ChatEvent("token", {"delta": delta})
