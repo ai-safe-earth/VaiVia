@@ -1,6 +1,6 @@
 'use client';
 
-import { distance, distanceFigure, durationFigure, elevationFigure } from '@/lib/format';
+import { distance, distanceFigure, elevationFigure } from '@/lib/format';
 import type { Loop } from '@/lib/types';
 
 import { Sources } from './Sources';
@@ -11,43 +11,35 @@ interface Props {
   onSelect: (loop: Loop) => void;
 }
 
-/** sac_scale and mtb:scale, in words. Both scales run past what a route
- *  catalogue should be offering, so the top band is deliberately blunt. */
-const HIKE_RATING_LABEL: Record<number, string> = {
-  0: 'Easy walking',
-  1: 'Hiking',
-  2: 'Mountain hiking',
-  3: 'Demanding',
-  4: 'Alpine',
-  5: 'Alpine',
-  6: 'Alpine',
+/** SAC grades in catalogue order — index+1 is the rank the squares fill to. */
+const SAC_ORDER = [
+  'hiking',
+  'mountain_hiking',
+  'demanding_mountain_hiking',
+  'alpine_hiking',
+  'demanding_alpine_hiking',
+  'difficult_alpine_hiking',
+];
+
+/** sac_scale in words. The scale runs past what a route catalogue should be
+ *  offering, so the top band is deliberately blunt. */
+const SAC_LABEL: Record<string, string> = {
+  hiking: 'Hiking',
+  mountain_hiking: 'Mountain hiking',
+  demanding_mountain_hiking: 'Demanding',
+  alpine_hiking: 'Alpine',
+  demanding_alpine_hiking: 'Alpine',
+  difficult_alpine_hiking: 'Alpine',
 };
 
-const MTB_RATING_LABEL: Record<number, string> = {
-  0: 'Easy',
-  1: 'Easy',
-  2: 'Intermediate',
-  3: 'Technical',
-  4: 'Technical',
-  5: 'Very technical',
-  6: 'Very technical',
-};
-
-function difficultyLabel(loop: Loop): string | null {
-  const rating = loop.activity === 'mtb' ? loop.mtb_rating : loop.hike_rating;
-  if (rating === null || rating === undefined) return null;
-  const table = loop.activity === 'mtb' ? MTB_RATING_LABEL : HIKE_RATING_LABEL;
-  return table[rating] ?? null;
-}
-
-/** SAC T1–T6 as rotated squares, filled to the route's grade. Hiking only:
- *  mtb:scale is a different scale and rendering it in SAC squares would be
- *  inventing a grade the route does not have. */
-function SacScale({ rating }: { rating: number }) {
+/** SAC T1–T6 as rotated squares, filled to the route's EXIGENT grade — the
+ *  hardest metre walked, never the character label: on a card the grade is a
+ *  safety promise, and "a T2 walk with a T4 move" must show T4. */
+function SacScale({ rank }: { rank: number }) {
   return (
-    <div className="sac" role="img" aria-label={`SAC grade ${rating} of 6`}>
+    <div className="sac" role="img" aria-label={`SAC grade ${rank} of 6`}>
       {[1, 2, 3, 4, 5, 6].map((step) => (
-        <i key={step} className={step <= rating ? 'on' : undefined} />
+        <i key={step} className={step <= rank ? 'on' : undefined} />
       ))}
     </div>
   );
@@ -56,12 +48,25 @@ function SacScale({ rating }: { rating: number }) {
 export function LoopCard({ loop, selected, onSelect }: Props) {
   const length = distanceFigure(loop.distance_m);
   const climb = elevationFigure(loop.ascent_m);
-  const time = durationFigure(loop);
-  const grade = difficultyLabel(loop);
-  const sac = loop.activity === 'mtb' ? null : loop.hike_rating;
-  // 81% of routes are named after something they pass. The rest genuinely have
-  // no name, so show what the route IS rather than an id or a made-up label.
-  const heading = loop.name ?? `${distance(loop.distance_m)} ${loop.activity} loop`;
+  // The exigent grade drives the display (owner rule 2026-08-20).
+  const sacRank = loop.sac_max ? SAC_ORDER.indexOf(loop.sac_max) + 1 : 0;
+  const grade =
+    loop.activity === 'mtb'
+      ? loop.mtb_scale !== null
+        ? `S${loop.mtb_scale}`
+        : loop.mtb_rideable
+          ? 'Rideable'
+          : null
+      : loop.sac_max
+        ? (SAC_LABEL[loop.sac_max] ?? null)
+        : null;
+  // Destination routes carry their destination's name; OSM relations their
+  // own. The rest genuinely have no name, so show what the route IS rather
+  // than an id or a made-up label.
+  const heading =
+    loop.name ??
+    (loop.ref ? `Sentiero ${loop.ref}` : `${distance(loop.distance_m)} ${loop.activity} loop`);
+  const startName = loop.start_names?.[0] ?? null;
 
   // A div with button semantics, matching TrailCard, so the two lists behave
   // identically to a keyboard and share the route-card styling.
@@ -92,16 +97,10 @@ export function LoopCard({ loop, selected, onSelect }: Props) {
             <span className="unit vv-label">{climb.unit}</span>
           </div>
         )}
-        {time && (
-          <div className="figure">
-            <span className="vv-figure">{time.value}</span>
-            <span className="unit vv-label">{time.unit}</span>
-          </div>
-        )}
-        {(sac !== null || grade) && (
+        {(sacRank > 0 || grade) && (
           <div className="figure grade">
-            {sac !== null ? (
-              <SacScale rating={sac} />
+            {loop.activity !== 'mtb' && sacRank > 0 ? (
+              <SacScale rank={sacRank} />
             ) : (
               <span className="vv-subtitle">{grade}</span>
             )}
@@ -110,21 +109,29 @@ export function LoopCard({ loop, selected, onSelect }: Props) {
         )}
       </div>
 
-      {(loop.named_pois.length > 0 || loop.trailhead_name) && (
+      {(loop.pois.length > 0 || startName || loop.car_free) && (
         <div className="key-facts">
-          <div>
-            <span className="vv-label">Starts at</span>
-            <p className="fact vv-body-sm">{loop.trailhead_name ?? 'an unnamed junction'}</p>
-          </div>
-          {loop.named_pois.length > 0 && (
+          {(startName || loop.car_free) && (
+            <div>
+              <span className="vv-label">Starts at</span>
+              <p className="fact vv-body-sm">
+                {startName ?? 'an unnamed trailhead'}
+                {loop.car_free ? ' · reachable by train' : ''}
+              </p>
+            </div>
+          )}
+          {loop.pois.length > 0 && (
             <div>
               <span className="vv-label">Along the way</span>
               <div className="poi-list">
-                {loop.named_pois.slice(0, 3).map((name) => (
-                  <span className="poi vv-body-sm" key={name}>
-                    {name}
-                  </span>
-                ))}
+                {loop.pois
+                  .filter((poi) => poi.name)
+                  .slice(0, 3)
+                  .map((poi) => (
+                    <span className="poi vv-body-sm" key={`${poi.name}-${poi.type}`}>
+                      {poi.name}
+                    </span>
+                  ))}
               </div>
             </div>
           )}

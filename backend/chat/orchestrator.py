@@ -245,19 +245,40 @@ class ChatOrchestrator:
             elif intent.activity == "hike":
                 mtb_ceiling = None
 
+        # The user's activity, in the catalogue's vocabulary. 'hike' covers the
+        # hiking and foot relation families; 'mtb' does not pre-filter on
+        # activity alone — a generated mtb loop AND a rideable OSM relation
+        # both answer a bike question, and mtb_rideable is the conjunction that
+        # decides (one forbidding segment forbids, metadata-rules.md).
+        activities = mtb_only = None
+        if intent.activity == "hike":
+            activities = ["hiking", "foot"]
+        elif intent.activity == "mtb":
+            mtb_only = True
+
+        # Duration is deliberately NOT filtered. The pipeline catalogue carries
+        # no duration until DIN 33466 is calibrated against local guidebook
+        # times (docs/route-document.md: the uncalibrated figure reads 10 h for
+        # a 6-8 h classic) — a wrong figure would exclude the wrong routes
+        # silently. The answer presents distance and climb, which are measured.
+
         settings = get_settings()
         return await self._db.run_named(
             "search_loops",
-            activity=intent.activity,
-            max_hike_rating=hike_ceiling,
-            max_mtb_rating=mtb_ceiling,
+            activities=activities,
+            mtb_only=mtb_only,
+            # Ceilings compare against sac_max — the EXIGENT grade, the hardest
+            # metre walked (owner rule 2026-08-20): a ceiling is a safety
+            # promise, and the character grade would let a T2 walk with a T4
+            # move through a T2 ceiling.
+            max_sac_rank=hike_ceiling,
+            max_mtb_rank=mtb_ceiling,
             max_ascent_m=intent.max_ascent_m,
-            max_duration_min=intent.max_duration_min,
             min_distance_m=intent.min_distance_m,
             max_distance_m=intent.max_distance_m,
             # "on trails, off the roads" as a floor rather than a hard filter:
-            # the catalogue averages 87% off-road, so a high bar would exclude
-            # good routes for the sake of a few hundred metres of lane.
+            # a high bar would exclude good routes for a few hundred metres of
+            # lane, and OSM relations carry no share at all (null passes).
             min_off_road=0.7 if intent.avoid_roads else None,
             poi_types=list(intent.poi_types),
             near_lat=near_lat,
