@@ -635,6 +635,50 @@ def main() -> None:
         print("refreshing vertex degree and connected components...")
         conn.execute("REFRESH MATERIALIZED VIEW curated.vertex_degree")
         conn.execute(COMPONENTS)
+
+        # A repair splits edges and deletes them, so curated.edge_route now
+        # describes a network that has moved: the deleted edges' links went with
+        # them (ON DELETE CASCADE) and each new half of a split edge has no link
+        # at all. A partly-true link table is worse than an absent one — this is
+        # vertex_degree's lesson — so it is cleared and said out loud.
+        (links,) = conn.execute("SELECT count(*) FROM curated.edge_route").fetchone()
+        if links:
+            conn.execute("TRUNCATE curated.edge_route")
+            print(
+                f"cleared {links:,} route links — they described the pre-repair "
+                "network. Re-run `python -m curate.routes`."
+            )
+
+        # Places hold vertex_ids too. A repair welds vertices together and
+        # deletes the ones it merged away, so a place can be left pointing at a
+        # vertex that no longer exists (the FK takes it with it) or, worse, at
+        # one that survived while the lane end it meant moved 2 m.
+        (places,) = conn.execute("SELECT count(*) FROM curated.place").fetchone()
+        if places:
+            conn.execute("TRUNCATE curated.place")
+            print(
+                f"cleared {places:,} places — they were snapped to the pre-repair "
+                "vertices. Re-run `python -m curate.places`."
+            )
+
+        # Elevation goes the same way, and for a sharper reason: profile_m is
+        # aligned to geom POINT BY POINT, so a repaired edge's profile describes
+        # the line the edge used to be. A split edge keeps a profile of the
+        # whole; a welded end keeps a height for a point that moved.
+        (profiled,) = conn.execute(
+            "SELECT count(*) FROM curated.edge WHERE profile_m IS NOT NULL"
+        ).fetchone()
+        if profiled:
+            conn.execute(
+                "UPDATE curated.edge SET profile_m = NULL, ascent_m = NULL,"
+                " descent_m = NULL"
+            )
+            conn.execute("UPDATE curated.vertex SET elevation_m = NULL")
+            print(
+                f"cleared elevation on {profiled:,} edges — the profiles were "
+                "aligned to the pre-repair geometry. Re-run "
+                "`python -m curate.elevation`."
+            )
         conn.execute(
             "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),

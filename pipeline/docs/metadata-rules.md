@@ -39,6 +39,219 @@ Assembly itself is a check: the ordered pieces must `ST_LineMerge` to **exactly 
 LineString**. A MultiLineString means a gap, which is filed as a `qa.finding` pointing at
 the break — a broken route is never stored with a straight line across the hole.
 
+## Route-relation membership (`curated.edge_route`, written 2026-08-20)
+
+The **Positional** row of the split table, realised. A member of an OSM route relation is
+a way id, and `curated.edge.way_id` is the same id, so the join needed no matching
+algorithm — it already existed in the data and had never been written.
+
+| decision | rule | why |
+|---|---|---|
+| shape | a **link table**, never a column on `edge` | 5,295 edges belong to more than one relation; a column would pick one and discard the rest |
+| grain | one row per (edge, relation, member position) | a way may appear **twice in one relation** (140 cases: an out-and-back leg), so (edge, relation) is not a key |
+| the relation's tags | **not copied** — `staging.osm_relation` stays the source of truth | a second copy is a second thing to keep in step; the same argument that keeps edge tags in `tags` |
+| all pieces of a member | every piece of a member way joins the route | the relation is a claim about the **way**; pieces are an artefact of noding |
+| ordering | `member_index` (position in the relation) + `piece_index` (position along the way) | that is the order OSM stated |
+| direction | **not resolved here** | a member way can be walked backwards along the route; resolving that is assembly's job, above. Store provenance, derive direction later |
+| nested relations | **skipped, and counted** | 16 exist, all superroutes listing their stages. The stages are relations in their own right and join on their own; flattening the parent would make every stage's edges appear twice under two names |
+| node members | skipped | 2,639 of them: guideposts and summits, not network |
+
+### What it produced, against the 2026-08-19 network
+
+| | |
+|---|---|
+| relations joined | **752 of 752** |
+| distinct member ways in the network | 10,246 of 15,392 |
+| links written | 25,719 |
+| edges carrying a route | 17,118 (**2,469.5 km** of 9,238.0) |
+| edges with no `name` of their own that now carry a route's | **10,361** |
+| routes that merge into a single line | 621 of 752 |
+
+The 5,146 member ways the network does not hold are outside both region bboxes or were
+excluded by `load/legality.py` — expected, and the reason `qa.v_route_coverage` exists:
+`matched_fraction` near 1 is a route clipped at the edge of coverage, near 0 is a route
+this network cannot hold. Twenty-seven sit below 0.2, led by BI-12 (Trieste–Savona) at
+0.003. **A route generator must filter on that number**; a "route" of two matched ways out
+of 646 is a fragment with a famous name.
+
+### The link describes ONE build of the network
+
+`edge_route` holds `edge_id`s, so it is true only of the network that produced them.
+`build_network` (which replaces the network) and `topology/repair` (which splits and
+deletes edges) both **clear** the table and say so; `curate.routes --check` reports
+staleness by comparing the network run ids recorded in `build_run` against the run ids now
+in `curated.edge`. An empty table is visibly missing, a partly-stale one lies — which is
+`curated.vertex_degree`'s lesson, applied before it could be repeated.
+
+## Elevation (`curated.vertex.elevation_m`, `curated.edge.profile_m`, written 2026-08-20)
+
+Copernicus GLO-30, sampled onto the network. Two decisions, both measured rather than
+assumed, because both defaults are wrong here.
+
+### Bilinear, not nearest-neighbour
+
+OSM points sit a median **9.4 m** apart and the DEM cell is **30 m**: the network is
+sampled three times finer than the raster it reads. Nearest-neighbour therefore returns the
+same cell value several points running and then jumps a whole cell. Over 33,023 consecutive
+point pairs:
+
+| sampling | median \|dz\| | p90 \|dz\| | pairs implying >100% slope | ascent over the sample |
+|---|---|---|---|---|
+| nearest | 0.024 m | 8.61 m | 1,926 (5.83%) | 42,014 m |
+| **bilinear** | 1.049 m | 4.13 m | 38 (0.12%) | **28,610 m** |
+
+A median of 24 mm punctuated by 8 m steps is a staircase, not a hillside, and summing the
+positive part of a staircase **invents 47% of the climb**. This is the same family as the
+`ST_Dimension` and CTE traps below: the reading is plausible, cheap and wrong.
+
+### No noise threshold — and that was measured too
+
+The obvious next move is to discard small `dz` as DEM noise. Binning the same pairs by
+point spacing says not to:
+
+| dx band | pairs | median \|dz\| | median slope |
+|---|---|---|---|
+| 0–2 m | 790 | 0.12 m | 9.4% |
+| 2–5 m | 5,976 | 0.50 m | 14.1% |
+| 5–10 m | 10,056 | 0.93 m | 12.8% |
+| 10–20 m | 9,850 | 1.46 m | 10.7% |
+| 20–30 m | 3,431 | 2.09 m | 8.6% |
+
+`|dz|` scales with distance and **never plateaus** — 0.12 m at sub-2 m spacing, not the
+~1 m a noise floor would leave behind — and the median implied slope holds at 9–14% across
+every band, which is what a mountain path is. There is nothing to threshold away, so a
+threshold would only delete real terrain. (Under nearest-neighbour the same table is
+bimodal. That bimodality *was* the artefact, and choosing bilinear removed it at the
+source rather than filtering it afterwards.)
+
+### Absolute accuracy: judge it on saddles, never on peaks
+
+| class | n | mean bias | median bias | median \|err\| |
+|---|---|---|---|---|
+| saddle | 160 | +0.5 m | +0.2 m | **4.1 m** |
+| peak | 385 | −23.3 m | −11.0 m | 11.5 m |
+| viewpoint | 11 | −14.3 m | −8.3 m | 8.3 m |
+
+A 30 m cell averages a summit with the slopes falling away from it, so sharp convex
+features read low **by design**. Saddles sit on gentle ground and are the honest test; the
+DEM passes it at ~4 m. Trails run on slopes, so 4 m is the figure that describes this
+network — but **a peak's elevation must come from its `ele` tag, never from the DEM**.
+
+### What is stored, and why the profile and not just the summary
+
+| field | rule |
+|---|---|
+| `curated.vertex.elevation_m` | one authoritative value per vertex — the routing graph is vertex-based and `elevation_change` on a routing edge is a difference of two of these |
+| `curated.edge.profile_m` | one sample per point of `geom`, in geometry order. `array_length` **must** equal `ST_NPoints(geom)`; the sampler refuses to write climb if it does not |
+| `curated.edge.ascent_m` / `descent_m` | **Directional**, in the same sense as `oneway` and `incline`: measured along the stored geometry, so reversing a piece **swaps them** |
+
+The profile is kept, not just its summary, because the "on join" rule above requires a
+route's ascent to come from the altitude profile — so the profile has to survive assembly.
+Concatenating two edges concatenates two real profiles.
+
+**A gap makes the climb unknown, not smaller.** 57 vertices sit north of 46.0001 where the
+single GLO-30 tile ends (the loader keeps a whole way that touches a region bbox, so ways
+spill past it). One missing sample and the edge's `ascent_m` is NULL — 75 edges, 56.8 km.
+Summing the covered part would report a smaller climb with nothing to say it was partial,
+which is the failure the 503-not-empty rule exists to prevent.
+
+### What it produced
+
+101,951 edges profiled, 101,876 with climb; 80,056 vertices from 192 m to 2,396 m;
+**592,685 m of ascent and 555,837 m of descent** across 9,238 km.
+
+Two independent checks that it is not merely self-consistent. Sentiero 33, Pasturo to
+Grignone, reads 9.27 km and **1,827 m of ascent, 649 m to 2,393 m** — Pasturo sits at
+~640 m and the Grignone summit is 2,410 m, so the real gain is ~1,770 m against a measured
+net of 1,744 m. And the steepest edges in the network, found purely from the DEM, are
+Ferrata Maurizio, Canalone Belasa, Canale dei Camosci and Cresta OSA — every one of them
+already tagged `sac_scale=alpine_hiking` or harder by a mapper who never saw this raster.
+
+### An aggregate over `edge_route` must collapse the link first
+
+`curated.edge_route` is keyed on `(edge_id, rel_id, member_index)` so a way listed twice in
+one relation keeps both visits. That grain is right for the link and **wrong for any
+aggregate over edges**: `qa.v_route` summed length per link and so counted 123 edges twice
+across 20 relations, reporting the Dorsale Orobica Lecchese as 44.17 km against an actual
+41.13. Join through `SELECT DISTINCT rel_id, edge_id` before summing anything (`sql/0009`).
+The tell was that the edge COUNT was right — it was already `count(DISTINCT edge_id)` —
+while the kilometres beside it were not.
+
+## Places snapped to the network (`curated.place`, written 2026-08-20)
+
+POIs, settlements and transit stops attached to the routing graph. One row per feature,
+carrying the vertex it snapped to, how far that was, and whether a walk can begin there.
+
+### No threshold, deliberately
+
+The distance is stored and nothing is dropped for being far. "How close must a car park be
+to count as a trailhead" is a product decision, and a build step that silently discards the
+ones beyond 50 m has made it where nobody can see it — the argument `docs/route-pipeline.md`
+already settled for the off-road score ("descriptive, not a filter"). Consumers filter on
+`distance_m`. There is consequently no tolerance to justify from a histogram, because there
+is no tolerance.
+
+### Nearest vertex, not nearest edge
+
+A place is attached so a route can **start** there, and a route starts at a routing vertex.
+The other question — which places a route **passes** — is deliberately not answered here:
+the "on join" rule above settles it at assembly, positioning each POI along the *merged*
+line with `ST_LineLocatePoint`. Precomputing a place-to-edge table would answer it with a
+radius nobody chose, and it is not small: 66,572 pairs at 25 m, 116,855 at 50 m.
+
+### Search planar, measure geodesic
+
+Candidate selection uses the KNN operator against a GiST index on
+`ST_Transform(geom, 32632)`; the stored distance is `ST_Distance(::geography, ::geography)`,
+the same true-metres measure as every `qa.finding`. Mixing would leave one number in the
+store meaning "metres in UTM" and its neighbour "metres on the ellipsoid".
+
+This is a second index on the same geometry and it earns its space. The `::geography`
+indexes from 0004 serve a **range** predicate (`ST_DWithin`) well and a **nearest
+neighbour over polygons** badly: 7,471 car parks resolve in **2.6 s** through the planar
+index and did not finish in four minutes through a geography range join. The two indexes
+answer different questions.
+
+Polygons are measured whole — 7,280 of 7,471 car parks, 376 of 377 lakes and 66 of 74 huts
+are areas — so a car park 60 m across that touches a lane is 0 m from the network, not 30.
+`place.geom` is `ST_PointOnSurface`, a marker for drawing, never for measuring; a centroid
+would fall outside a C-shaped car park.
+
+### What the distances say
+
+| kind | n | p50 | p90 | max | is_start |
+|---|---|---|---|---|---|
+| parking | 7,471 | 6.2 m | 36.5 m | 143 m | yes |
+| hut | 74 | 6.3 m | 22.7 m | 88 m | no |
+| stop (GTFS) | 17 | 11.5 m | 20.6 m | 31 m | yes |
+| village | 157 | 24.1 m | 52.5 m | 250 m | yes |
+| chapel | 1,179 | 12.0 m | 70.5 m | 423 m | no |
+| **peak** | 405 | **55.0 m** | **319.6 m** | **1,124 m** | no |
+
+**A far snap is usually not a bad snap.** Every hut is within 88 m of a path and every car
+park within 143 m, which is what those things are. Peaks are the outlier and correctly so:
+Corna del Colonnello sits 1,124 m from the nearest way because no path goes there. For a
+summit, `distance_m` is the column that separates a walk from a scramble — a coverage fact
+like the 370 islands, not a defect.
+
+### Verdicts are recorded, not applied
+
+`is_start` and `start_note` come from `curate/anchors.py`, in the same shape as
+`load/legality.py`: a verdict plus the reason it went that way. 8,258 of 12,476 places can
+begin a walk, on 6,112 distinct vertices — several car parks routinely snap to one lane
+end, and that vertex is one trailhead, not four. The rest carry their reason: 1,179 "a
+chapel is passed, not started from", 999 "a residential area is a polygon, not a point a
+walk begins at", 405 "a summit is a destination, not a trailhead".
+
+**86 start vertices are not on the main component.** A trailhead on an island is a place
+you can begin and get nowhere, which is worth seeing before any route is generated from it.
+`qa.v_start` carries `component_id` so the filter is a comparison.
+
+Naming is left undone on purpose: `qa.v_start.names` is whatever the anchors actually
+carry, which for car parks is usually nothing. `docs/route-pipeline.md` records that only
+37 of 266 trailheads had a name and that naming one from a nearby feature is unsolved —
+inventing "the car park below Grignone" is a decision nobody has made yet.
+
 ## Where an operation runs
 
 If it is naturally **one SQL statement over a table** — noding, snapping, line-merging,

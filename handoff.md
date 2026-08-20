@@ -706,13 +706,431 @@ the old GeoPackage open.
   worse are bike-routable and only 15 of those carry any mtb:scale. A SAC ceiling in
   `load/legality.py` is a small, testable change; it needs a reload to take effect.
 
+## 2026-08-20 - The network has names: route relations joined
+
+752 OSM route relations had been loaded on 2026-08-19 and read by nothing. Their members
+are OSM way ids and `curated.edge.way_id` is the same id, so the join already existed in
+the data and had simply never been written. `pipeline/curate/routes.py` writes it into
+`curated.edge_route`.
+
+| | |
+|---|---|
+| relations joined | **752 of 752** |
+| links written | 25,719 |
+| distinct member ways the network holds | 10,246 of 15,392 |
+| edges carrying a named route | 17,118 - **2,469.5 km** of 9,238.0 |
+| edges with no `name` of their own that now carry one | **10,361** |
+| routes that merge into a single continuous line | 621 of 752 |
+| edges carrying more than one route | 5,295 |
+
+The network itself is untouched, and the check is the same one every pipeline pass uses:
+9,238.0 km before, 9,238.0 km after. The 5,146 member ways the network does not hold are
+outside the two region bboxes or were excluded by `load/legality.py` - expected, and the
+reason `qa.v_route_coverage` exists.
+
+### Why it is a table and not a column
+
+5,295 edges belong to more than one relation - a sentiero shared with a Bicitalia route, a
+variante rejoining its parent. A column on `edge` would pick one and silently discard the
+rest. The key is `(edge_id, rel_id, member_index)` rather than `(edge_id, rel_id)`, because
+a way may appear **twice in the same relation**: 140 measured cases, an out-and-back leg
+walked in both directions, and collapsing the second visit loses half the route.
+
+The relation's own tags are deliberately not copied in. `staging.osm_relation` stays the
+source of truth for ref/name/network/osmc:symbol and the views do the join - the same
+argument that keeps edge tags inside `tags` instead of promoting them to columns.
+
+Direction is not resolved either. A member way can be walked backwards along the route, and
+`member_index` + `piece_index` state the ORDER without claiming the heading. Resolving it is
+route assembly's job (`pipeline/docs/metadata-rules.md`, "on join"). Store provenance,
+derive direction later - the rule everywhere else in `curated`.
+
+### The link describes one build of the network, and says so
+
+`edge_route` holds `edge_id`s, so it is true only of the network that produced them.
+`build_network` replaces the network and `topology/repair` splits and deletes edges; both
+now clear the table and print that they did, and `curate.routes --check` reports staleness
+by comparing the network run ids recorded in `build_run` against the ones now in
+`curated.edge`. The foreign key makes it impossible to forget: PostgreSQL refuses to
+TRUNCATE `curated.edge` while `edge_route` references it.
+
+That is `curated.vertex_degree`'s lesson from 2026-08-19 applied before it could be
+repeated. A partly-stale link table would have been silent in exactly the same way.
+
+### Two new judgement queues, both visible in QGIS
+
+The join produced numbers no rule can decide, so they are layers rather than repairs:
+
+- **27 routes match less than 20% of their member ways.** These are long-distance routes
+  that only clip the two provinces: BI-12, the Ciclovia Pedemontana Alpina from Trieste to
+  Savona, matches 2 of its 646 ways. A route generator must filter on `matched_fraction` -
+  two matched ways under a famous name is a fragment, not a route.
+- **131 routes come out in more than one piece** (`qa.v_route.pieces`, worst is 29). Some
+  of that is coverage clipping at the bbox edge; some is a real gap in the network along a
+  named route, which is a different defect from anything the topology rules can see - they
+  look at loose ends, not at whether a route runs through.
+
+Three layers: `qa.v_route` (752 lines, one per route - open this one first),
+`qa.v_route_edge` (every edge that carries a route, route identity as real columns), and
+`qa.v_route_coverage`. `route` also travels in the review bundle now, so the judgement can
+happen off-machine.
+
+### Where this leaves the pipeline
+
+Of the six staged sources, two are now in use: OSM ways and the route relations. The DEM,
+POIs, settlements and GTFS stops are still loaded and unread. The order in
+`Oscar_continua_desde_aqui.md` section 8 is unchanged - the 164 overlaps are still the only
+open QA queue, and elevation is the next join, because everything about difficulty needs it.
+
+Pipeline suite: 62 tests, 11 of them new and all pure - the expansion of a relation's
+members into links is per-feature branching (member types to skip, an empty role, a way
+listed twice, a member way the network does not hold), so it lives in Python where a test
+can pin it, and each case in the test file was measured against the real 752 first.
+
+## 2026-08-20 (later) - Height on the network, and a view that was quietly wrong
+
+225 Copernicus GLO-30 tiles had been loaded on 2026-08-19 and read by nothing.
+`pipeline/curate/elevation.py` samples them onto the network: an elevation on every vertex,
+and on every edge an altitude profile with one value per geometry point.
+
+80,056 vertices carry a height (192 to 2,396 m); 101,951 edges carry a profile and 101,876
+carry ascent and descent. **592,685 m up, 555,837 m down** across 9,238 km. The run takes
+about five minutes.
+
+### Both defaults were wrong, and both were measured rather than argued
+
+**Bilinear, not nearest-neighbour.** OSM points sit a median 9.4 m apart and the DEM cell is
+30 m, so the network is sampled three times finer than the raster it reads.
+Nearest-neighbour therefore returns the same cell value several points running and then
+jumps a whole cell:
+
+| sampling | median abs dz | p90 abs dz | pairs implying >100% slope | ascent over the sample |
+|---|---|---|---|---|
+| nearest | 0.024 m | 8.61 m | 1,926 (5.83%) | 42,014 m |
+| bilinear | 1.049 m | 4.13 m | 38 (0.12%) | 28,610 m |
+
+A median of 24 mm punctuated by 8 m steps is a staircase, not a hillside. Summing the
+positive part of a staircase invents **47% of the climb**. Same family as the ST_Dimension
+trap from #13: plausible, cheap, and wrong.
+
+**No noise threshold.** The obvious next move is to discard small dz as DEM noise. Binning
+the same pairs by point spacing says not to: median abs dz runs 0.12 / 0.50 / 0.93 / 1.46 /
+2.09 m across the 0-2, 2-5, 5-10, 10-20 and 20-30 m bands, scaling with distance and never
+plateauing, while the median implied slope holds at 9-14% throughout - which is what a
+mountain path is. There is no noise floor to subtract, so a threshold would only delete
+real terrain. Under nearest-neighbour the same table is bimodal; that bimodality WAS the
+artefact, and bilinear removed it at the source instead of filtering it afterwards.
+
+### Judge the DEM on saddles, never on peaks
+
+Against the OSM `ele` tag: saddles n=160, median error **4.1 m**; peaks n=385, mean bias
+**-23.3 m**. A 30 m cell averages a summit with the slopes falling away from it, so sharp
+convex features read low by design. Trails run on slopes, so the saddle figure is the one
+that describes this network - but a peak's height must come from its `ele` tag, never from
+the DEM.
+
+Two checks that the climb is not merely self-consistent. Sentiero 33, Pasturo to Grignone,
+reads 9.27 km and **1,827 m of ascent, 649 to 2,393 m**; Pasturo sits at ~640 m and the
+Grignone summit is 2,410 m, so the real gain is ~1,770 m against a measured net of 1,744.
+And the steepest edges in the network, found purely from the raster, are Ferrata Maurizio,
+Canalone Belasa, Canale dei Camosci and Cresta OSA - every one already tagged
+`sac_scale=alpine_hiking` or harder by a mapper who never saw this DEM.
+
+### What is stored, and the rule for a gap
+
+The profile is kept, not just its summary, because metadata-rules.md requires a route's
+ascent to come from the altitude profile - so the profile has to survive assembly.
+`profile_m` is aligned to `geom` point by point and the sampler refuses to write climb if
+the lengths disagree. `ascent_m` / `descent_m` are **directional** in the same sense as
+`oneway` and `incline`: reversing a piece swaps them.
+
+**A gap makes the climb unknown, not smaller.** 57 vertices sit north of 46.0001 where the
+single GLO-30 tile ends - the loader keeps a whole way that touches a region bbox, so ways
+spill past it - and the 75 edges touching that band (56.8 km) get NULL ascent rather than
+the climb of the covered part. Fetching tile N46 E009 closes it.
+
+### A view from this morning was quietly double-counting
+
+`qa.v_route`, written earlier the same day, summed edge length per LINK. `curated.edge_route`
+is keyed on (edge_id, rel_id, member_index) precisely so a way listed twice in one relation
+keeps both visits, and that grain is right for the link and wrong for any aggregate over
+edges. 123 links across 20 relations resolve to an edge already counted, so the Dorsale
+Orobica Lecchese reported 44.17 km against an actual 41.13.
+
+The tell is worth keeping: the edge COUNT beside it was right, because it was already
+`count(DISTINCT edge_id)`. A view can be half-correct in a way that looks entirely correct.
+`sql/0009` collapses the join through `SELECT DISTINCT rel_id, edge_id` before aggregating,
+in both that view and the coverage one.
+
+### Where this leaves the pipeline
+
+Three of the six staged sources are now in use: OSM ways, the route relations, the DEM.
+POIs, settlements and GTFS stops remain loaded and unread, and they are the same shape of
+job as each other - nearest vertex within a threshold - which is the next step. The 164
+overlaps are still the only open QA queue.
+
+Pipeline suite: 71 tests, 9 of them new. Sampling is one statement over a whole table so
+PostGIS does it; turning a profile into ascent and descent is per-feature branching over
+missing samples, so Python does it, in `curate/profile.py`, where the tests pin the rule.
+
+## 2026-08-20 (third) - Places on the network, and the staging shelf is empty
+
+POIs, settlements and Trenord stops snapped to the routing graph: `curated.place`, 12,476
+rows, **8,258 of which can begin a walk**, on 6,112 distinct vertices. With this, all six
+staged sources are read by something. Nothing is left sitting in staging.
+
+| source | snapped | can start a walk | p50 | p90 | max |
+|---|---|---|---|---|---|
+| poi | 10,422 | 7,520 | 7.6 m | 52.9 m | 1,124 m |
+| settlement | 2,037 | 721 | 12.0 m | 68.0 m | 417 m |
+| gtfs_stop | 17 | 17 | 11.5 m | 20.6 m | 31 m |
+
+### No threshold, and that is the decision
+
+Nothing is dropped for being far; `distance_m` is stored and consumers filter on it. How
+close a car park must be to count as a trailhead is a product decision, and a build step
+that silently discards the ones past 50 m has made that decision where nobody can see it.
+docs/route-pipeline.md settled the same argument for the off-road score - descriptive, not
+a filter - and it holds here. It also means there is no tolerance to justify from a
+histogram, because there is no tolerance.
+
+### A far snap is usually not a bad snap
+
+Every hut is within 88 m of a path and every car park within 143 m, which is what those
+things are. Peaks are the outlier and correctly so: p50 55 m, p90 320 m, and Corna del
+Colonnello at 1,124 m because no path goes there. For a summit, `distance_m` is the column
+that separates a walk from a scramble - a coverage fact like the 370 islands, not a defect.
+
+### Nearest vertex, not nearest edge
+
+A place is attached so a route can START there, and a route starts at a routing vertex.
+Which places a route PASSES is deliberately not answered here: metadata-rules.md settles it
+at assembly, positioning each POI along the MERGED line with ST_LineLocatePoint.
+Precomputing a place-to-edge table would answer it with a radius nobody chose, and it is
+not small - 66,572 pairs at 25 m, 116,855 at 50 m.
+
+### Two indexes on the same geometry, both earning their space
+
+0004 added `::geography` indexes so ST_DWithin could work in metres. Those serve a RANGE
+predicate well and a NEAREST NEIGHBOUR over polygons badly: 7,471 car parks resolve in
+2.6 s through a new GiST index on ST_Transform(geom, 32632) and did not finish in four
+minutes through a geography range join. So the search is planar and the stored distance is
+geodesic - the same true-metres measure as every qa.finding, because one number in the
+store meaning "metres in UTM" while its neighbour means "metres on the ellipsoid" is a trap
+laid for later.
+
+Polygons are measured whole - 7,280 of 7,471 car parks, 376 of 377 lakes, 66 of 74 huts are
+areas - so a car park 60 m across that touches a lane is 0 m from the network, not 30.
+`place.geom` is ST_PointOnSurface, a marker for drawing only; a centroid would fall outside
+a C-shaped car park.
+
+### Verdicts are recorded, not applied
+
+`is_start` and `start_note` come from `curate/anchors.py`, in the same shape as
+`load/legality.py`: a verdict plus the reason it went that way, so a rejection is auditable
+instead of invisible. 1,179 "a chapel is passed, not started from", 999 "a residential area
+is a polygon, not a point a walk begins at", 405 "a summit is a destination, not a
+trailhead".
+
+### What this leaves to judge
+
+- **86 start vertices are not on the main component.** A trailhead on an island is a place
+  you can begin and get nowhere - worth seeing before a route is generated from one.
+  `qa.v_start` carries `component_id`, so the filter is a comparison.
+- **33 car parks sit over 100 m from the network**, which is either a missing access road
+  in OSM or a polygon somewhere odd. That distinction is a look, not a rule.
+- **Trailheads still have no names.** `qa.v_start.names` is whatever the anchors carry,
+  which for car parks is usually nothing. route-pipeline.md recorded 37 of 266 named and
+  called naming them unsolved; it still is.
+
+`qa.v_place_link` is the layer for all of this - a line from each place to the vertex it
+attached to. A wrong snap is invisible as a number and obvious as a line reaching across a
+valley.
+
+Pipeline suite: 95 tests, 24 of them new.
+
+## 2026-08-20 (fourth) - The review bundle becomes the review surface
+
+Oscar's loop is visual: open a layer, colour it by a category, see whether the step did
+what it claimed. The layers did not support that. They carried raw measures - gradient as a
+float, matched_fraction as a float, distance_m as a float - and every one of them needed a
+QGIS expression and a hand-built class ramp before it showed anything. A class ramp built in
+a dialog also lives in one .qgz on one machine rather than in the database that is the
+product.
+
+Three changes, and a rule so it does not decay.
+
+### Every styled field has a category twin
+
+steepness_class, difficulty_class, surface_class, route_class, access_class, profile_class,
+continuity_class, climb_class, length_class, scope_class, coverage_class, distance_band,
+role_class, reachability_class, naming_class. They live in the qa.v_* views, not in the
+exporter, so a direct QGIS-to-PostGIS connection gets them too.
+
+Boundaries come from the distributions already measured, not from round numbers: the
+gradient bands are where the network actually falls (48.6% under 5%, 0.3% over 50%), the
+place bands where the snap distributions separate.
+
+The leading digit on every value is deliberate. QGIS sorts categories by value, so
+"gentle / moderate / steep / very steep / flat" puts flat between gentle and moderate and
+the ramp reads backwards. A digit fixes the order for every renderer and survives export to
+GeoPackage, which an ordering defined in a style file does not.
+
+One category earns its place on its own: difficulty_class has a "9 invalid tag" bucket and
+12 edges land in it. Folding raw OSM junk into "ungraded" would have hidden it for good.
+
+### The bundle README is generated, never written
+
+review/README.md now comes out of live queries at export time: state, what is settled, what
+is open with a count and a sentence each, every layer with the field to colour it by and the
+field to sort by, and every field with its meaning and its full list of categories and
+counts. The only hand-maintained part is what a field MEANS.
+
+That last table is the useful one - it says what you will get when you press Classify
+before you press it.
+
+review/REVIEW.md stays the opposite and is still preserved across rebuilds: hand-written,
+saying what is being asked of this round.
+
+### The full network is in the bundle now, which reverses an earlier decision
+
+It was left out while the bundle only had to explain nine gap findings. Once the layers grew
+names, height and places, a review without the network underneath them is a review of marks
+on white. One layer and not two: the elevation columns sit on network rather than in a second
+copy of the same 101,951 geometries, which is the difference between a 65 MB file and a
+99 MB one.
+
+### A migration bug this uncovered, and it was the serious part
+
+migrate.py replays the WHOLE chain every run, and its own docstring says replay is the normal
+case, not an error. Adding a class column beside the measure it classifies inserts a column
+in the MIDDLE of a view, which CREATE OR REPLACE VIEW refuses outright - and worse, once 0011
+widened qa.v_elevation, the next replay ran the narrower definition from 0008 over it and
+failed with "cannot drop columns from view". The store had become un-migratable from its own
+history.
+
+Every view in 0005-0011 is now DROP VIEW IF EXISTS + CREATE VIEW, which makes the chain
+order-independent. The single exception is qa.latest_run: every rule view selects from it, so
+a plain DROP fails on the dependency and a DROP CASCADE would take them all and rely on the
+rest of the chain rebuilding them in the right order. Its column list is frozen at one column
+for exactly that reason. Verified by running migrate.py three times in a row.
+
+### The rule
+
+CLAUDE.md now carries it, so it is not something anyone has to remember: refresh the bundle
+after every step that changes the store, give every styled field a category twin, and drop
+views rather than replacing them. A bundle that lags the database is worse than no bundle,
+because it looks current.
+
+## 2026-08-20 (fifth) - The product is the route document, not the database
+
+A framing correction from Oscar, and it is the load-bearing kind.
+
+CLAUDE.md said "the database is the product", which came out of a real fix: the backend used
+to ingest OSM and derive its own geometry, and moving that upstream into PostGIS stopped two
+tiers producing the same data differently. That part stands. But PostGIS is where the VALUE
+accumulates, not what the project DELIVERS. What VaiVia hands downstream is a structured
+JSON and a map, one per route.
+
+So: **the route document is the product; PostGIS is the working store that holds the
+value.** docs/route-document.md is the ratified statement of it.
+
+### Everything else is a reader
+
+The same inversion that made backend/ stop producing data now applies one level up. Neo4j
+holds the document for graph and vector search, the API serves it, the frontend renders it,
+user content will key to its id - and none of them redefines a route. A field a reader needs
+goes IN the document, never into that reader, or two tiers describe a route differently
+again.
+
+Three consequences worth keeping:
+
+- The document is **versioned** (schema_version), because readers outlive producers.
+- The document is **self-contained**: attribution, licence and provenance travel inside it.
+  The document IS the ODbL Produced Work, so a consumer rendering the geometry elsewhere
+  cannot strip the obligation by accident. The schema REQUIRES a non-empty sources array and
+  a test asserts that it does - otherwise the next producer omits it and nothing notices.
+- Two runs of the same route produce **byte-identical** JSON. A diff means the data moved.
+
+### 752 documents exist, and they are real
+
+Emitted from the 752 OSM route relations - the routes that exist today. pipeline/draw/ will
+generate its own and emits through the same module: a generated route is a different kind,
+not a different document.
+
+All 752 validate against the schema. 724 carry a full altitude profile. 11,541 place
+references across them. Difficulty by the 5% rule: 384 mountain hiking, 133 hiking, 106
+ungraded, 91 demanding mountain, 34 alpine, 3 demanding alpine, 1 difficult alpine.
+
+214 carry a quality warning and are emitted anyway, because a route this network holds in
+three pieces is still a real route and the reader deciding whether to show it needs to know
+which one it is.
+
+### Three rules carried in rather than reinvented
+
+**Difficulty is the hardest grade covering at least 5% of the length**, never the max - the
+rule backend/graph/graphhopper.py::_weighted_max already proved. **Surface is a distribution
+kept whole** plus a dominant; untagged length is reported as unknown rather than
+renormalised away. **Absent is not zero**: a route with any unprofiled edge reports ascent_m
+null, not a partial sum.
+
+And **duration is deliberately absent**. DIN 33466 rates the classic Grigna ascent at 10
+hours against a guidebook 6-8, so the figure this codebase can compute today is one a user
+would not trust. measures is a CLOSED object in the schema so a miscalibrated figure cannot
+arrive by accident. An absent field invites the calibration; a wrong one ships.
+
+### What a route passes is computed here, and that vindicates an earlier decision
+
+metadata-rules.md puts POI positioning at assembly, against the MERGED line with
+ST_LineLocatePoint - which is exactly why curated.place snaps to a vertex and there is
+deliberately no precomputed place-to-edge table. That table would have answered "what does
+this route pass" with a radius nobody chose, at 66,572 rows for 25 m. The one bound here is
+100 m, which is where qa.distance_band already puts "near" (measured: median 7 places per
+route, p90 34, against 12 and 59 at 250 m), and every place carries offset_m so a reader
+wanting 30 m filters on it.
+
+### The social layer, designed and not built
+
+docs/social-layer.md: photos, comments and reactions as three Mongo collections keyed to
+route.id, binaries in object storage rather than GridFS, reactions as documents rather than
+a counter, status on everything instead of hard deletes, EXIF stripped on upload because a
+photo taken at home carries the user's home coordinates.
+
+The honest note is in there too: this is a THIRD datastore, and the Supabase Postgres
+already running could hold all of it with RLS putting the ownership check in the database
+rather than in application code. What earns Mongo its place is the expectation that these
+shapes move. Worth revisiting when the feature is specified.
+
+**And the requirement that lands NOW, before pipeline/draw/ is written: a route id must be
+stable across rebuilds.** A comment keys to it. osm-relation-<id> already is; a generated
+route's id must come from its geometry, never a sequence number, a run_id, or a vertex id -
+build_network truncates and reassigns those. Finding that out after people had commented
+would be expensive.
+
+### Two bugs found on the way
+
+**The review bundle would have deleted the product.** review_bundle.py rmtree'd the whole
+review/ directory, which was safe while the bundle was the only thing in it and stopped
+being safe the moment route documents landed in review/routes/. It now removes only the
+files it owns.
+
+**curated.place had no planar index.** 0010 added one to every table the snap READS and not
+to the table it WRITES, because nothing read it yet. Emitting documents reads it once per
+route, and without the index that was a sequential scan of 12,476 places with a
+reprojection each. Same lesson 0004 already recorded: a predicate that reads naturally and
+quietly cannot use an index. With it, plus materialising each route's merged line once
+instead of rebuilding it in four queries per route, the run went from about 18 minutes to
+2m45s.
+
+Pipeline suite: 122 tests, 27 of them new.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-19",
+  "updated": "2026-08-20",
   "deadline": null,
   "people": [
     "oscar"
@@ -1161,6 +1579,62 @@ the old GeoPackage open.
         {
           "date": "2026-08-19",
           "text": "qa.py refuses to run when curated.vertex_degree is stale. A matview left over from an earlier network made the same 101,870 edges report 9 dangle pairs and then 19, with nothing changed between - and repairs would have been chosen from those numbers. build_network now refreshes it, where 0004 always claimed it did."
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Route-relation membership is a link table (curated.edge_route) keyed on (edge_id, rel_id, member_index), never a column on edge: 5,295 edges carry more than one route and 140 way-in-relation pairs repeat. The relation's tags stay in staging; direction is not resolved at the link, only order"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "DEM sampling is bilinear with no noise threshold, both measured: nearest-neighbour invents 47% of the climb on this network because OSM points are 3x finer than the 30 m cell, and |dz| never plateaus as spacing falls so there is no noise floor to subtract"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "DEM accuracy is judged on saddles (median error 4.1 m), never on peaks (-23.3 m mean bias): a 30 m cell reads sharp convex features low by design, so a peak's height comes from its OSM ele tag"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "The altitude profile is stored per edge, not just ascent and descent, so a route's climb can come from the profile as metadata-rules.md requires; ascent/descent are directional and swap when assembly reverses a piece"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Places are snapped with NO distance threshold: distance_m is stored and consumers filter, because how close a car park must be to count as a trailhead is a product decision that a build step would hide"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Places snap to the nearest VERTEX, not the nearest edge; which places a route passes is computed at assembly against the merged line, not precomputed with a radius nobody chose"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Proximity search is planar (GiST on ST_Transform(geom,32632)) while stored distances stay geodesic: geography indexes serve range predicates well and polygon nearest-neighbour badly, 2.6 s against four minutes for 7,471 car parks"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "The review bundle is refreshed after every step that changes the store, and its README is generated from live queries rather than hand-written, so it cannot look current while lagging the database"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Every field that gets styled carries a *_class or *_band twin in its qa view with a leading digit, so a review is Categorized-and-Classify rather than a hand-written QGIS expression and a class ramp trapped in one .qgz"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Views are DROP + CREATE, never CREATE OR REPLACE (except qa.latest_run, which others depend on): migrate.py replays the whole chain, so a later migration widening a view otherwise makes the earlier one fail on the next replay"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "CORRECTION to the earlier framing: the route document (structured JSON + map, one per route) is the product; PostGIS is the working store that holds the value. Neo4j, the API, the frontend and any social layer are readers of that document and none of them redefines a route"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "The route document is versioned and self-contained: attribution, licence and provenance travel inside it because the document is the ODbL Produced Work, and the schema requires a non-empty sources array"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Duration stays out of the route document until DIN 33466 is calibrated; measures is a closed object in the schema so a figure a user would not trust cannot arrive by accident"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Photos, comments and likes will be three MongoDB collections keyed to route.id with binaries in object storage (docs/social-layer.md, designed not built), which imposes now that a generated route's id be derived from geometry so it survives a rebuild"
         }
       ]
     }
@@ -1192,6 +1666,13 @@ the old GeoPackage open.
     }
   ],
   "nextSteps": [
+    {
+      "title": "Give generated routes an id derived from geometry, not a sequence number or run_id, so photos and comments cannot orphan on a rebuild (docs/social-layer.md)",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Return the composed plan with /chat results so the \"How I read it\" block can render the constraints it understood",
       "est": 1,
@@ -1338,6 +1819,83 @@ the old GeoPackage open.
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
+    },
+    {
+      "title": "Judge the 131 routes that come out in more than one piece in qa.v_route: coverage clipping at the bbox edge, or a real gap along a named route that the topology rules cannot see",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide the matched_fraction floor a generated route must clear, so a 27-route tail like BI-12 (2 of 646 ways matched) cannot become a route under a famous name",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Fetch GLO-30 tile N46 E009 and re-run curate.elevation, closing the 75 edges (56.8 km) north of 46.0001 that have no profile",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Use profile_m rather than per-edge ascent_m when assembling a route, and swap ascent/descent on any piece the assembly reverses",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Judge the 86 start vertices that are not on the main component - a trailhead on an island is a place you can begin and get nowhere",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Look at the 33 car parks over 100 m from the network in qa.v_place_link: a missing access road in OSM, or a polygon somewhere odd",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Name the trailheads from a nearby named feature - qa.v_start.names is empty for most car parks and 'start from vertex 43128' is not an answer",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Build pipeline/draw/: bounded route generation over the 6,112 start vertices, now that names, height and places all exist",
+      "est": 3,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Review the refreshed bundle in QGIS: colour network by steepness_class, route by continuity_class, place_link by distance_band, start by reachability_class",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Calibrate duration before adding it to the route document: DIN 33466 gives 10 h for the Grigna ascent against a guidebook 6-8, and the schema deliberately refuses the field until then",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Make Neo4j, the API and the frontend read the route document rather than each deriving route fields - the inversion docs/route-document.md ratifies",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     }
   ],
   "sessions": [
@@ -1399,6 +1957,41 @@ the old GeoPackage open.
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

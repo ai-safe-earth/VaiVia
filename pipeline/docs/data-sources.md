@@ -64,11 +64,17 @@ existing graph is in.
 
 **Fitness.** It is the network. Nothing else in the list carries geometry we can route on.
 
-## 2. OSM route relations — ADOPT
+## 2. OSM route relations — ADOPT, and **joined to the network 2026-08-20**
 
 **What.** `relation[route~hiking|foot|mtb|bicycle]` — the named-trail layer today's
 ingestion never fetches. Comes free in the same Geofabrik extract (pyosmium resolves
 member ways).
+
+**Status.** 752 relations loaded, and since 2026-08-20 joined onto the network by
+`curate/routes.py` into `curated.edge_route`: all 752 matched, 17,118 edges / 2,469.5 km
+of the 9,238.0 km network now carry a named route, and 10,361 edges that had no `name` of
+their own now carry one. See `docs/metadata-rules.md` for the join's rules and
+`qa.v_route` / `qa.v_route_coverage` for the layers.
 
 **Coverage — measured** on the spike's cached Overpass fetches:
 
@@ -92,7 +98,20 @@ uses ("segui il 33"); waymark symbols for "follow the red-white flashes" instruc
 `from`/`to` **named endpoint pairs** — the naming source for starts (219 of 257 current
 trailheads are nameless) and the seed list for out-and-back destinations.
 
-## 3. Elevation — Copernicus GLO-30: ADOPT. EU-DEM: REJECT. SRTM 90 m: keep for GraphHopper only
+## 3. Elevation — Copernicus GLO-30: ADOPT, and **sampled onto the network 2026-08-20**. EU-DEM: REJECT. SRTM 90 m: keep for GraphHopper only
+
+**Status.** One tile (`N45 E009`, 225 raster tiles in `staging.dem`) sampled onto the
+network by `curate/elevation.py`: 80,056 vertices carry an elevation and 101,876 edges
+carry ascent and descent, 592,685 m of climb across 9,238 km. Sampling is **bilinear** with
+no noise threshold; both were measured rather than chosen, and the tables are in
+`docs/metadata-rules.md`. Validated against the OSM `ele` tag on saddles (median error
+**4.1 m**) and against the Pasturo–Grignone ascent (1,827 m measured, ~1,770 m real).
+
+**Known gap.** 57 vertices sit north of 46.0001, where this single tile ends — the loader
+keeps a whole way that touches a region bbox, so ways spill past it. The 75 edges touching
+that band (56.8 km) carry NULL climb rather than a partial sum. Fetching tile `N46 E009`
+closes it.
+
 
 **Copernicus GLO-30** — 30 m global DEM, [hosted free on AWS Open
 Data](https://registry.opendata.aws/copernicus-dem/) as Cloud-Optimised GeoTIFFs
