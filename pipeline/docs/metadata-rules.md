@@ -252,6 +252,37 @@ carry, which for car parks is usually nothing. `docs/route-pipeline.md` records 
 37 of 266 trailheads had a name and that naming one from a nearby feature is unsolved —
 inventing "the car park below Grignone" is a decision nobody has made yet.
 
+## Generated routes (`curated.route` + `curated.route_edge`, written 2026-08-20)
+
+The "on join" table above finally executes here, along a **walked edge sequence** —
+which edge, in what order, in which direction (`route_edge.forward`). Everything reads
+that sequence; nothing is spatially matched, so the provider spike's corridor artefact
+(a 6 m slip flipping a verdict) cannot occur.
+
+| rule | how it lands |
+|---|---|
+| directional attributes | an edge walked backwards **swaps** ascent/descent and **reverses** its profile — the `oneway`/`incline` inversion, applied |
+| difficulty | hardest `sac_scale` covering ≥ 5% of the walked length |
+| MTB | the access **conjunction**: one forbidding walked edge forbids; grade by the ≥ 5% rule over `mtb:scale`; nothing walked = unknown, never yes |
+| climb | absent is not zero: one unprofiled edge makes the route's climb null |
+| retrace | metres walked more than once / total, direction-blind |
+| score | **descriptive, never a filter** — off-road 0.5, loop shape 0.3, length fit 0.2, weights as parameters |
+
+**The route id derives from the ground** (`draw/route_id.py`): coordinates rounded to
+5 decimals (~1.1 m), direction-normalised, hashed. A weld moving an endpoint 40 cm
+cannot rename a route (a comment would orphan — docs/social-layer.md); a real reroute
+is a NEW route. Never a sequence number, a `run_id`, or a vertex id — vertex ids do not
+survive a rebuild.
+
+**Calibrated, not guessed:** the via-ring radius started at target/3.6 (equilateral
+arithmetic); the first catalogue measured median actual/target at 1.43, and the constant
+is now target/5.0 — bringing the median to 1.05–1.25. Same discipline as the 2 m weld
+tolerance.
+
+Loop legs soft-penalise already-walked edges (×3 cost), never exclude them: walking back
+the same valley is sometimes the only way home, and `retrace_share` reports what
+happened rather than hiding it.
+
 ## Where an operation runs
 
 If it is naturally **one SQL statement over a table** — noding, snapping, line-merging,

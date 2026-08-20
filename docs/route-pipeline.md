@@ -1,6 +1,19 @@
 # Route pipeline: build geometry offline, serve meaning at runtime
 
-Proposed 2026-08-18. **Design, not yet built.**
+Proposed 2026-08-18. **Built 2026-08-20 in `pipeline/draw/`** — over the curated
+PostGIS network with pgRouting, not over the backend graph this document originally
+assumed (the backend catalogue built 2026-08-18 was the proof of shape; the pipeline
+build is the one the product uses, per docs/route-document.md). What follows is the
+original design; where the two differ, `pipeline/draw/` and
+`pipeline/docs/metadata-rules.md` are authoritative. Three differences matter:
+
+- **Route ids derive from geometry** (`draw/route_id.py`), never from sequence or run,
+  so photos and comments cannot orphan on a rebuild (docs/social-layer.md).
+- **The MTB verdict and all metadata run along the walked edge sequence** — direction
+  explicit per edge, ascent/descent swapping on reversed edges — not a spatial match.
+- **The engine is pgRouting over our own edges** (provider spike verdict: every engine
+  draws on the same OSM ways; ours returns edge ids natively).
+
 
 ## The inversion
 

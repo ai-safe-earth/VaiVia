@@ -130,6 +130,18 @@ LAYERS: list[Layer] = [
         sort_by="anchors desc",
     ),
     Layer(
+        "draw",
+        """SELECT route_id, start_vertex, target_km, km, ascent_m, sac_scale,
+                  mtb_rideable, off_road_share, retrace_share, score,
+                  difficulty_class, climb_class, offroad_class, shape_class,
+                  mtb_class, geom
+           FROM qa.v_draw""",
+        "The generated catalogue: bounded loops drawn from real starts over our "
+        "own edges. Score is descriptive, never a filter.",
+        style_by="offroad_class",
+        sort_by="score desc",
+    ),
+    Layer(
         "overlap",
         "SELECT finding_id, shared_m, edge_a, edge_b, geom FROM qa.v_overlap",
         "THE OPEN QUEUE. The same ground mapped twice: a duplicate, a bridge, or two "
