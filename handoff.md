@@ -1257,6 +1257,37 @@ valley towns the car-free starts sit in.
 153 tests in the pipeline suite. Next: the Neo4j export of the full catalogue - the
 inversion the pipeline exists for.
 
+## 2026-08-21 (later) - The inversion: the catalogue is in Neo4j
+
+pipeline/export/neo4j_load.py reads the 980 route documents and loads what selection
+needs into the compose Neo4j: 980 :Route (752 OSM + 228 generated, 370 named), 8,156
+:Place, 29,456 PASSES, 276 :Start. It replaced the 250 orphan :Route nodes left by the
+2026-08-18 backend catalogue, whose branch never merged and which develop's backend never
+queried.
+
+The design holds the document canonical: identity, measures, both difficulty grades, the
+MTB verdict and the route-place relationships travel; geometry and the profile
+deliberately do NOT - they are fetched from the document by route_id, because a second
+home for geometry is how two truths start. The export owns :Route/:Place/:Start and
+replaces them wholesale; the backend's Trail/Segment/Intersection graph is untouched.
+Cypher is named templates in export/catalogue.cypher run with parameters only - the
+backend/graph discipline applied pipeline-side.
+
+The smoke test at the end of every export is the product's own query shape - clean routes
+8-16 km passing a peak - and it earned its warnings filter honestly: the first run
+without it surfaced 0.0 km OSM fragments wearing famous names, top of the list. Any
+consumer of this catalogue must filter on the quality block; the query now demonstrates
+how, and answers "To Corno dell'Arco, 11 km, up 1050, T3, passes Corno dell'Arco."
+
+On the way: place coordinates joined the documents (schema 1.1 places now carry lon/lat -
+the spike had them, the emitters did not, and :Place nodes need to sit on a map), all 980
+documents re-emitted and re-validated; env_value() restored into core (it had lived only
+on the spike branch).
+
+7 new tests (160 in the pipeline suite). The next step is backend work: point
+queries.cypher templates at :Route/:Place so /chat selects from this catalogue instead of
+computing over Trail/Segment.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1792,6 +1823,14 @@ inversion the pipeline exists for.
         {
           "date": "2026-08-21",
           "text": "Generated routes are named after their destination (To Rifugio Elisa) - destination naming is free where trailhead naming stays unsolved; an unnamed destination gives no name rather than a bad one"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Neo4j holds the catalogue's selection surface only: identity, measures, both grades, MTB, route-place relationships. Geometry and profile stay in the canonical route document, fetched by route_id - a second home for geometry is how two truths start"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "The export owns :Route/:Place/:Start and replaces them wholesale per run; the backend's Trail/Segment graph is untouched. Any consumer of the catalogue filters on the quality block (warnings = 0) - proven necessary by the first smoke run surfacing 0 km fragments"
         }
       ]
     }
@@ -1823,6 +1862,13 @@ inversion the pipeline exists for.
     }
   ],
   "nextSteps": [
+    {
+      "title": "Point backend/graph/queries.cypher templates at :Route/:Place so /chat selects from the catalogue - and filter on warnings = 0, as the export smoke test demonstrates",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Give generated routes an id derived from geometry, not a sequence number or run_id, so photos and comments cannot orphan on a rebuild (docs/social-layer.md)",
       "est": 0.5,
@@ -2060,13 +2106,6 @@ inversion the pipeline exists for.
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
-    },
-    {
-      "title": "Export the route documents (OSM + generated) to Neo4j so the app selects from this catalogue - the inversion the pipeline exists for",
-      "est": 2,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
     }
   ],
   "sessions": [
@@ -2177,6 +2216,13 @@ inversion the pipeline exists for.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

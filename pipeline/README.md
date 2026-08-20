@@ -168,6 +168,26 @@ Today the routes are the 752 OSM route relations, because those are the routes t
 `draw/` will generate its own and emits through the same module — a generated route is a
 different `kind`, not a different document.
 
+## The Neo4j export — the inversion
+
+```bash
+uv run python -m export.neo4j_load --dry-run    # what would load
+uv run python -m export.neo4j_load              # the catalogue into Neo4j (~1 min)
+```
+
+Neo4j is a **reader** of the route documents: this loads what the app selects on —
+identity, measures, both difficulty grades, the MTB verdict, `(:Route)-[:PASSES]->(:Place)`
+and `(:Route)-[:STARTS_AT]->(:Start)` — and deliberately **not** the geometry or the
+profile, which stay canonical in the document, fetched by `route_id`. The export owns
+`:Route`, `:Place`, `:Start` and replaces them wholesale; the backend's Trail/Segment
+graph is untouched. Cypher lives in `export/catalogue.cypher` as named templates run with
+parameters only.
+
+The end-of-run smoke test is the product's own query shape — clean routes in a distance
+band passing a peak — and it filters on `warnings = 0`, because its first run without
+that filter surfaced 0.0 km fragments wearing famous names: the quality block is not
+decoration.
+
 ## The review bundle
 
 ```bash

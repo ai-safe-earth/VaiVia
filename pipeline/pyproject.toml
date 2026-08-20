@@ -24,6 +24,9 @@ dependencies = [
     # is a contract other tiers read. Validating the emitter against it in the
     # test suite is what stops the contract and the producer drifting apart.
     "jsonschema>=4.0",
+    # The Neo4j export: the catalogue's reader-side load (docs/route-document.md
+    # — Neo4j is a READER of the route documents, and this is the reading).
+    "neo4j>=5.0",
 ]
 
 [dependency-groups]
