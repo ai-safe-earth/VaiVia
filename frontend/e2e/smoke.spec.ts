@@ -86,14 +86,30 @@ test.describe('VaiVia smoke', () => {
     await expect(page.getByText(EMAIL!)).toBeVisible();
 
     const input = page.getByLabel('Your message');
-    await input.fill('show me an intermediate mountain bike trail');
+    // Loop wording on purpose: it is what reaches the pipeline catalogue.
+    // "a hike up to a peak" reads as a named-trail search and answers from the
+    // much smaller (:Trail) graph instead.
+    await input.fill('a loop hike past a peak, 8 to 16 km, nothing harder than T3');
     await input.press('Enter');
 
-    // A real streamed answer grounded in the graph: the fixture's mtb trail
-    // surfaces as a card, and selecting it draws geometry on the map.
-    const card = page.getByRole('heading', { name: 'Lago Loop' });
+    // A real streamed answer selected from the catalogue. The route that comes
+    // back is whichever scores best on the day, so this pins the shape — a
+    // card with a name and a distance — not one route's name.
+    const card = page.locator('.route-card').first();
     await expect(card).toBeVisible({ timeout: 45_000 });
+    await expect(card.locator('.route-name')).not.toBeEmpty();
+    await expect(card.getByText('km')).toBeVisible();
+
+    // Selecting it draws the route document's geometry on the map.
     await card.click();
     await expect(page.getByText('Pick a trail to see it drawn here.')).toBeHidden();
+
+    // The answer prose carries no links (fragilities.md #14): the model used
+    // to invent trailforks.com links onto OSM-derived routes, and the strip
+    // that stops it lives in the backend, so only a live turn exercises it.
+    // The transcript renders content as plain text, so a surviving link shows
+    // up as its markdown source — which is exactly what to assert against.
+    const answer = await page.locator('.turn-assistant').last().innerText();
+    expect(answer).not.toMatch(/https?:\/\/|]\(|trailforks/i);
   });
 });
