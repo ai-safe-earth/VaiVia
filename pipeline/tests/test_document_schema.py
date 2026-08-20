@@ -66,6 +66,8 @@ def document(**overrides):
                 "kind": "parking",
                 "name": "Piazza Sant'Antonio",
                 "ele_m": None,
+                "lon": 9.3304,
+                "lat": 45.9277,
                 "offset_m": 45.6,
                 "distance_along_m": 0.0,
                 "is_start": True,
@@ -154,6 +156,8 @@ def test_a_route_in_pieces_validates_and_says_so(validator):
                 "kind": "peak",
                 "name": "Somewhere",
                 "ele_m": 1800.0,
+                "lon": 9.34,
+                "lat": 45.93,
                 "offset_m": 12.0,
                 # No single measure along a route held in pieces.
                 "distance_along_m": None,

@@ -135,6 +135,7 @@ single AS (
     SELECT CASE WHEN GeometryType(geom) = 'LINESTRING' THEN geom END AS geom FROM line
 )
 SELECT p.source_id, p.kind, p.name, p.ele_m,
+       ST_X(p.geom), ST_Y(p.geom),
        ST_Distance(p.geom::geography, l.geom::geography) AS offset_m,
        CASE WHEN s.geom IS NOT NULL
             THEN ST_LineLocatePoint(s.geom, p.geom) * ST_Length(s.geom::geography)
@@ -227,11 +228,13 @@ def emit(
             "kind": kind,
             "name": name,
             "ele_m": ele_m,
+            "lon": round(lon, 6),
+            "lat": round(lat, 6),
             "offset_m": round(offset_m, 1),
             "distance_along_m": None if along_m is None else round(along_m, 1),
             "is_start": is_start,
         }
-        for source_id, kind, name, ele_m, offset_m, along_m, is_start in conn.execute(
+        for source_id, kind, name, ele_m, lon, lat, offset_m, along_m, is_start in conn.execute(
             PLACES, {"rel": rel_id, "radius": PLACES_M}
         )
     ]

@@ -354,7 +354,9 @@
         "required": [
           "id",
           "kind",
-          "offset_m"
+          "offset_m",
+          "lon",
+          "lat"
         ],
         "properties": {
           "id": {
@@ -388,6 +390,14 @@
           },
           "is_start": {
             "type": "boolean"
+          },
+          "lon": {
+            "type": "number",
+            "description": "Marker longitude (ST_PointOnSurface)."
+          },
+          "lat": {
+            "type": "number",
+            "description": "Marker latitude."
           }
         }
       }

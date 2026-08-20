@@ -56,6 +56,7 @@ WITH line AS (
     SELECT geom FROM curated.route WHERE route_id = %(route_id)s
 )
 SELECT p.source_id, p.kind, p.name, p.ele_m,
+       ST_X(p.geom), ST_Y(p.geom),
        ST_Distance(p.geom::geography, l.geom::geography) AS offset_m,
        ST_LineLocatePoint(l.geom, p.geom) * ST_Length(l.geom::geography) AS along_m,
        p.is_start
@@ -109,11 +110,13 @@ def emit_generated() -> None:
                     "kind": kind,
                     "name": name,
                     "ele_m": ele_m,
+                    "lon": round(lon, 6),
+                    "lat": round(lat, 6),
                     "offset_m": round(offset_m, 1),
                     "distance_along_m": round(along_m, 1),
                     "is_start": is_start,
                 }
-                for source_id, kind, name, ele_m, offset_m, along_m, is_start in conn.execute(
+                for source_id, kind, name, ele_m, lon, lat, offset_m, along_m, is_start in conn.execute(
                     PLACES, {"route_id": rid, "radius": PLACES_M}
                 )
             ]
