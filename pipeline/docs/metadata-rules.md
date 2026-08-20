@@ -291,6 +291,19 @@ cannot rename a route (a comment would orphan — docs/social-layer.md); a real 
 is a NEW route. Never a sequence number, a `run_id`, or a vertex id — vertex ids do not
 survive a rebuild.
 
+**Routes are not just loops (owner, 2026-08-20).** The second shape is the
+out-and-back: start → an INTERESTING place → back, with the return leg soft-penalising
+the out leg so it differs where the ground allows and honestly retraces where the valley
+allows one way. Destination choice is `draw/destinations.py`: v0 interest weights
+(peaks and viewpoints at the top — the owner's own examples; springs and picnic sites
+are waypoints, not destinations), a heavy named-bonus, and a deliberately generous
+crow-flies band because measured wander (walked/crow) spans 1.4–3.3 in these mountains —
+the score's length-fit term judges the actual routed distance, not the band. Two things
+fall out: **generated routes get names** ("To Rifugio Elisa" — destination naming is
+free where trailhead naming is unsolved), and the catalogue replaces per
+**(activity, shape)** — loops and destination routes are siblings the same way foot and
+mtb are.
+
 **Calibrated, not guessed:** the via-ring radius started at target/3.6 (equilateral
 arithmetic); the first catalogue measured median actual/target at 1.43, and the constant
 is now target/5.0 — bringing the median to 1.05–1.25. Same discipline as the 2 m weld
