@@ -268,6 +268,23 @@ that sequence; nothing is spatially matched, so the provider spike's corridor ar
 | retrace | metres walked more than once / total, direction-blind |
 | score | **descriptive, never a filter** — off-road 0.5, loop shape 0.3, length fit 0.2, weights as parameters |
 
+**Character and exigent, both carried (owner rule 2026-08-20).** When segments disagree,
+a joined attribute takes the **most demanding** value: a loop with one segment not for
+bikes is not for bikes, and the hardest metre walked is the hardest metre walked, however
+short. So every route carries two grades — `sac_scale` (character: hardest grade covering
+≥ 5%, the label it wears) and `sac_max` (exigent: hardest graded metre, what you must
+handle) — plus `graded_share`, because the median route is graded on only 16% of its
+metres and an "ungraded" without that number reads as a failed join. The MTB conjunction
+now reports its **blocked metres**: failing on 6 m of steps and failing on 1.6 km of
+private road must not read identically as "no".
+
+**Activities are construction, not filters.** An `mtb` catalogue is drawn over
+`routable_bike` edges only, so every mtb loop is bike-legal **by construction** — the
+router detours around forbidden segments instead of a verdict flagging them afterwards.
+Measured on the second catalogue: 54 of 54 mtb loops at 0 blocked metres, and 18 asks
+produced the same ground as an existing fully-legal foot loop and folded into it by the
+geometry-derived id — a fully bike-legal foot loop IS the mtb loop over that ground.
+
 **The route id derives from the ground** (`draw/route_id.py`): coordinates rounded to
 5 decimals (~1.1 m), direction-normalised, hashed. A weld moving an endpoint 40 cm
 cannot rename a route (a comment would orphan — docs/social-layer.md); a real reroute

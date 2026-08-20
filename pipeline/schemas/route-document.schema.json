@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-1.0.json",
+  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-1.1.json",
   "title": "VaiVia route document",
   "description": "The product: one route, as every reader consumes it. PostGIS holds the value; this is what is delivered. See docs/route-document.md for the reasoning behind each block. Readers outlive producers, so this is versioned and additive: a new field is a minor version, a removed or re-meaning field is a major one.",
   "type": "object",
@@ -33,47 +33,115 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["osm_route", "generated"],
+      "enum": [
+        "osm_route",
+        "generated"
+      ],
       "description": "osm_route is a route somebody mapped; generated is one this pipeline drew. Same document either way."
     },
     "identity": {
       "type": "object",
       "description": "How a walker recognises this route. ref and the painted waymark matter more than the name here: most CAI sentieri have a number and no name.",
-      "required": ["regions"],
+      "required": [
+        "regions"
+      ],
       "properties": {
-        "name": { "type": ["string", "null"] },
-        "ref": { "type": ["string", "null"], "description": "CAI sentiero number" },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "CAI sentiero number"
+        },
         "activity": {
-          "type": ["string", "null"],
-          "enum": ["hiking", "foot", "bicycle", "mtb", null]
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "hiking",
+            "foot",
+            "bicycle",
+            "mtb",
+            null
+          ]
         },
         "network": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "OSM scope: lwn/rwn/nwn/iwn walking, lcn/rcn/ncn cycling"
         },
         "waymark": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "osmc:symbol, the paint on the rock"
         },
-        "from": { "type": ["string", "null"] },
-        "to": { "type": ["string", "null"] },
-        "operator": { "type": ["string", "null"] },
-        "regions": { "type": "array", "items": { "type": "string" } },
-        "osm_relation_id": { "type": ["integer", "null"] }
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operator": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "osm_relation_id": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
       }
     },
     "geometry": {
       "type": "object",
       "description": "The map. WGS84 (EPSG:4326). A MultiLineString is not an error: it is a route this network holds in pieces, and continuity says so.",
-      "required": ["type", "coordinates"],
+      "required": [
+        "type",
+        "coordinates"
+      ],
       "properties": {
-        "type": { "enum": ["LineString", "MultiLineString"] },
-        "coordinates": { "type": "array" }
+        "type": {
+          "enum": [
+            "LineString",
+            "MultiLineString"
+          ]
+        },
+        "coordinates": {
+          "type": "array"
+        }
       }
     },
     "bbox": {
       "type": "array",
-      "items": { "type": "number" },
+      "items": {
+        "type": "number"
+      },
       "minItems": 4,
       "maxItems": 4,
       "description": "[minx, miny, maxx, maxy], so a reader can index and cull without parsing the geometry"
@@ -81,48 +149,111 @@
     "measures": {
       "type": "object",
       "description": "duration is deliberately absent: DIN 33466 rates the classic Grigna ascent at 10 h against a guidebook 6-8, so the figure this codebase can compute is one a user would not trust. An absent field invites the calibration; a wrong one ships.",
-      "required": ["distance_m", "ascent_m", "descent_m"],
+      "required": [
+        "distance_m",
+        "ascent_m",
+        "descent_m"
+      ],
       "additionalProperties": false,
       "properties": {
-        "distance_m": { "type": "number", "minimum": 0 },
+        "distance_m": {
+          "type": "number",
+          "minimum": 0
+        },
         "ascent_m": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0,
           "description": "null when any edge lacks a profile. Absent is not zero: a partial sum would read as a flat route."
         },
-        "descent_m": { "type": ["number", "null"], "minimum": 0 },
-        "lowest_m": { "type": ["number", "null"] },
-        "highest_m": { "type": ["number", "null"] }
+        "descent_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "lowest_m": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "highest_m": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
       }
     },
     "profile": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "description": "The altitude profile, as two parallel arrays of equal length. Null rather than partial when any sample is missing.",
-      "required": ["distance_m", "elevation_m"],
+      "required": [
+        "distance_m",
+        "elevation_m"
+      ],
       "properties": {
-        "distance_m": { "type": "array", "items": { "type": "number" } },
-        "elevation_m": { "type": "array", "items": { "type": "number" } }
+        "distance_m": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "elevation_m": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
       }
     },
     "surface": {
       "type": "object",
       "description": "A distribution kept whole, plus a dominant value. '62% unpaved' is a fact about a route; 'unpaved' alone is a claim. Untagged length is reported as 'unknown' rather than renormalised away.",
-      "required": ["distribution", "dominant"],
+      "required": [
+        "distribution",
+        "dominant"
+      ],
       "properties": {
         "distribution": {
           "type": "object",
-          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
         },
-        "dominant": { "type": ["string", "null"] }
+        "dominant": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "difficulty": {
       "type": "object",
-      "description": "The rule ships with the number, so no reader has to guess how it was derived.",
-      "required": ["sac_scale", "distribution", "rule"],
+      "description": "Two grades, both true: sac_scale is the CHARACTER (hardest grade covering >=5% of the length - a label), sac_max the EXIGENT grade (hardest graded metre, any length - what you must be able to handle; owner rule 2026-08-20). graded_share says how much of the route carries any grade, so sparse grading reads as a mapping fact rather than a failed join. The rule ships with the numbers.",
+      "required": [
+        "sac_scale",
+        "sac_max",
+        "graded_share",
+        "distribution",
+        "rule"
+      ],
       "properties": {
         "sac_scale": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "enum": [
             "hiking",
             "mountain_hiking",
@@ -136,29 +267,83 @@
         },
         "distribution": {
           "type": "object",
-          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
         },
-        "rule": { "type": "string" }
+        "rule": {
+          "type": "string"
+        },
+        "sac_max": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "hiking",
+            "mountain_hiking",
+            "demanding_mountain_hiking",
+            "alpine_hiking",
+            "demanding_alpine_hiking",
+            "difficult_alpine_hiking",
+            null
+          ],
+          "description": "The hardest graded metre walked, however short."
+        },
+        "graded_share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Share of the length carrying any recognised sac_scale."
+        }
       }
     },
     "continuity": {
       "type": "object",
-      "required": ["pieces", "continuous"],
+      "required": [
+        "pieces",
+        "continuous"
+      ],
       "properties": {
-        "pieces": { "type": "integer", "minimum": 1 },
-        "continuous": { "type": "boolean" }
+        "pieces": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "continuous": {
+          "type": "boolean"
+        }
       }
     },
     "start": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "description": "Where a walk on this route can begin. names is often empty because car parks are rarely named in OSM: a known gap, not a bug.",
       "properties": {
-        "vertex_id": { "type": "integer" },
-        "names": { "type": "array", "items": { "type": "string" } },
-        "anchors": { "type": "integer" },
-        "nearest_m": { "type": "number" },
-        "car_free": { "type": "boolean" },
-        "point": { "type": "object" }
+        "vertex_id": {
+          "type": "integer"
+        },
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "anchors": {
+          "type": "integer"
+        },
+        "nearest_m": {
+          "type": "number"
+        },
+        "car_free": {
+          "type": "boolean"
+        },
+        "point": {
+          "type": "object"
+        }
       }
     },
     "places": {
@@ -166,55 +351,118 @@
       "description": "What the route passes, ordered along it. Bounded at 100 m, which is where qa.distance_band puts 'near'; offset_m travels so a reader wanting 30 m filters on it. distance_along_m is null on a route held in more than one piece, because there is no single measure along it.",
       "items": {
         "type": "object",
-        "required": ["id", "kind", "offset_m"],
+        "required": [
+          "id",
+          "kind",
+          "offset_m"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "kind": { "type": "string" },
-          "name": { "type": ["string", "null"] },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ele_m": {
-            "type": ["number", "null"],
+            "type": [
+              "number",
+              "null"
+            ],
             "description": "The OSM ele tag, never the DEM: a 30 m cell reads a summit ~23 m low by design."
           },
-          "offset_m": { "type": "number", "minimum": 0 },
-          "distance_along_m": { "type": ["number", "null"] },
-          "is_start": { "type": "boolean" }
+          "offset_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "distance_along_m": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "is_start": {
+            "type": "boolean"
+          }
         }
       }
     },
     "quality": {
       "type": "object",
       "description": "Carried, never filtered on. A route this network holds in three pieces is still a real route, and the reader deciding whether to show it needs to know which one it is.",
-      "required": ["warnings"],
+      "required": [
+        "warnings"
+      ],
       "properties": {
-        "warnings": { "type": "array", "items": { "type": "string" } },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "matched_fraction": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 1,
           "description": "osm_route only: the share of the relation's ways this network holds. Null for a generated route - absent is not zero."
         },
-        "edges_without_profile": { "type": "integer", "minimum": 0 }
+        "edges_without_profile": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "provenance": {
       "type": "object",
       "description": "Attribution travels INSIDE the document. The document is the Produced Work under ODbL, so a consumer that renders the geometry elsewhere cannot strip the obligation by accident.",
-      "required": ["run_id", "sources"],
+      "required": [
+        "run_id",
+        "sources"
+      ],
       "properties": {
-        "run_id": { "type": "string" },
-        "producer": { "type": "string" },
+        "run_id": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
         "sources": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["name", "licence", "attribution"],
+            "required": [
+              "name",
+              "licence",
+              "attribution"
+            ],
             "properties": {
-              "name": { "type": "string" },
-              "licence": { "type": "string" },
-              "attribution": { "type": "string" },
-              "url": { "type": "string" },
-              "provides": { "type": "array", "items": { "type": "string" } }
+              "name": {
+                "type": "string"
+              },
+              "licence": {
+                "type": "string"
+              },
+              "attribution": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "provides": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
         }

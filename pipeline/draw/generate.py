@@ -71,10 +71,21 @@ WHERE edge >= 0
 ORDER BY seq
 """
 
-EDGES_BASE = (
-    "SELECT edge_id AS id, source, target, length_m AS cost "
-    "FROM curated.edge WHERE routable_foot"
-)
+# Per activity: an mtb loop is drawn over routable_bike edges ONLY, so it is
+# bike-legal BY CONSTRUCTION — the owner's observation made mechanism: a loop
+# that shares a foot loop's legal segments and detours around its forbidden
+# ones is exactly what the router produces when the forbidden ones are not in
+# its graph.
+EDGES_BASE = {
+    "foot": (
+        "SELECT edge_id AS id, source, target, length_m AS cost "
+        "FROM curated.edge WHERE routable_foot"
+    ),
+    "mtb": (
+        "SELECT edge_id AS id, source, target, length_m AS cost "
+        "FROM curated.edge WHERE routable_bike"
+    ),
+}
 
 EDGE_DETAILS = """
 SELECT e.edge_id, e.source, e.target, e.length_m,
@@ -86,25 +97,28 @@ FROM curated.edge e WHERE e.edge_id = ANY(%(ids)s)
 """
 
 
-def edges_sql(penalised: set[int], factor: float = 3.0) -> str:
+def edges_sql(activity: str, penalised: set[int], factor: float = 3.0) -> str:
     """The pgr_dijkstra edges query, with walked edges made expensive."""
+    legality = "routable_bike" if activity == "mtb" else "routable_foot"
     if not penalised:
-        return EDGES_BASE
+        return EDGES_BASE[activity]
     ids = ",".join(str(int(edge_id)) for edge_id in sorted(penalised))
     return (
         "SELECT edge_id AS id, source, target, "
         f"CASE WHEN edge_id IN ({ids}) THEN length_m * {factor} "
         "ELSE length_m END AS cost "
-        "FROM curated.edge WHERE routable_foot"
+        f"FROM curated.edge WHERE {legality}"
     )
 
 
-def route_leg(conn, from_vertex: int, to_vertex: int, penalised: set[int]):
+def route_leg(
+    conn, activity: str, from_vertex: int, to_vertex: int, penalised: set[int]
+):
     """One Dijkstra leg as [(entered_from_node, edge_id), ...]."""
     return conn.execute(
         LEG,
         {
-            "edges_sql": edges_sql(penalised),
+            "edges_sql": edges_sql(activity, penalised),
             "from_vertex": from_vertex,
             "to_vertex": to_vertex,
         },
@@ -170,7 +184,12 @@ def walked_sequence(conn, steps: list[tuple[int, bool]]) -> list[WalkedEdge]:
 
 
 def draw_loop(
-    conn, start_vertex: int, start: tuple[float, float], target_m: float, seed: int
+    conn,
+    activity: str,
+    start_vertex: int,
+    start: tuple[float, float],
+    target_m: float,
+    seed: int,
 ) -> list[WalkedEdge] | None:
     """start → via₁ → via₂ → start, with walked legs soft-penalised."""
     vias = []
@@ -188,7 +207,7 @@ def draw_loop(
     for leg_from, leg_to in itertools.pairwise(waypoints):
         if leg_from == leg_to:
             continue
-        leg = route_leg(conn, leg_from, leg_to, walked)
+        leg = route_leg(conn, activity, leg_from, leg_to, walked)
         if not leg:
             return None  # disconnected ask — the whole loop is off
         steps.extend(leg)
@@ -209,6 +228,12 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=4, help="attempts per ask")
     parser.add_argument(
         "--keep", type=int, default=2, help="best distinct kept per ask"
+    )
+    parser.add_argument(
+        "--activity",
+        choices=("foot", "mtb"),
+        default="foot",
+        help="mtb routes over bike-legal edges only: legal by construction",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -244,6 +269,7 @@ def main() -> None:
                 json.dumps(
                     {
                         "builder": "draw.generate",
+                        "activity": args.activity,
                         "starts": args.starts,
                         "distances": targets,
                         "seeds": args.seeds,
@@ -264,7 +290,9 @@ def main() -> None:
             for target_m in targets:
                 candidates = []
                 for seed in range(args.seeds):
-                    sequence = draw_loop(conn, vertex_id, (lon, lat), target_m, seed)
+                    sequence = draw_loop(
+                        conn, args.activity, vertex_id, (lon, lat), target_m, seed
+                    )
                     if not sequence:
                         continue
                     facts = assemble(sequence)
@@ -291,13 +319,18 @@ def main() -> None:
                         f"retrace {best.retrace_share:.0%}"
                     )
 
-        # Replace, not merge.
-        conn.execute("TRUNCATE curated.route_edge, curated.route")
+        # Replace, not merge — PER ACTIVITY: the foot and mtb catalogues are
+        # siblings and a regeneration of one must not silently delete the other.
+        conn.execute("DELETE FROM curated.route WHERE activity = %s", (args.activity,))
         inserted = 0
         for candidate in kept_total:
             facts = candidate["facts"]
             rid = route_id(facts.coords)
-            # The same ground can win from two nearby starts; one row speaks.
+            # The same ground can win from two nearby starts — one row speaks.
+            # It can also already exist as the OTHER activity's loop (a fully
+            # bike-legal foot loop IS the mtb loop over the same ground): the
+            # id is the ground, so the earlier row stands and this candidate
+            # folds into it rather than duplicating the geometry.
             exists = conn.execute(
                 "SELECT 1 FROM curated.route WHERE route_id = %s", (rid,)
             ).fetchone()
@@ -306,24 +339,29 @@ def main() -> None:
             conn.execute(
                 """
                 INSERT INTO curated.route
-                    (route_id, kind, start_vertex, target_m, distance_m,
-                     ascent_m, descent_m, sac_scale, mtb_rideable, mtb_scale,
+                    (route_id, kind, activity, start_vertex, target_m, distance_m,
+                     ascent_m, descent_m, sac_scale, sac_max, graded_share,
+                     mtb_rideable, mtb_scale, bike_blocked_m,
                      surface, off_road_share, retrace_share, score, seed,
                      geom, run_id)
-                VALUES (%s, 'generated', %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s,
+                VALUES (%s, 'generated', %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s,
                         ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), %s)
                 """,
                 (
                     rid,
+                    args.activity,
                     candidate["start_vertex"],
                     candidate["target_m"],
                     facts.distance_m,
                     facts.ascent_m,
                     facts.descent_m,
                     facts.sac_scale,
+                    facts.sac_max,
+                    facts.graded_share,
                     facts.mtb_rideable,
                     facts.mtb_scale,
+                    facts.bike_blocked_m,
                     json.dumps(facts.surface),
                     facts.off_road_share,
                     facts.retrace_share,

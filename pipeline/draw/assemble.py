@@ -18,7 +18,14 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from export.document import SAC_ORDER, Span, dominant, shares, significant_grade
+from export.document import (
+    SAC_ORDER,
+    Span,
+    dominant,
+    exigent_grade,
+    shares,
+    significant_grade,
+)
 
 Coord = tuple[float, float]
 
@@ -55,9 +62,12 @@ class Assembled(NamedTuple):
     profile: dict[str, list[float]] | None
     surface: dict[str, float]
     surface_dominant: str | None
-    sac_scale: str | None
+    sac_scale: str | None  # character: hardest grade covering >= 5%
+    sac_max: str | None  # exigent: hardest metre walked, any length
+    graded_share: float  # how much of the route carries ANY grade
     mtb_rideable: bool | None
     mtb_scale: str | None
+    bike_blocked_m: float  # metres a bike may not legally ride
     off_road_share: float
     retrace_share: float
 
@@ -124,19 +134,25 @@ def profile(edges: list[WalkedEdge]) -> dict[str, list[float]] | None:
     return {"distance_m": distances, "elevation_m": elevations}
 
 
-def mtb(edges: list[WalkedEdge]) -> tuple[bool | None, str | None]:
+def mtb(edges: list[WalkedEdge]) -> tuple[bool | None, str | None, float]:
     """The access conjunction, along the sequence: one forbidding edge forbids.
 
     This is the spike's caveat repaired — a route that WALKS a non-bikeable
     edge is genuinely not a bike route; there is no corridor to slip in a
     crossing. Nothing walked means nothing known.
+
+    The BLOCKED METRES come back with the verdict, because a verdict without
+    them is invisible data: a loop failing on 6 m of steps and a loop failing
+    on 1.6 km of private road read identically as "no", and the reader deciding
+    what to do about it needs to know which one it is.
     """
     if not edges:
-        return None, None
-    if any(not e.routable_bike for e in edges):
-        return False, None
+        return None, None, 0.0
+    blocked = sum(e.length_m for e in edges if not e.routable_bike)
+    if blocked > 0:
+        return False, None, blocked
     grade = significant_grade([Span(e.mtb_scale, e.length_m) for e in edges], MTB_ORDER)
-    return True, grade
+    return True, grade, 0.0
 
 
 def retrace(edges: list[WalkedEdge]) -> float:
@@ -169,20 +185,24 @@ def assemble(edges: list[WalkedEdge]) -> Assembled:
     """Every rule at once: the sequence in, the route's facts out."""
     up, down = climb(edges)
     surface = shares(Span(e.surface, e.length_m) for e in edges)
-    rideable, grade = mtb(edges)
+    rideable, grade, blocked_m = mtb(edges)
+    total = sum(e.length_m for e in edges)
+    sac_spans = [Span(e.sac_scale, e.length_m) for e in edges]
+    graded = sum(e.length_m for e in edges if e.sac_scale in SAC_ORDER)
     return Assembled(
         coords=concatenate(edges),
-        distance_m=sum(e.length_m for e in edges),
+        distance_m=total,
         ascent_m=up,
         descent_m=down,
         profile=profile(edges),
         surface=surface,
         surface_dominant=dominant(surface),
-        sac_scale=significant_grade(
-            [Span(e.sac_scale, e.length_m) for e in edges], SAC_ORDER
-        ),
+        sac_scale=significant_grade(sac_spans, SAC_ORDER),
+        sac_max=exigent_grade(sac_spans, SAC_ORDER),
+        graded_share=(graded / total) if total > 0 else 0.0,
         mtb_rideable=rideable,
         mtb_scale=grade,
+        bike_blocked_m=blocked_m,
         off_road_share=off_road(edges),
         retrace_share=retrace(edges),
     )

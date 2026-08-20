@@ -28,7 +28,7 @@ from export.route_documents import PLACES_M, SOURCES
 OUT = Path(__file__).resolve().parents[2] / "review" / "routes"
 
 ROUTES = """
-SELECT r.route_id, r.start_vertex, r.target_m, r.score, r.seed, r.run_id,
+SELECT r.route_id, r.activity, r.start_vertex, r.target_m, r.score, r.seed, r.run_id,
        ST_AsGeoJSON(r.geom),
        ARRAY[ST_XMin(r.geom), ST_YMin(r.geom), ST_XMax(r.geom), ST_YMax(r.geom)]
 FROM curated.route r
@@ -78,6 +78,7 @@ def emit_generated() -> None:
         routes = conn.execute(ROUTES).fetchall()
         for (
             rid,
+            activity,
             start_vertex,
             target_m,
             score,
@@ -131,7 +132,8 @@ def emit_generated() -> None:
                 identity={
                     "name": None,
                     "ref": None,
-                    "activity": "hiking",
+                    # The document's activity vocabulary is OSM's route= one.
+                    "activity": "mtb" if activity == "mtb" else "hiking",
                     "network": None,
                     "waymark": None,
                     "from": None,
@@ -161,11 +163,13 @@ def emit_generated() -> None:
                     "run_id": run_id,
                     "producer": "pipeline/draw/emit.py",
                     "generation": {
+                        "activity": activity,
                         "target_m": target_m,
                         "seed": seed,
                         "score": score,
                         "mtb_rideable": facts.mtb_rideable,
                         "mtb_scale": facts.mtb_scale,
+                        "bike_blocked_m": round(facts.bike_blocked_m, 1),
                         "off_road_share": round(facts.off_road_share, 3),
                         "retrace_share": round(facts.retrace_share, 3),
                     },
@@ -184,9 +188,11 @@ def emit_generated() -> None:
                     "geometry": document["geometry"],
                     "properties": {
                         "id": rid,
+                        "activity": activity,
                         "km": round(facts.distance_m / 1000, 2),
                         "ascent_m": facts.ascent_m,
                         "sac_scale": facts.sac_scale,
+                        "sac_max": facts.sac_max,
                         "mtb_rideable": facts.mtb_rideable,
                         "off_road_share": round(facts.off_road_share, 2),
                         "retrace_share": round(facts.retrace_share, 2),
