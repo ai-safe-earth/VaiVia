@@ -27,10 +27,8 @@ REGIONS: dict[str, tuple[float, float, float, float]] = {
 }
 
 
-def database_url() -> str:
-    url = os.environ.get("PIPELINE_DATABASE_URL")
-    if url:
-        return url
+def env_values() -> dict[str, str]:
+    """The repo root .env, parsed. The environment itself wins over the file."""
     env_file = REPO_ROOT / ".env"
     values: dict[str, str] = {}
     if env_file.is_file():
@@ -38,6 +36,19 @@ def database_url() -> str:
             key, sep, value = line.partition("=")
             if sep and not key.strip().startswith("#"):
                 values[key.strip()] = value.strip()
+    return values
+
+
+def env_value(key: str) -> str | None:
+    """One setting, environment first, then the repo root .env."""
+    return os.environ.get(key) or env_values().get(key) or None
+
+
+def database_url() -> str:
+    url = os.environ.get("PIPELINE_DATABASE_URL")
+    if url:
+        return url
+    values = env_values()
     if "PIPELINE_DATABASE_URL" in values:
         return values["PIPELINE_DATABASE_URL"]
     password = values.get("POSTGIS_PASSWORD")
