@@ -177,6 +177,81 @@ across 20 relations, reporting the Dorsale Orobica Lecchese as 44.17 km against 
 The tell was that the edge COUNT was right — it was already `count(DISTINCT edge_id)` —
 while the kilometres beside it were not.
 
+## Places snapped to the network (`curated.place`, written 2026-08-20)
+
+POIs, settlements and transit stops attached to the routing graph. One row per feature,
+carrying the vertex it snapped to, how far that was, and whether a walk can begin there.
+
+### No threshold, deliberately
+
+The distance is stored and nothing is dropped for being far. "How close must a car park be
+to count as a trailhead" is a product decision, and a build step that silently discards the
+ones beyond 50 m has made it where nobody can see it — the argument `docs/route-pipeline.md`
+already settled for the off-road score ("descriptive, not a filter"). Consumers filter on
+`distance_m`. There is consequently no tolerance to justify from a histogram, because there
+is no tolerance.
+
+### Nearest vertex, not nearest edge
+
+A place is attached so a route can **start** there, and a route starts at a routing vertex.
+The other question — which places a route **passes** — is deliberately not answered here:
+the "on join" rule above settles it at assembly, positioning each POI along the *merged*
+line with `ST_LineLocatePoint`. Precomputing a place-to-edge table would answer it with a
+radius nobody chose, and it is not small: 66,572 pairs at 25 m, 116,855 at 50 m.
+
+### Search planar, measure geodesic
+
+Candidate selection uses the KNN operator against a GiST index on
+`ST_Transform(geom, 32632)`; the stored distance is `ST_Distance(::geography, ::geography)`,
+the same true-metres measure as every `qa.finding`. Mixing would leave one number in the
+store meaning "metres in UTM" and its neighbour "metres on the ellipsoid".
+
+This is a second index on the same geometry and it earns its space. The `::geography`
+indexes from 0004 serve a **range** predicate (`ST_DWithin`) well and a **nearest
+neighbour over polygons** badly: 7,471 car parks resolve in **2.6 s** through the planar
+index and did not finish in four minutes through a geography range join. The two indexes
+answer different questions.
+
+Polygons are measured whole — 7,280 of 7,471 car parks, 376 of 377 lakes and 66 of 74 huts
+are areas — so a car park 60 m across that touches a lane is 0 m from the network, not 30.
+`place.geom` is `ST_PointOnSurface`, a marker for drawing, never for measuring; a centroid
+would fall outside a C-shaped car park.
+
+### What the distances say
+
+| kind | n | p50 | p90 | max | is_start |
+|---|---|---|---|---|---|
+| parking | 7,471 | 6.2 m | 36.5 m | 143 m | yes |
+| hut | 74 | 6.3 m | 22.7 m | 88 m | no |
+| stop (GTFS) | 17 | 11.5 m | 20.6 m | 31 m | yes |
+| village | 157 | 24.1 m | 52.5 m | 250 m | yes |
+| chapel | 1,179 | 12.0 m | 70.5 m | 423 m | no |
+| **peak** | 405 | **55.0 m** | **319.6 m** | **1,124 m** | no |
+
+**A far snap is usually not a bad snap.** Every hut is within 88 m of a path and every car
+park within 143 m, which is what those things are. Peaks are the outlier and correctly so:
+Corna del Colonnello sits 1,124 m from the nearest way because no path goes there. For a
+summit, `distance_m` is the column that separates a walk from a scramble — a coverage fact
+like the 370 islands, not a defect.
+
+### Verdicts are recorded, not applied
+
+`is_start` and `start_note` come from `curate/anchors.py`, in the same shape as
+`load/legality.py`: a verdict plus the reason it went that way. 8,258 of 12,476 places can
+begin a walk, on 6,112 distinct vertices — several car parks routinely snap to one lane
+end, and that vertex is one trailhead, not four. The rest carry their reason: 1,179 "a
+chapel is passed, not started from", 999 "a residential area is a polygon, not a point a
+walk begins at", 405 "a summit is a destination, not a trailhead".
+
+**86 start vertices are not on the main component.** A trailhead on an island is a place
+you can begin and get nowhere, which is worth seeing before any route is generated from it.
+`qa.v_start` carries `component_id` so the filter is a comparison.
+
+Naming is left undone on purpose: `qa.v_start.names` is whatever the anchors actually
+carry, which for car parks is usually nothing. `docs/route-pipeline.md` records that only
+37 of 266 trailheads had a name and that naming one from a nearby feature is unsolved —
+inventing "the car park below Grignone" is a decision nobody has made yet.
+
 ## Where an operation runs
 
 If it is naturally **one SQL statement over a table** — noding, snapping, line-merging,

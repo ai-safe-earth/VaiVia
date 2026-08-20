@@ -873,6 +873,82 @@ Pipeline suite: 71 tests, 9 of them new. Sampling is one statement over a whole 
 PostGIS does it; turning a profile into ascent and descent is per-feature branching over
 missing samples, so Python does it, in `curate/profile.py`, where the tests pin the rule.
 
+## 2026-08-20 (third) - Places on the network, and the staging shelf is empty
+
+POIs, settlements and Trenord stops snapped to the routing graph: `curated.place`, 12,476
+rows, **8,258 of which can begin a walk**, on 6,112 distinct vertices. With this, all six
+staged sources are read by something. Nothing is left sitting in staging.
+
+| source | snapped | can start a walk | p50 | p90 | max |
+|---|---|---|---|---|---|
+| poi | 10,422 | 7,520 | 7.6 m | 52.9 m | 1,124 m |
+| settlement | 2,037 | 721 | 12.0 m | 68.0 m | 417 m |
+| gtfs_stop | 17 | 17 | 11.5 m | 20.6 m | 31 m |
+
+### No threshold, and that is the decision
+
+Nothing is dropped for being far; `distance_m` is stored and consumers filter on it. How
+close a car park must be to count as a trailhead is a product decision, and a build step
+that silently discards the ones past 50 m has made that decision where nobody can see it.
+docs/route-pipeline.md settled the same argument for the off-road score - descriptive, not
+a filter - and it holds here. It also means there is no tolerance to justify from a
+histogram, because there is no tolerance.
+
+### A far snap is usually not a bad snap
+
+Every hut is within 88 m of a path and every car park within 143 m, which is what those
+things are. Peaks are the outlier and correctly so: p50 55 m, p90 320 m, and Corna del
+Colonnello at 1,124 m because no path goes there. For a summit, `distance_m` is the column
+that separates a walk from a scramble - a coverage fact like the 370 islands, not a defect.
+
+### Nearest vertex, not nearest edge
+
+A place is attached so a route can START there, and a route starts at a routing vertex.
+Which places a route PASSES is deliberately not answered here: metadata-rules.md settles it
+at assembly, positioning each POI along the MERGED line with ST_LineLocatePoint.
+Precomputing a place-to-edge table would answer it with a radius nobody chose, and it is
+not small - 66,572 pairs at 25 m, 116,855 at 50 m.
+
+### Two indexes on the same geometry, both earning their space
+
+0004 added `::geography` indexes so ST_DWithin could work in metres. Those serve a RANGE
+predicate well and a NEAREST NEIGHBOUR over polygons badly: 7,471 car parks resolve in
+2.6 s through a new GiST index on ST_Transform(geom, 32632) and did not finish in four
+minutes through a geography range join. So the search is planar and the stored distance is
+geodesic - the same true-metres measure as every qa.finding, because one number in the
+store meaning "metres in UTM" while its neighbour means "metres on the ellipsoid" is a trap
+laid for later.
+
+Polygons are measured whole - 7,280 of 7,471 car parks, 376 of 377 lakes, 66 of 74 huts are
+areas - so a car park 60 m across that touches a lane is 0 m from the network, not 30.
+`place.geom` is ST_PointOnSurface, a marker for drawing only; a centroid would fall outside
+a C-shaped car park.
+
+### Verdicts are recorded, not applied
+
+`is_start` and `start_note` come from `curate/anchors.py`, in the same shape as
+`load/legality.py`: a verdict plus the reason it went that way, so a rejection is auditable
+instead of invisible. 1,179 "a chapel is passed, not started from", 999 "a residential area
+is a polygon, not a point a walk begins at", 405 "a summit is a destination, not a
+trailhead".
+
+### What this leaves to judge
+
+- **86 start vertices are not on the main component.** A trailhead on an island is a place
+  you can begin and get nowhere - worth seeing before a route is generated from one.
+  `qa.v_start` carries `component_id`, so the filter is a comparison.
+- **33 car parks sit over 100 m from the network**, which is either a missing access road
+  in OSM or a polygon somewhere odd. That distinction is a look, not a rule.
+- **Trailheads still have no names.** `qa.v_start.names` is whatever the anchors carry,
+  which for car parks is usually nothing. route-pipeline.md recorded 37 of 266 named and
+  called naming them unsolved; it still is.
+
+`qa.v_place_link` is the layer for all of this - a line from each place to the vertex it
+attached to. A wrong snap is invisible as a number and obvious as a line reaching across a
+valley.
+
+Pipeline suite: 95 tests, 24 of them new.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1344,6 +1420,18 @@ missing samples, so Python does it, in `curate/profile.py`, where the tests pin 
         {
           "date": "2026-08-20",
           "text": "The altitude profile is stored per edge, not just ascent and descent, so a route's climb can come from the profile as metadata-rules.md requires; ascent/descent are directional and swap when assembly reverses a piece"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Places are snapped with NO distance threshold: distance_m is stored and consumers filter, because how close a car park must be to count as a trailhead is a product decision that a build step would hide"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Places snap to the nearest VERTEX, not the nearest edge; which places a route passes is computed at assembly against the merged line, not precomputed with a radius nobody chose"
+        },
+        {
+          "date": "2026-08-20",
+          "text": "Proximity search is planar (GiST on ST_Transform(geom,32632)) while stored distances stay geodesic: geography indexes serve range predicates well and polygon nearest-neighbour badly, 2.6 s against four minutes for 7,471 car parks"
         }
       ]
     }
@@ -1523,13 +1611,6 @@ missing samples, so Python does it, in `curate/profile.py`, where the tests pin 
       "plan": "redesign"
     },
     {
-      "title": "Snap POIs, GTFS stops and settlements to the network (nearest vertex within a threshold) - the start rule and the Places layer both need it",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
       "title": "Judge the 131 routes that come out in more than one piece in qa.v_route: coverage clipping at the bbox edge, or a real gap along a named route that the topology rules cannot see",
       "est": 1,
       "owner": "oscar",
@@ -1553,6 +1634,34 @@ missing samples, so Python does it, in `curate/profile.py`, where the tests pin 
     {
       "title": "Use profile_m rather than per-edge ascent_m when assembling a route, and swap ascent/descent on any piece the assembly reverses",
       "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Judge the 86 start vertices that are not on the main component - a trailhead on an island is a place you can begin and get nowhere",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Look at the 33 car parks over 100 m from the network in qa.v_place_link: a missing access road in OSM, or a polygon somewhere odd",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Name the trailheads from a nearby named feature - qa.v_start.names is empty for most car parks and 'start from vertex 43128' is not an answer",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Build pipeline/draw/: bounded route generation over the 6,112 start vertices, now that names, height and places all exist",
+      "est": 3,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -1617,6 +1726,13 @@ missing samples, so Python does it, in `curate/profile.py`, where the tests pin 
     },
     {
       "date": "2026-08-19",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-20",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

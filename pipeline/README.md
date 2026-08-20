@@ -20,7 +20,7 @@ sources/    acquire (Geofabrik PBF, GLO-30 tiles, GTFS, CLC+, REL, Infomont)
 load/       into staging_* tables
 topology/   noding, metadata propagation, QA detectors and automated repairs
 draw/       route enumeration (loops, out-and-back) and assembly
-curate/     route-relation join (edge_route), DEM sampling (elevation), scoring, dedup
+curate/     route join (edge_route), DEM sampling (elevation), place snapping (place)
 export/     to Neo4j
 sql/        migrations, applied in filename order by migrate.py
 tests/      pure-function tests (no database in the loop)
@@ -77,6 +77,9 @@ Ready-made layers, latest run only — add these by name rather than filtering b
 | `qa.v_route_coverage` | how much of each relation the network holds; `matched_fraction` near 0 is a route clipped away by the region bboxes |
 | `qa.v_elevation` | every edge with ascent, descent and **gradient** — style the network by steepness |
 | `qa.v_route_elevation` | the 752 routes with climb, lowest and highest point |
+| `qa.v_place` | every snapped POI, settlement and stop, with `distance_m` and the start verdict |
+| `qa.v_place_link` | **the layer for judging a snap**: a line from each place to the vertex it attached to — sort by `distance_m` descending |
+| `qa.v_start` | where a walk can begin: one point per vertex, with what makes it a start |
 
 `qa.finding` and `qa.fix` are the underlying tables; `qa.fix` carries before/after geometry
 for every automated repair, so a repair pass is reviewable after the fact and reversible if
@@ -98,6 +101,10 @@ uv run python -m curate.routes --check             # is the stored join still cu
 uv run python -m curate.elevation --dry-run        # DEM coverage + the check against OSM ele tags
 uv run python -m curate.elevation                  # sample the DEM onto vertices and edges (~5 min)
 uv run python -m curate.elevation --check          # is the stored profile still aligned?
+
+uv run python -m curate.places --dry-run           # what would snap, and the start verdicts
+uv run python -m curate.places                     # snap POIs, settlements and stops
+uv run python -m curate.places --check             # are the stored places still current?
 ```
 
 The route join and the elevation sample both run **after** build and repair, and both of

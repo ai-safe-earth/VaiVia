@@ -95,6 +95,21 @@ LAYERS: list[tuple[str, str]] = [
                   lowest_m, highest_m, edges_without_profile, geom
            FROM qa.v_route_elevation""",
     ),
+    # Where a walk can begin: one point per vertex, with what makes it a start.
+    (
+        "start",
+        """SELECT vertex_id, component_id, degree, anchors, nearest_m, trips,
+                  car_free, geom
+           FROM qa.v_start""",
+    ),
+    # THE layer for judging the snap. A line from each place to the vertex it
+    # attached to: a wrong snap is invisible as a number and obvious as a line
+    # reaching across a valley. Sort by distance_m descending.
+    (
+        "place_link",
+        """SELECT source, source_id, kind, name, distance_m, is_start, geom
+           FROM qa.v_place_link""",
+    ),
 ]
 
 # Edges near the findings that need a human decision. The other rules are

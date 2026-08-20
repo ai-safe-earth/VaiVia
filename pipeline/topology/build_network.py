@@ -112,7 +112,8 @@ def main() -> None:
         # answer: a route link that survives a rebuild points at edges that no
         # longer exist. Clearing it makes the gap visible; re-run curate.routes.
         conn.execute(
-            "TRUNCATE curated.edge_route, curated.edge, curated.vertex RESTART IDENTITY"
+            "TRUNCATE curated.edge_route, curated.place, curated.edge,"
+            " curated.vertex RESTART IDENTITY"
         )
         with conn.cursor() as cur:
             with cur.copy("COPY curated.vertex (geom, run_id) FROM STDIN") as copy:
