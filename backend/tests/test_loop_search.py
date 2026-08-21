@@ -479,3 +479,40 @@ async def test_the_implicit_block_is_dropped_when_the_region_does_not_resolve(db
     results, _ = await orchestrator._execute(plan)  # noqa: SLF001
     assert "loops" not in results  # the trails answer alone, and honestly
     assert results["trails"] == [{"id": "t1"}]
+
+
+@pytest.mark.asyncio
+async def test_the_independent_blocks_of_a_turn_go_out_together(db):
+    """Trails and the catalogue share no state, so they must not queue.
+
+    A both-kinds turn used to pay for the trail search, then the place
+    lookup, then the catalogue, one round trip after another. This fake makes
+    the trail search WAIT for the catalogue one to start: if they are
+    dispatched together it passes at once, and if they were serialised again
+    it fails on the timeout rather than hanging the suite.
+    """
+    import asyncio
+
+    from chat.orchestrator import ChatOrchestrator
+
+    class Rendezvous(type(db)):
+        def __init__(self) -> None:
+            super().__init__()
+            self.loops_started = asyncio.Event()
+
+        async def run_named(self, name, /, **params):
+            if name == "search_loops":
+                self.loops_started.set()
+            if name == "search_trails":
+                await asyncio.wait_for(self.loops_started.wait(), timeout=2)
+            return await super().run_named(name, **params)
+
+    rendezvous = Rendezvous()
+    rendezvous.when("search_trails", [{"id": "t1"}])
+    rendezvous.when("search_loops", [{"id": "th1:15000:0"}])
+    orchestrator = ChatOrchestrator(db=rendezvous, llm=None, store=None, embedder=None)
+
+    plan = compose([TrailSearchIntent(activity="hike", max_distance_m=10000)])
+    results, _ = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["trails"] == [{"id": "t1"}]
+    assert [r["id"] for r in results["loops"]] == ["th1:15000:0"]

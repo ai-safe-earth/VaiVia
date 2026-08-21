@@ -19,6 +19,7 @@ Events are emitted as an async stream so the API layer can serve SSE without
 knowing anything about the LLM.
 """
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -73,6 +74,11 @@ SEMANTIC_CANDIDATE_POOL = 25
 # the tail that falls away from it is dropped. The value wants calibrating
 # against a populated index; until then it is deliberately generous.
 SEMANTIC_SCORE_DROP = 0.05
+
+
+async def _nothing() -> None:
+    """A block this turn does not run. gather() wants a coroutine either way."""
+    return None
 
 
 def _strong_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -252,54 +258,65 @@ class ChatOrchestrator:
         results: dict[str, Any] = {}
         refs: dict[str, Any] = {}
 
-        if plan.search is not None or plan.theme is not None:
-            trails, semantic_unavailable = await self._search(
-                plan.search or TrailSearchIntent(), plan.theme
-            )
+        # Which catalogue ask, if any, runs beside the trails. An implicit one
+        # is the trail ask posed to the catalogue as well (owner rule
+        # 2026-08-21): a walker compares a loop against a sentiero without
+        # asking twice. catalogue_view returns None when a stated constraint
+        # cannot be honoured there — and a theme cannot be, the catalogue has
+        # no embeddings, which is why a semantic turn stays trails-only.
+        loop_intent: Any = plan.loop
+        implicit_loops = False
+        if loop_intent is None and plan.search is not None and plan.theme is None:
+            loop_intent = catalogue_view(plan.search)
+            implicit_loops = loop_intent is not None
+
+        # The blocks are independent reads over the same driver, so they go out
+        # together. Sequentially, a both-kinds turn paid for the trail search,
+        # then the place lookup, then the catalogue, one after another — three
+        # round trips of latency for work that shares no state.
+        wants_trails = plan.search is not None or plan.theme is not None
+        trail_result, loop_result, route_result = await asyncio.gather(
+            (
+                self._search(plan.search or TrailSearchIntent(), plan.theme)
+                if wants_trails
+                else _nothing()
+            ),
+            self._loops(loop_intent) if loop_intent is not None else _nothing(),
+            self._routes(plan.routes) if plan.routes else _nothing(),
+        )
+
+        if trail_result is not None:
+            trails, semantic_unavailable = trail_result
             results["trails"] = trails
             if semantic_unavailable:
                 results["semantic_unavailable"] = True
             refs["trail_ids"] = [r["id"] for r in trails]
 
-        if plan.loop is not None:
-            loops, near_resolved = await self._loops(plan.loop)
-            if not near_resolved:
-                # The place was stated and we could not find it. Answering with
-                # the unfiltered catalogue would present routes from anywhere
-                # as routes from there, which is the one thing worse than an
-                # empty block — the same rule the routing path applies with
-                # unknown_place rather than routing from a guess.
+        if loop_result is not None:
+            loops, near_resolved = loop_result
+            if implicit_loops:
+                # A region we cannot place is a constraint the catalogue cannot
+                # honour, which is exactly when catalogue_view declines to pose
+                # the ask — it just cannot know that until resolution has run.
+                # And an implicit block that came back empty is omitted rather
+                # than making the answer apologise for a list nobody asked for.
+                if near_resolved and loops:
+                    results["loops"] = loops
+                    refs["loop_ids"] = [r["id"] for r in loops]
+            elif not near_resolved:
+                # Asked for explicitly, so silence would be the wrong answer:
+                # name the place we could not find rather than presenting
+                # routes from anywhere as routes from there — the rule the
+                # routing path already applies with unknown_place.
                 results["loops"] = []
-                results["loops_unknown_place"] = plan.loop.near
+                results["loops_unknown_place"] = loop_intent.near
                 refs["loop_ids"] = []
             else:
                 results["loops"] = loops
                 refs["loop_ids"] = [r["id"] for r in loops]
-        elif plan.search is not None and plan.theme is None:
-            # A trail ask answers with both kinds (owner rule 2026-08-21):
-            # named trails AND complete outings from the catalogue, kept
-            # distinguishable all the way to the screen. The view is None
-            # when a stated constraint cannot be honoured there — and a
-            # theme cannot be (the catalogue has no embeddings), which is
-            # why a semantic turn stays trails-only.
-            view = catalogue_view(plan.search)
-            if view is not None:
-                loops, near_resolved = await self._loops(view)
-                # A region we cannot place is a constraint the catalogue cannot
-                # honour, which is exactly when catalogue_view declines to pose
-                # the ask at all — it just cannot know that until resolution
-                # has run. Dropping the block here keeps the promise its
-                # docstring makes: no result that ignores a stated filter.
-                if not near_resolved:
-                    loops = []
-                # Implicit query, so an empty block is omitted rather than
-                # making the answer apologise for a list nobody asked for.
-                if loops:
-                    results["loops"] = loops
-                    refs["loop_ids"] = [r["id"] for r in loops]
 
-        if plan.routes:
-            routes, route_refs = await self._routes(plan.routes)
+        if route_result is not None:
+            routes, route_refs = route_result
             results["routes"] = routes
             refs.update(route_refs)
             # Legacy single-route shape: the first resolved route also appears
