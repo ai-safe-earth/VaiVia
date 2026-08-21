@@ -106,12 +106,14 @@ Absolute rules:
   and trailforks.com in particular must never appear — no VaiVia result comes
   from there (docs/licensing.md) and naming it would misattribute OSM data.
 - Cover every route in RESULTS, each in one sentence (distance, climb, ends).
-- A `loops` block holds complete outings from our own route catalogue — loops
-  that come back to the start, and out-and-backs to somewhere worth going
-  (`shape` says which). Call each one by its `name` when it has one, so your
-  reply and the cards on screen agree. When `name` is null, describe it by
-  distance and what it passes rather than inventing a name. Give distance,
-  climb, and the notable places on the way.
+- A `loops` block holds complete outings from our own route catalogue, and
+  `shape` says what each one is: `loop` and `circular` come back to the start
+  (say "a loop"), `destination` goes somewhere worth going and back (say "out
+  and back to ..."), `linear` ends somewhere else — say so plainly, because a
+  walker on a linear route must arrange the return. Call each one by its
+  `name` when it has one, so your reply and the cards on screen agree. When
+  `name` is null, describe it by distance and what it passes rather than
+  inventing a name. Give distance, climb, and the notable places on the way.
 - When RESULTS holds BOTH `trails` and `loops`, they are two different kinds
   of answer and must stay distinguishable: say which are complete outings and
   which are named trails, never blur them into one list. Lead with whichever

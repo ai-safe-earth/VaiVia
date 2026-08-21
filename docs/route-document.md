@@ -54,6 +54,7 @@ The contract is `pipeline/schemas/route-document.schema.json`; this is the reaso
 
 | block | holds | why it is shaped that way |
 |---|---|---|
+| `shape` | `loop` \| `destination` \| `circular` \| `linear` | Since 1.2 (2026-08-21). What shape of outing this is, **and how that is known**: `loop`/`destination` are constructed — the generator drew them that way; `circular`/`linear` are measured on a mapped route (`pipeline/export/shape.py`: the mapper's `roundtrip` tag wins, then the merged-endpoint gap at the calibrated ratio ≤ 0.01 of length; a route in pieces is `linear` unless tagged — calling a linear route a loop strands a walker, the reverse merely under-sells). The pairs stay distinct so a classifier bug can never impersonate generation intent |
 | `identity` | name, `ref` (CAI sentiero number), activity, network scope, waymark, from/to, operator, regions, source id | The `ref` and the painted waymark are how a walker actually recognises a route on the ground |
 | `geometry` | GeoJSON LineString or MultiLineString, WGS84 | **The map.** A MultiLineString is not an error — it is a route this network holds in pieces, and `continuity` says so |
 | `bbox` | `[minx, miny, maxx, maxy]` | So a reader can index and cull without parsing the geometry |

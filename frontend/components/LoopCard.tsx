@@ -70,13 +70,18 @@ export function LoopCard({ loop, selected, onSelect }: Props) {
 
   // Which KIND of outing this is, said out loud (owner rule 2026-08-21): a
   // trail ask can answer with loops, out-and-backs and named trails in one
-  // list, and the shapes must stay distinguishable at a glance.
+  // list, and the shapes must stay distinguishable at a glance. 'circular'
+  // and 'linear' are MEASURED on mapped routes (pipeline/export/shape.py);
+  // 'loop'/'destination' are constructed. 'Named route' survives only for
+  // pre-1.2 documents in stale transcripts.
   const shapeLabel =
-    loop.shape === 'loop'
+    loop.shape === 'loop' || loop.shape === 'circular'
       ? 'Loop'
       : loop.shape === 'destination'
         ? 'Out & back'
-        : 'Named route';
+        : loop.shape === 'linear'
+          ? 'Linear'
+          : 'Named route';
 
   // A div with button semantics, matching TrailCard, so the two lists behave
   // identically to a keyboard and share the route-card styling.

@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 # The share of length below which a grade is an incident rather than the
 # character of the route. Proven in backend/graph/graphhopper.py.
@@ -175,6 +175,7 @@ def build_document(
     *,
     route_id: str,
     kind: str,
+    shape: str,
     identity: dict[str, Any],
     geometry: dict[str, Any],
     bbox: Sequence[float],
@@ -206,6 +207,10 @@ def build_document(
         "schema_version": SCHEMA_VERSION,
         "id": route_id,
         "kind": kind,
+        # loop/destination are CONSTRUCTED (the generator drew them that way);
+        # circular/linear are MEASURED on a mapped route (export/shape.py).
+        # Distinct pairs, so a classifier bug can never impersonate intent.
+        "shape": shape,
         "identity": identity,
         "geometry": geometry,
         "bbox": [round(v, 6) for v in bbox],
