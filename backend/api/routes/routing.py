@@ -228,8 +228,16 @@ async def get_route_detail(route_id: str, db: DbDep) -> RouteDetail:
     if profile and profile.get("distance_m"):
         route_m = document["measures"]["distance_m"]
         profile_end = profile["distance_m"][-1]
-        off_by = abs(profile_end - route_m) / route_m if route_m else 0.0
-        profile_quality = "ok" if off_by <= PROFILE_TOLERANCE else "approximate"
+        if not route_m:
+            # Nothing to compare the profile against — a clipped fragment with
+            # a 0 or absent measured length. `off_by = 0.0` here read as a
+            # PERFECT agreement and shipped 'ok', which is the quiet lie
+            # PROFILE_TOLERANCE exists to stop: no basis means no claim of
+            # accuracy, so the chart carries its caveat.
+            profile_quality = "approximate"
+        else:
+            off_by = abs(profile_end - route_m) / route_m
+            profile_quality = "ok" if off_by <= PROFILE_TOLERANCE else "approximate"
 
     return RouteDetail(
         route_id=route_id,

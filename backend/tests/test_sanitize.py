@@ -127,3 +127,26 @@ async def test_a_closed_label_followed_by_a_paren_is_held() -> None:
     parts = await _parts(["Try [Monte Misma](", "https://www.trailforks.com) next."])
     assert parts[0] == "Try "
     assert "".join(parts) == "Try Monte Misma next."
+
+
+def test_a_link_without_a_scheme_is_still_a_link() -> None:
+    # The ban is on links, and a walker can type a domain the model wrote
+    # without http:// just as easily. trailforks.com in particular must never
+    # appear: no VaiVia result comes from there (docs/licensing.md).
+    assert unlink("See trailforks.com for more.") == "See for more."
+    assert unlink("Try trailforks.com/trails/lecco next.") == "Try next."
+    # The domain goes, the words around it stay; only a run of spaces is
+    # collapsed, so a leading one survives exactly as it does for a bare URL.
+    assert unlink("openstreetmap.org contributors") == " contributors"
+
+
+def test_prose_with_dots_in_it_is_not_a_link() -> None:
+    # The rule has to leave an altitude, a file name and a missing space after
+    # a full stop alone — the reason bare domains were let through before.
+    for kept in (
+        "Monte Misma, 1.161 m.s.l.m., graded T3 (sac_scale=3).",
+        "The climb is steep.It flattens after the hut.",
+        "Read route-document.schema.json for the contract.",
+        "Sentiero del Viandante, 45.8 km, ends at Colico.",
+    ):
+        assert unlink(kept) == kept

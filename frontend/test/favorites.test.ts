@@ -39,3 +39,22 @@ describe('optimistic favorite toggle', () => {
     expect([...twice]).toEqual(['a']);
   });
 });
+
+/** Mirrors the id set page.tsx builds from GET /routes/favorites. */
+function savedIds(list: { routes: { id: string }[]; missing: string[] }): Set<string> {
+  return new Set([...list.routes.map((r) => r.id), ...list.missing]);
+}
+
+describe('the saved set', () => {
+  it('counts a route that left the catalogue as still saved', () => {
+    // The backend reports it missing rather than dropping it; the frontend
+    // used to drop it anyway, so its bookmark showed unfilled and the second
+    // tap on it DELETED a favorite saved long ago.
+    const ids = savedIds({ routes: [{ id: 'a' }], missing: ['b'] });
+    expect([...ids].sort()).toEqual(['a', 'b']);
+  });
+
+  it('is empty when nothing is saved', () => {
+    expect(savedIds({ routes: [], missing: [] }).size).toBe(0);
+  });
+});

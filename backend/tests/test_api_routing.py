@@ -341,6 +341,24 @@ def test_route_detail_with_no_profile_says_so(client, db, tmp_path, monkeypatch)
     assert body["profile_quality"] is None
 
 
+def test_a_profile_with_nothing_to_check_it_against_is_approximate(
+    client, db, tmp_path, monkeypatch
+):
+    """No measured length means no basis for calling the profile accurate.
+
+    The guard read `off_by = ... if route_m else 0.0`, and a zero disagreement
+    is a PERFECT one: a clipped fragment measuring 0 m shipped 'ok' and the
+    client drew the chart as a trusted along-route measure. No basis is a
+    caveat, not a clean bill of health.
+    """
+    document = dict(DETAIL_DOCUMENT)
+    document["measures"] = {**DETAIL_DOCUMENT["measures"], "distance_m": 0.0}
+    _documents_dir(tmp_path, monkeypatch, document)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    body = client.get(f"/routes/{ROUTE_ID}/detail").json()
+    assert body["profile_quality"] == "approximate"
+
+
 def test_route_detail_shares_the_honesty_ladder(client, db, tmp_path, monkeypatch):
     from core.config import get_settings
 

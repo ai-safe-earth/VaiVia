@@ -66,7 +66,13 @@ export default function Home() {
       .then(setConversations)
       .catch(() => setConversations([]));
     void fetchFavorites()
-      .then((list) => setFavoriteIds(new Set(list.routes.map((r) => r.id))))
+      // `missing` counts as saved. Those ids ARE in the ledger — their route
+      // is just out of the catalogue until the next export restores it — and
+      // dropping them showed the bookmark unfilled on a route the user saved
+      // long ago: one tap "saved" it (a no-op) and the next tap deleted it.
+      .then((list) =>
+        setFavoriteIds(new Set([...list.routes.map((r) => r.id), ...list.missing])),
+      )
       .catch(() => {});
   }, [user]);
 
