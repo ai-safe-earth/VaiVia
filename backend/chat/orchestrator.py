@@ -71,8 +71,22 @@ SEMANTIC_CANDIDATE_POOL = 25
 # The cut is RELATIVE to the best match rather than an absolute floor. A
 # normalized cosine score has no bright line to put a floor on, and a relative
 # cut cannot empty a non-empty answer: the top match always survives and only
-# the tail that falls away from it is dropped. The value wants calibrating
-# against a populated index; until then it is deliberately generous.
+# the tail that falls away from it is dropped.
+#
+# Measured 2026-08-21 (scripts.calibrate_semantic_drop, 10 themes against the
+# live index) and NOT yet calibratable, for a reason worth knowing: (:Trail)
+# holds 5 rows. The OSM data is 104,812 segments and 3,195 POIs, but trails are
+# still the Trailforks-shaped stub, so the semantic path searches five fixture
+# documents and a 25-candidate pool comes back with five. Any floor fitted to
+# that describes the fixture. 0.05 keeps a median of 2 of the 5 and behaves
+# sanely, so it stays until there is a corpus to measure.
+#
+# The run did settle one thing the constant cannot fix. Off-corpus themes score
+# LOW in absolute terms -- "a coral reef dive with sea turtles" tops out at
+# 0.58 where a real match reaches 0.75-0.83 -- and a relative cut always keeps
+# the top row, so "nothing here matches your theme" is unsayable by
+# construction. That wants an ABSOLUTE floor beside this one, whose value is
+# exactly what a real corpus would let us measure.
 SEMANTIC_SCORE_DROP = 0.05
 
 

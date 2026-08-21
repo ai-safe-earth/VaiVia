@@ -287,28 +287,41 @@ was probed live rather than assumed.
   AccessMode error and **zero nodes land**. So read mode + the generated-query rule
   "ban `CALL` outright" are two independent layers over the same hole.
 
-**What does NOT hold, and the fix:**
+**What held only after it was actually sent (resolved 2026-08-21):**
 
-- **A client-supplied transaction timeout does not bite.** `execute_query(..., timeout=2.0)`
-  on a deliberately expensive cartesian read ran unbounded until an external kill.
-  The cause is server config: `SHOW SETTINGS` reports `db.transaction.timeout = 0s`
-  (disabled), and with the server default disabled the client hint is not enforced as
-  a hard cap. **The availability control is therefore the server setting, not the driver
-  argument.** Set `db.transaction.timeout` to a nonzero value in `infra/docker-compose.yml`
-  (`NEO4J_db_transaction_timeout`) and re-verify. This is not a confidentiality issue —
-  the graph holds only public OSM data — it is a denial-of-service guard for the day a
-  generated read is pathological, and it must be in place before the generated-Cypher
-  flag is ever switched on.
+- **A client-supplied transaction timeout now bites, and it took two corrections to
+  get an honest measurement of it.** The first probe reported that
+  `execute_query(..., timeout=2.0)` ran an expensive read unbounded, and concluded the
+  server setting was the only control. Both halves of that probe were wrong.
 
-  **Correction, 2026-08-21 (code review).** Part of that probe was measuring nothing.
-  `execute_query` merges its `**kwargs` into the Cypher **parameters** — so
-  `execute_query(query, params, timeout=2.0)` sent an unused `$timeout` parameter and
-  applied no client timeout whatsoever. A real one has to travel inside the query
-  object: `Query(text, timeout=...)`, which is what `Neo4jClient.run_read` now builds
-  (`backend/graph/neo4j_client.py`, pinned in `tests/test_neo4j_client.py`). The
-  server-setting conclusion above still stands as the availability control, but it was
-  reached from a call that never carried a timeout — re-run the expensive-read probe
-  once `db.transaction.timeout` is set, now that the client hint is actually sent.
+  *The timeout was never sent.* `execute_query` merges its `**kwargs` into the Cypher
+  **parameters**, so `timeout=2.0` arrived as an unused `$timeout` and no client timeout
+  was applied at all. A real one travels inside the query object — `Query(text,
+  timeout=...)` — which is what `Neo4jClient.run_read` builds now
+  (`backend/graph/neo4j_client.py`, pinned in `tests/test_neo4j_client.py`).
+
+  *And the expensive read was not expensive.* A three-way cartesian product over the
+  84k intersections returns in 0.05 s with 595,608,748,359,353: the planner multiplies
+  the counts rather than walking the rows. A timeout probe measures nothing against a
+  query the database never runs.
+
+  Re-run against half a billion non-optimisable iterations
+  (`uv run python -m scripts.probe_read_timeout`), with the container's
+  `db.transaction.timeout = 10s`:
+
+  | read | client timeout | outcome |
+  |---|---|---|
+  | `RETURN 1` | 10 s | ok, 0.01 s |
+  | 5e8 iterations with a predicate | **2 s** | **killed at 2.66 s**, `Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration` |
+  | the same | none | killed at 11.77 s by the server setting |
+
+  So both layers work and the client hint is the tighter one — the error code names the
+  client configuration as the cause. Two caveats to keep. The cap is **approximate**:
+  the check runs at a transaction poll interval, so 2 s became 2.66 s and 10 s became
+  11.77 s; treat it as "within a second or so", never as a deadline. And the server
+  setting is still the one that cannot be forgotten, because it is what bounds a read
+  whose caller passed no timeout — which is every read that does not go through
+  `run_read`.
 
 **The lesson to keep:** on Community, every "read-only" layer is something you build and
 must test empirically — the write-rejection was real, the timeout was theatre until the

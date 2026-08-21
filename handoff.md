@@ -1544,6 +1544,55 @@ safer; readback re-derives what the orchestrator did instead of rendering the
 parameters that actually ran; and the shape vocabulary (loop/circular/
 destination/linear) is spelled out in four places across three tiers.
 
+## 2026-08-21 (ninth) - Three live runs: the eval, the timeout, and a corpus of five
+
+Brought the stack up and closed the two open steps. The Neo4j container was
+started, never recreated - a recreate is what dropped GDS last time - and GDS
+came back on its own: **graphdatascience.ninja is reachable again** and the
+restart installed 2.13.12 (423 gds procedures live). The hazard is unchanged
+though: the plugins dir is still not volume-mounted, so the next recreate is
+another coin toss.
+
+**Golden eval, live: decomposition 26/26, retrieval 17/19 retrieved, 16/19
+ranked first.** g20's restored region pin passes against the live model, so
+"an easy mountain bike loop near Bergamo" really does decompose to
+loop.near = Bergamo. The two retrieval misses are both structured-filter
+conjunctions, not ranking failures: g10 asks for poi_types ['bathing_water'],
+which no fixture trail carries, and g18 decomposes into a TWELVE-constraint
+conjunction (min gain 800 m, 10-20 km, lake AND viewpoint, no road surface,
+summer, no snow, no ice) that nothing can satisfy. Both queries returned zero
+rows before any ranking ran. Worth a decision: g18's over-specification comes
+from the intent prompt inventing bounds nobody stated, and it is the same
+over-specification that makes catalogue_view refuse the ask.
+
+**The read timeout bites now** (docs/fragilities.md #15 rewritten, and
+`scripts/probe_read_timeout.py` added so it can be re-run). Two corrections
+were needed to get an honest number. The timeout was never sent - execute_query
+merges kwargs into the Cypher parameters - and the "expensive" read was not
+expensive: a three-way cartesian over 84k intersections returns in 0.05 s with
+595,608,748,359,353, because the planner multiplies counts instead of walking
+rows. Against half a billion non-optimisable iterations: a 2 s client timeout
+kills it at 2.66 s with TransactionTimedOutClientConfiguration, and with no
+client timeout the server's 10 s kills it at 11.77 s. Both layers work, the
+client hint is the tighter one, and the cap is approximate rather than a
+deadline - the check runs at a poll interval.
+
+**The semantic cut cannot be calibrated yet, and finding out why is the real
+result.** `(:Trail)` holds FIVE rows. The OSM data is there - 104,812 segments,
+3,195 POIs, 980 routes - but trails are still the Trailforks-shaped stub, so
+the whole semantic theme path searches five fixture documents and a
+25-candidate pool comes back with five. Any floor fitted to that describes the
+fixture, so SEMANTIC_SCORE_DROP stays at 0.05 (it keeps a median of 2 of the 5)
+with the measurement recorded beside it, and `scripts/calibrate_semantic_drop.py`
+is there to re-run the moment there is a corpus.
+
+The run did settle one thing the constant cannot fix. Off-corpus themes score
+LOW in absolute terms - "a coral reef dive with sea turtles" tops out at 0.58
+where a real match reaches 0.75-0.83 - and a relative cut always keeps the top
+row. So **"nothing here matches your theme" is unsayable by construction**, and
+that wants an absolute floor beside the relative one, whose value is exactly
+what a real corpus would let us measure.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -2179,15 +2228,36 @@ destination/linear) is spelled out in four places across three tiers.
   ],
   "nextSteps": [
     {
-      "title": "Calibrate the semantic similarity cut (SEMANTIC_SCORE_DROP) against a populated vector index - it is a relative cut chosen to be generous, never measured",
+      "title": "Derive (:Trail) from OSM and the route documents - it is still 5 Trailforks-shaped fixtures, so the whole semantic theme path searches five documents",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Add an ABSOLUTE similarity floor beside the relative cut, then calibrate both with scripts.calibrate_semantic_drop against a real corpus - a relative cut always keeps the top row, so 'nothing matches your theme' cannot be said today (off-corpus themes top out at 0.58 against 0.75-0.83 for a real match)",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Re-run the expensive-read probe with db.transaction.timeout set, now that run_read actually sends the client timeout (fragilities #15 was measured against a call that never carried one)",
-      "est": 0.25,
+      "title": "Decide what to do about intent over-specification: golden g18 decomposes into a twelve-constraint conjunction nothing can satisfy, which is also why catalogue_view refuses that ask",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Align the POI vocabulary the intent model emits with the one the graph carries - golden g10 asks for poi_types ['bathing_water'] and retrieves nothing",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Mount a plugins volume for Neo4j so GDS survives a container recreate - it came back this time only because graphdatascience.ninja happened to be reachable",
+      "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2560,6 +2630,13 @@ destination/linear) is spelled out in four places across three tiers.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
