@@ -19,6 +19,22 @@ services:
     environment:
       NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
       NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+      # Procedure allowlist: what the query service is permitted to CALL. This is
+      # the read-only boundary for model-GENERATED Cypher (docs/fragilities.md #15)
+      # — Community has no RBAC, so it is an allowlist, not a grant. It denies
+      # every apoc.* procedure (34 of which are dangerous: apoc.cypher.doIt is a
+      # WRITE-moded arbitrary-string executor, apoc.load.json is SSRF) while
+      # keeping exactly what we call, verified against every CALL in the repo:
+      #   db.index.fulltext.queryNodes   POI name resolution
+      #   db.index.vector.queryNodes     semantic search
+      #   db.create.setNodeVectorProperty  embedding write (ingestion)
+      #   gds.*                          routing (Dijkstra) and its projection lifecycle
+      # dbms.* stays for driver routing; narrowing it further is a later tightening.
+      NEO4J_dbms_security_procedures_allowlist: "db.*,dbms.*,gds.*"
+      # A hard cap on any single transaction. The driver's per-query timeout does
+      # NOT bite while this is 0 (measured 2026-08-21, docs/fragilities.md #15), so
+      # THIS is the availability control for a pathological generated read.
+      NEO4J_db_transaction_timeout: "10s"
       # Neo4j 5 names: the dbms.memory.* forms still work but log a deprecation
       # warning on every boot.
       NEO4J_server_memory_heap_initial__size: "512m"

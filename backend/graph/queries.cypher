@@ -394,12 +394,12 @@ RETURN p.osm_id AS osm_id, p.name AS name, p.type AS type,
        p.description_license AS description_license,
        p.description_url AS description_url
 
-// name: search_loops
-// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
-// from precomputed routes instead of computing one per request. The catalogue
-// is loaded by pipeline/export/neo4j_load.py from the route documents, which
-// stay canonical -- geometry and the profile are fetched by route_id, never
-// stored here.
+// fragment: loop_candidates
+// The loop-catalogue filter block, shared by search_loops and estimate_loops
+// via '// include:' so a count can never disagree with the search it counts
+// (query_loader.py). Everything through the near-distance filter lives here;
+// each reader adds only its own tail. It ends in 'WITH r, s WHERE ...', so a
+// reader appending another WHERE must open its own WITH first.
 //
 // warnings = 0 is not optional. The export's own smoke test proved why: the
 // unfiltered catalogue puts 0.0 km OSM fragments wearing famous names at the
@@ -435,17 +435,33 @@ WHERE $near_lat IS NULL
        AND point.distance(s.location,
                           point({latitude: $near_lat, longitude: $near_lon}))
            <= $near_radius_m)
-CALL (r) {
-  MATCH (r)-[e:PASSES]->(p:Place)
-  WITH DISTINCT p
-  RETURN collect(p.kind) AS found_kinds,
-         collect({name: p.name, type: p.kind})[0..8] AS pois
-}
-WITH r, s, found_kinds, pois
+
+// fragment: loop_poi_conjunction
 // Every requested feature must be present, not merely one of them: "past a
-// hut AND a lake" is a conjunction to a walker.
+// hut AND a lake" is a conjunction to a walker. The EXISTS form is identical
+// in meaning to "wanted IN collect(kinds)" but needs no CALL subquery, so a
+// count does not pay for a display list it will not use (house style shared
+// with search_trails). Opens its own WITH -- loop_candidates ended in a WHERE.
+WITH r, s
 WHERE size($poi_types) = 0
-   OR all(wanted IN $poi_types WHERE wanted IN found_kinds)
+   OR all(wanted IN $poi_types
+          WHERE EXISTS { MATCH (r)-[:PASSES]->(p:Place) WHERE p.kind = wanted })
+
+// name: search_loops
+// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
+// from precomputed routes instead of computing one per request. The catalogue
+// is loaded by pipeline/export/neo4j_load.py from the route documents, which
+// stay canonical -- geometry and the profile are fetched by route_id, never
+// stored here.
+// include: loop_candidates
+// include: loop_poi_conjunction
+// The display POI list, capped -- the conjunction above already filtered.
+CALL (r) {
+  MATCH (r)-[:PASSES]->(p:Place)
+  WITH DISTINCT p
+  RETURN collect({name: p.name, type: p.kind})[0..8] AS pois
+}
+WITH r, s, pois
 RETURN r.route_id AS id,
        r.activity AS activity,
        r.kind AS kind,
@@ -483,6 +499,31 @@ RETURN r.route_id AS id,
 // generated routes rather than at the bottom, and climb breaks the tie.
 ORDER BY coalesce(r.score, 0.5) DESC, coalesce(r.ascent_m, 0) DESC
 LIMIT $limit
+
+// name: estimate_loops
+// The count-driven loop's estimate: how many routes THIS plan would return,
+// plus a bounded sample of facet rows so Python can pick the most-narrowing
+// next question (chat/narrowing.py). Same two fragments as search_loops, so
+// the count is exactly the population search_loops would page through -- they
+// cannot drift. total is exact even though rows is capped: both aggregate the
+// same stream, and the cap slices only the collected list.
+// include: loop_candidates
+// include: loop_poi_conjunction
+OPTIONAL MATCH (r)-[:PASSES]->(pl:Place)
+WITH r, s, collect(DISTINCT pl.kind) AS kinds
+WITH count(r) AS total,
+     collect({
+       distance_m: r.distance_m,
+       ascent_m: coalesce(r.ascent_m, 0.0),
+       activity: r.activity,
+       shape: r.shape,
+       mtb_rideable: coalesce(r.mtb_rideable, false),
+       sac_rank: coalesce(r.sac_max_rank, 0),
+       mtb_rank: coalesce(r.mtb_scale_rank, 0),
+       has_named_start: s IS NOT NULL,
+       kinds: kinds
+     })[0..$facet_cap] AS rows
+RETURN total, rows
 
 // name: route_exists
 // The geometry itself lives in the route DOCUMENT (docs/route-document.md),
