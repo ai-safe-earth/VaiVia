@@ -60,7 +60,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
-       t.trailforks_url AS trailforks_url,
        pois AS pois
 ORDER BY t.total_distance_m ASC
 LIMIT $limit
@@ -89,7 +88,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
-       t.trailforks_url AS trailforks_url,
        pois AS pois
 
 // name: trail_geometry
@@ -187,7 +185,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
-       t.trailforks_url AS trailforks_url,
        pois AS pois,
        score AS score
 ORDER BY score DESC
@@ -248,7 +245,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
-       t.trailforks_url AS trailforks_url,
        pois AS pois,
        score AS score
 ORDER BY score DESC

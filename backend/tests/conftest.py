@@ -132,6 +132,5 @@ TRAIL_ROW = {
     "duration_mtb_min": 88,
     "best_seasons": ["spring", "summer", "autumn"],
     "seasonal_hazards": ["mud_after_rain"],
-    "trailforks_url": "https://www.trailforks.com/trails/lago-loop/",
     "pois": [{"name": "Lago di Como", "type": "lake"}],
 }

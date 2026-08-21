@@ -20,7 +20,6 @@ export interface Trail {
   duration_mtb_min: number | null;
   best_seasons: string[];
   seasonal_hazards: string[];
-  trailforks_url?: string | null;
   pois: PoiRef[];
 }
 
