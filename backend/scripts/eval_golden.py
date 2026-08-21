@@ -16,8 +16,9 @@ Run from backend/:
     uv run python -m scripts.eval_golden --graph    # + live retrieval
 
 Dataset: fixtures/golden_questions.json. Expectations address the COMPOSED
-plan ("search.<field>", "theme", "routes", "clarify"); "expect_trails" names
-the trail ids retrieval must surface, first id = must rank first.
+plan ("search.<field>", "loop.<field>", "theme", "routes", "clarify");
+"expect_trails" names the trail ids retrieval must surface, first id = must
+rank first.
 """
 
 import argparse
@@ -50,9 +51,10 @@ def check_plan(expected: dict[str, Any], plan: ComposedPlan) -> list[str]:
         elif key == "routes":
             if len(plan.routes) != want:
                 problems.append(f"routes: want {want}, got {len(plan.routes)}")
-        elif key.startswith("search."):
-            field = key.removeprefix("search.")
-            got = getattr(plan.search, field, None) if plan.search else None
+        elif key.startswith(("search.", "loop.")):
+            prefix, field = key.split(".", 1)
+            holder = plan.search if prefix == "search" else plan.loop
+            got = getattr(holder, field, None) if holder else None
             if isinstance(want, list):
                 if not set(want) <= set(got or []):
                     problems.append(f"{key}: want superset of {want}, got {got}")

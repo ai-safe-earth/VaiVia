@@ -272,3 +272,88 @@ def test_a_zero_duration_is_dropped_as_vacuous():
     'nothing matches' to the query."""
     merged = merge_loops([LoopSearchIntent(max_duration_min=0)])
     assert merged.max_duration_min is None
+
+
+# ── A trail ask answers with both kinds (owner rule 2026-08-21) ─────────────
+
+
+LOOP_ROW = {"id": "cat_001", "name": "To Corno dell'Arco", "distance_m": 11000}
+
+
+@pytest.mark.asyncio
+async def test_a_trail_ask_also_selects_from_the_catalogue(db):
+    """Named trails AND catalogue outings, one ask: both blocks come back,
+    each under its own key so the screen can keep them distinguishable."""
+    from tests.conftest import TRAIL_ROW
+    from tests.test_chat_orchestrator import build, collect, results_of
+
+    db.when("search_trails", [TRAIL_ROW])
+    db.when("search_loops", [LOOP_ROW])
+    orchestrator, _, store = build(
+        db, {"kind": "trail_search", "activity": "hike", "max_distance_m": 16000}
+    )
+    events = await collect(orchestrator, user_id="u1", message="a hike under 16 km")
+
+    results = results_of(events)
+    assert results["trails"][0]["id"] == TRAIL_ROW["id"]
+    assert results["loops"][0]["id"] == "cat_001"
+    # The derived ask carries the same constraints into the catalogue.
+    params = db.params_for("search_loops")
+    assert params["activities"] == ["hiking", "foot"]
+    assert params["max_distance_m"] == 16000
+
+
+@pytest.mark.asyncio
+async def test_a_constraint_the_catalogue_cannot_honour_keeps_it_out(db):
+    """A season (or hazard, or surface) cannot be checked on the catalogue,
+    so the catalogue must not answer at all -- returning routes that ignore
+    a stated constraint would be worse than returning none."""
+    from tests.test_chat_orchestrator import build, collect
+
+    db.when("search_trails", [])
+    orchestrator, _, _ = build(
+        db, {"kind": "trail_search", "activity": "hike", "season": "winter"}
+    )
+    await collect(orchestrator, user_id="u1", message="a winter hike")
+
+    assert "search_loops" not in [name for name, _ in db.calls]
+
+
+@pytest.mark.asyncio
+async def test_a_theme_turn_stays_trails_only(db):
+    """The catalogue has no embeddings, so a semantic theme is a constraint
+    it cannot honour -- same rule as the season."""
+    from tests.conftest import FakeEmbedder
+    from tests.test_chat_orchestrator import build, collect
+
+    db.when("count_embedded_trails", [{"trails": 3, "embedded": 3}])
+    db.when("semantic_search_trails_filtered", [])
+    orchestrator, _, _ = build(
+        db,
+        [
+            {"kind": "trail_search", "activity": "hike", "max_distance_m": 16000},
+            {"kind": "semantic_theme", "text": "shady forest"},
+        ],
+        embedder=FakeEmbedder(),
+    )
+    await collect(orchestrator, user_id="u1", message="a shady forest hike")
+
+    assert "search_loops" not in [name for name, _ in db.calls]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_implicit_catalogue_block_is_omitted(db):
+    """Nobody asked the catalogue by name: when it has nothing, the results
+    carry no loops key at all, so the answer does not apologise for a list
+    the user never requested."""
+    from tests.conftest import TRAIL_ROW
+    from tests.test_chat_orchestrator import build, collect, results_of
+
+    db.when("search_trails", [TRAIL_ROW])
+    db.when("search_loops", [])
+    orchestrator, _, _ = build(
+        db, {"kind": "trail_search", "activity": "hike", "max_distance_m": 16000}
+    )
+    events = await collect(orchestrator, user_id="u1", message="a hike under 16 km")
+
+    assert "loops" not in results_of(events)

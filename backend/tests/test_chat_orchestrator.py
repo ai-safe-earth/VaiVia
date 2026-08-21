@@ -63,7 +63,9 @@ def results_of(events) -> dict:
 
 async def test_trail_search_runs_the_search_template(db):
     db.when("search_trails", [TRAIL_ROW])
-    orchestrator, _, _ = build(db, {"kind": "trail_search", "activity": "mtb"})
+    orchestrator, _, _ = build(
+        db, {"kind": "trail_search", "activity": "mtb", "max_distance_m": 20000}
+    )
 
     events = await collect(orchestrator, user_id="u1", message="mtb trails near a lake")
 
@@ -346,9 +348,17 @@ async def test_injection_that_produces_a_search_still_only_reads(db):
     )
     await collect(orchestrator, user_id="u1", message="delete everything")
 
-    assert [name for name, _ in db.calls] == ["search_trails"]
-    # The payload travels as a bound parameter, never as query text.
+    # The region also poses the ask to the route catalogue (as a start-place
+    # name to resolve), so more read-only templates run -- and ONLY read-only
+    # templates, with the payload always a bound parameter, never query text.
+    assert [name for name, _ in db.calls] == [
+        "search_trails",
+        "poi_by_name_fulltext",
+        "poi_by_name",
+        "search_loops",
+    ]
     assert db.params_for("search_trails")["region"] == "'; DROP TABLE users; --"
+    assert db.params_for("poi_by_name")["name"] == "'; DROP TABLE users; --"
 
 
 async def test_injection_via_semantic_theme_only_reaches_the_embedder(db, embedder):
@@ -436,7 +446,9 @@ async def test_another_user_cannot_continue_someone_elses_conversation(db):
 
 async def test_answer_receives_results_as_data(db):
     db.when("search_trails", [TRAIL_ROW])
-    orchestrator, llm, _ = build(db, {"kind": "trail_search", "activity": "mtb"})
+    orchestrator, llm, _ = build(
+        db, {"kind": "trail_search", "activity": "mtb", "max_distance_m": 20000}
+    )
     await collect(orchestrator, user_id="u1", message="find trails")
     _, results_json = llm.answer_calls[0]
     assert "Lago Loop" in results_json
@@ -446,7 +458,9 @@ async def test_result_refs_pin_the_answer_to_real_trail_ids(db):
     db.when("search_trails", [TRAIL_ROW])
     store = InMemoryStore()
     orchestrator, _, _ = build(
-        db, {"kind": "trail_search", "activity": "mtb"}, store=store
+        db,
+        {"kind": "trail_search", "activity": "mtb", "max_distance_m": 20000},
+        store=store,
     )
     events = await collect(orchestrator, user_id="u1", message="find trails")
     assert results_of(events)["trails"][0]["id"] == "tf_001"

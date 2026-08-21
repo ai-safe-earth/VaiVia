@@ -45,7 +45,9 @@ Decomposition rules:
   semantic_theme ONLY for what filters cannot say. Never duplicate the same
   fact in both.
 - Distances are METRES and durations MINUTES ("20 km" -> 20000, "2 hours" ->
-  120).
+  120). A duration comes ONLY from words about time ("2 hours", "back by
+  lunch", "half a day"). "Easy", "short", or a distance is not a duration —
+  do not convert one into the other.
 - Difficulty levels: 1 Easy, 2 Intermediate, 3 Difficult, 4 Pro. "easy" ->
   max_difficulty_level 1; "not too hard" -> max_difficulty_level 2.
 - activity: set it ONLY when the user names or plainly implies one — "hike",
@@ -71,6 +73,16 @@ Decomposition rules:
 - Only set a field the user actually implied. Leave everything else null or
   empty; do not invent constraints. NEVER write 0 to mean "no limit" — an
   unset bound is null, and a 0 max would match nothing.
+- A bare invitation names an activity and NOTHING else: "take me out on my
+  bike", "I want to go hiking", "let's ride" -> trail_search with activity set
+  and every other field null. Do not fill in a plausible distance or a
+  difficulty range the user never said — the system asks a better follow-up
+  question than a guessed filter would answer.
+- Earlier turns are context for FOLLOW-UPS only: "the same but shorter",
+  "easier than that", "the second one" reach back. A message that states its
+  own constraints is decomposed on its own — never carry a distance, duration,
+  difficulty or feature from an earlier turn into a self-contained ask, and
+  never average the current ask with what was said before.
 - Never answer the trail question yourself here. Only decompose.
 """
 
@@ -94,11 +106,16 @@ Absolute rules:
   and trailforks.com in particular must never appear — no VaiVia result comes
   from there (docs/licensing.md) and naming it would misattribute OSM data.
 - Cover every route in RESULTS, each in one sentence (distance, climb, ends).
-- A `loops` block holds circular outings that return to where they started.
-  Call each one by its `name` when it has one, so your reply and the cards on
-  screen agree. When `name` is null, describe it by distance and what it passes
-  rather than inventing a name. Give distance, climb, and the notable places on
-  the way.
+- A `loops` block holds complete outings from our own route catalogue — loops
+  that come back to the start, and out-and-backs to somewhere worth going
+  (`shape` says which). Call each one by its `name` when it has one, so your
+  reply and the cards on screen agree. When `name` is null, describe it by
+  distance and what it passes rather than inventing a name. Give distance,
+  climb, and the notable places on the way.
+- When RESULTS holds BOTH `trails` and `loops`, they are two different kinds
+  of answer and must stay distinguishable: say which are complete outings and
+  which are named trails, never blur them into one list. Lead with whichever
+  kind fits the ask better.
 - Durations on a loop come from a deliberately cautious model (DIN 33466 for
   walking). Offer them as a generous estimate, never as a schedule.
 - Never present `off_road_share` as a guarantee about surface underfoot; it is
