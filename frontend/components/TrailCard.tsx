@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 import {
   distanceFigure,
   durationFigure,
@@ -19,6 +21,10 @@ interface Props {
 }
 
 export function TrailCard({ trail, selected, onSelect }: Props) {
+  // Same expand idiom as LoopCard / Sources: per-card state, stopPropagation
+  // because the card body is the selection click target. A trail's expanded
+  // half shows only what its row already carries — no second fetch.
+  const [open, setOpen] = useState(false);
   const length = distanceFigure(trail.total_distance_m);
   const climb = elevationFigure(trail.elevation_gain_m);
   const time = durationFigure(trail);
@@ -96,6 +102,49 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
 
       {trail.difficulty_notes && (
         <p className="route-note vv-body">{trail.difficulty_notes}</p>
+      )}
+
+      <button
+        type="button"
+        className="detail-toggle"
+        aria-expanded={open}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen(!open);
+        }}
+      >
+        <span>{open ? 'Less' : 'Full card'}</span>
+        <span className="sign" aria-hidden="true">
+          {open ? '−' : '+'}
+        </span>
+      </button>
+
+      {open && (
+        <div className="route-detail">
+          {trail.landscape_description && (
+            <p className="detail-note vv-body-sm">{trail.landscape_description}</p>
+          )}
+          {trail.pois.length > 4 && (
+            <div className="detail-pois">
+              <span className="vv-label">Everything it passes</span>
+              <div className="poi-list">
+                {trail.pois.map((poi, index) => (
+                  <span className="poi vv-body-sm" key={`all-${poi.type}-${index}`}>
+                    {poi.name ?? poiLabel(poi.type)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {trail.elevation_loss_m !== null && (
+            <div className="detail-figures">
+              <div className="detail-figure">
+                <span className="vv-label">down</span>
+                <span className="vv-data">{Math.round(trail.elevation_loss_m)} m</span>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       <Hazard hazards={trail.seasonal_hazards} />

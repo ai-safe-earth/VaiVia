@@ -31,7 +31,9 @@ export interface Loop {
   activity: string;
   /** 'osm_route' (a mapped relation) or 'generated'. */
   kind: string;
-  /** 'named' | 'loop' | 'destination'. */
+  /** 'loop' | 'destination' (constructed by the generator) or 'circular' |
+   *  'linear' (measured on a mapped route, schema 1.2). 'named' survives only
+   *  in pre-1.2 transcripts. */
   shape: string;
   /** A destination route is named after where it goes ("To Rifugio Elisa");
    *  an OSM relation after itself; null when nothing earned a name — the card
@@ -41,6 +43,15 @@ export interface Loop {
   destination_name: string | null;
   distance_m: number;
   ascent_m: number | null;
+  /** The expanded card's figures — already on the catalogue node, so they
+   *  travel with every row rather than needing a second fetch. */
+  descent_m: number | null;
+  lowest_m: number | null;
+  highest_m: number | null;
+  surface_dominant: string | null;
+  pieces: number | null;
+  continuous: boolean | null;
+  graded_share: number | null;
   /** Two grades, both true (metadata-rules.md): sac_scale is the CHARACTER
    *  (hardest grade covering ≥5% — the label it wears), sac_max the EXIGENT
    *  grade (hardest metre walked — what you must be able to handle). */
@@ -61,6 +72,42 @@ export interface Loop {
   pois: PoiRef[];
 }
 
+/** The altitude profile as the route document carries it: two parallel
+ *  arrays, cumulative metres and heights. */
+export interface RouteProfile {
+  distance_m: number[];
+  elevation_m: number[];
+}
+
+/** The expandable card's payload from GET /routes/{id}/detail — what the
+ *  route document knows beyond the map shape. */
+export interface RouteDetail {
+  route_id: string;
+  shape: string | null;
+  profile: RouteProfile | null;
+  /** 'ok' = a true along-route measure; 'approximate' = stitched across the
+   *  gaps of a multi-piece route (drawn with a caveat, never as clean truth);
+   *  null = no profile at all. */
+  profile_quality: 'ok' | 'approximate' | null;
+  measures: {
+    distance_m: number;
+    ascent_m: number | null;
+    descent_m: number | null;
+    lowest_m: number | null;
+    highest_m: number | null;
+  };
+  continuity: { pieces: number; continuous: boolean };
+  surface: { distribution: Record<string, number>; dominant: string | null };
+  places: {
+    id: string;
+    kind: string;
+    name: string | null;
+    offset_m: number;
+    distance_along_m: number | null;
+  }[];
+  attribution: string;
+}
+
 export interface RouteResult {
   total_distance_m: number;
   elevation_gain_m: number | null;
@@ -79,6 +126,9 @@ export interface RouteBlock {
 
 export interface ChatResults {
   kind: 'trail_search' | 'loop_search' | 'route' | 'clarify';
+  /** Where the card list folds: the prose narrates the first N results, the
+   *  rest sit behind "show more". Absent on older stored turns. */
+  answered_count?: number;
   trails?: Trail[];
   /** Circular routes selected from the catalogue. Render on presence, not
    *  on `kind`: a loops+theme turn is still labelled trail_search. */

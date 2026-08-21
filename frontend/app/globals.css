@@ -404,6 +404,83 @@ body {
   border-bottom: 1px solid var(--vv-lime);
 }
 
+/* ── Expanded card + the fold ─────────────────────────────────────────────
+   Same grammar as the sources expander: a full-width label row with a lime
+   sign, hairline-separated, square. The expanded body sits on --vv-panel so
+   the card's closed and open halves read as two surfaces of one thing. */
+
+.detail-toggle,
+.show-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--vv-s3) var(--vv-s7);
+  border: 0;
+  border-top: 1px solid var(--vv-line-2);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.detail-toggle .sign,
+.show-more .sign {
+  color: var(--vv-lime);
+  font-size: 13px;
+}
+
+.show-more {
+  border-top: 0;
+  border-bottom: 1px solid var(--vv-line);
+}
+
+.show-more:hover span:first-child,
+.detail-toggle:hover span:first-child {
+  color: var(--vv-lime);
+}
+
+.route-detail {
+  background: var(--vv-panel);
+  padding: var(--vv-s3) var(--vv-s7) var(--vv-s4);
+}
+
+.detail-figures {
+  display: flex;
+  gap: var(--vv-s6);
+  flex-wrap: wrap;
+  margin-bottom: var(--vv-s3);
+}
+
+.detail-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vv-s1);
+}
+
+.detail-note {
+  margin: 0 0 var(--vv-s3);
+}
+
+.detail-pois {
+  margin-bottom: var(--vv-s3);
+}
+
+.detail-pois .poi-list {
+  margin-top: var(--vv-s1);
+}
+
+.detail-profile .profile {
+  height: 56px;
+}
+
+.profile-caveat {
+  margin: var(--vv-s2) 0 0;
+  color: var(--vv-flare);
+}
+
 /* ── Hazard ───────────────────────────────────────────────────────────────
    6px flare bar, calm body text. The structure comes from tokens.css
    (.vv-hazard); only the label spacing is application detail. */

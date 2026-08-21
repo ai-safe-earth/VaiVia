@@ -14,8 +14,9 @@ import {
   loadMessages,
   type ConversationSummary,
 } from '@/lib/conversations';
+import { profileFromDetail } from '@/lib/profile';
 import { isAuthConfigured } from '@/lib/supabaseClient';
-import type { ChatMessage } from '@/lib/types';
+import type { ChatMessage, RouteDetail } from '@/lib/types';
 
 // MapLibre touches window at import time, so it must not be server-rendered.
 const MapView = dynamic(() => import('@/components/MapView').then((m) => m.MapView), {
@@ -33,6 +34,9 @@ export default function Home() {
   // undefined = session still resolving; render nothing rather than flashing
   // the sign-in form at an already signed-in user.
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
+  // The selected route's document detail: the elevation panel draws its
+  // profile. Null whenever nothing (or a trail) is selected.
+  const [routeDetail, setRouteDetail] = useState<RouteDetail | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatMessage[]>([]);
@@ -59,6 +63,7 @@ export default function Home() {
 
   async function selectConversation(id: string | null) {
     setGeometry(null);
+    setRouteDetail(null);
     if (id === null) {
       setSelected(null);
       setHistory([]);
@@ -109,6 +114,7 @@ export default function Home() {
         <ChatPanel
           key={panelKey}
           onGeometry={setGeometry}
+          onDetail={setRouteDetail}
           initialConversationId={selected}
           initialMessages={history}
           onConversationCreated={conversationCreated}
@@ -147,7 +153,10 @@ export default function Home() {
             <p className="map-empty vv-body-sm">Pick a trail to see it drawn here.</p>
           )}
         </div>
-        <ElevationPanel />
+        <ElevationPanel
+          profile={profileFromDetail(routeDetail)}
+          quality={routeDetail?.profile_quality}
+        />
       </div>
     </main>
   );

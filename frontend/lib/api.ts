@@ -5,7 +5,7 @@
 
 import { readSSE } from './sse';
 import { getAccessToken } from './supabaseClient';
-import type { ChatResults } from './types';
+import type { ChatResults, RouteDetail } from './types';
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? 'http://localhost:3001';
 
@@ -122,4 +122,22 @@ export async function fetchRouteGeoJson(routeId: string): Promise<GeoJSON.Featur
     throw new Error(`route geometry failed: ${response.status}`);
   }
   return (await response.json()) as GeoJSON.Feature;
+}
+
+/** The expandable card's payload: profile, measures, places, attribution.
+ *
+ * Same contract as fetchRouteGeoJson: a 404 (route left the catalogue) is
+ * null, anything else throws — a 503 means the document store is unmounted
+ * and silence would misreport it as "no detail".
+ */
+export async function fetchRouteDetail(routeId: string): Promise<RouteDetail | null> {
+  const token = await getAccessToken();
+  const response = await fetch(`${GATEWAY_URL}/routes/${encodeURIComponent(routeId)}/detail`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`route detail failed: ${response.status}`);
+  }
+  return (await response.json()) as RouteDetail;
 }
