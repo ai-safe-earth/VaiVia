@@ -1593,6 +1593,67 @@ row. So **"nothing here matches your theme" is unsayable by construction**, and
 that wants an absolute floor beside the relative one, whose value is exactly
 what a real corpus would let us measure.
 
+## 2026-08-21 (tenth) - The review round: a read-only path with no callers, and GDS quietly off
+
+An external review blocked the branch with four blockers, six should-fixes and
+four test gaps. Most of it held up; two blockers did not; and checking it
+turned up something bigger than anything on the list.
+
+**run_named delegated to run(), which is WRITE-routed - so run_read had ZERO
+production callers.** The API, the chat orchestrator, favorites and the whole
+catalogue ran under write mode while the docstrings, fragilities #15 and the
+"read-only path" commit all described a read-only query service. The timeout
+fix earlier today hardened a path nothing called. run_named is READ now; every
+named template is non-mutating (the guard suite fails the build otherwise), so
+the routing mode enforces what the guard asserts. Measured before switching,
+because two templates are GDS procedure calls rather than plain reads:
+gds.graph.project and gds.graph.drop both succeed under READ routing.
+
+**GDS was silently broken, found while probing that.** Allowlisted is not
+enough: gds.util.asNode reaches outside the procedure sandbox, so
+route_gds_dijkstra died with ProcedureRegistrationFailed and point-to-point
+routing fell back to hop-count shortestPath - silently, because the fallback is
+a Neo4jError catch. The base image ships
+dbms.security.procedures.unrestricted as apoc.*, which un-restricts the one
+namespace the Phase 1 allowlist exists to deny. It is gds.* now, and verified
+live after a container recreate: Dijkstra returns a comfort-weighted path
+again (total_cost 554.5 on a two-node hop), through run_named, under READ
+routing. Note the recreate re-fetched the plugin successfully - the manifest
+host is reachable today - but the plugins dir is still not volume-mounted.
+
+**The clarify bypass was real.** subqueries were truncated to MAX_SUBQUERIES
+BEFORE the clarify scan, so a fifth subquery carrying the refusal was dropped
+while the four runnable ones in front of it went to the graph - the guarantee
+broken by an off-by-a-cap, on exactly the adversarial input the guarantee
+exists for. The test that asserted the bypass now asserts the rule.
+
+**Three of the frontend findings were mine, from this morning's fixes.**
+Keeping ChatPanel mounted (the fix for the wiped transcript) let a stream
+finishing behind the Saved-routes view repaint the map under it; the turn-
+ownership fix guarded dispatch but not the continuation after the await; and
+the trail-geometry path never re-checked the selection. All three now go
+through explicit guards. Favorites state is also cleared on any account change,
+with responses that outlived their sign-in dropped, and a detail fetch that
+failed for anything other than a 404 stays retryable instead of becoming a
+permanent "no altitude profile".
+
+**Two blockers did not hold.** The estimate_loops collect is a real pattern but
+that template has no caller and the catalogue is ~1k rows bounded by the
+export; the suggested fix (count separately, then LIMIT) would break the one
+property the shared fragment exists to guarantee, so the comment now states
+plainly that the OUTPUT is bounded and the intermediate is not. And
+"fragilities.md plans model-generated Cypher" is pre-existing text from
+33b131d describing a FLAGGED future capability from the approved plan - it
+documents the controls rather than removing a boundary. Worth an owner
+decision on wording, since CLAUDE.md says "never" flatly, but not a code
+blocker.
+
+**The test-gap criticism was the fair one.** The frontend tests mirrored
+production logic in the test file, which is this repo's convention and is worth
+nothing against a race: inverting a guard in the component left every assertion
+green. lib/mapTurn.ts and lib/favorites.ts now hold the rules the components
+call, and the tests import those.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -2228,6 +2289,41 @@ what a real corpus would let us measure.
   ],
   "nextSteps": [
     {
+      "title": "Decide the wording of fragilities #15 against CLAUDE.md: the doc describes a flagged model-generated-Cypher capability while CLAUDE.md says the LLM never writes Cypher, flatly. One of the two should move",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Re-run smoke_routing now that GDS works again - point-to-point routing has been silently falling back to hop-count shortestPath, so any routing figures measured since the allowlist landed are shortestPath's, not comfort-weighted",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Revisit estimate_loops' unbounded intermediate collect if the catalogue grows by an order of magnitude - the output is capped, the collect is not, and an exact count plus its sample cannot be split without two queries that can disagree",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether the frontend gets a component-test setup (jsdom + testing-library): the pure-helper split covers the race guards, but nothing tests a component end to end",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Split or re-scope this branch before merging: feat/query-loop-foundations now carries the query-loop foundations plus ten review fixes across four tiers",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
       "title": "Derive (:Trail) from OSM and the route documents - it is still 5 Trailforks-shaped fixtures, so the whole semantic theme path searches five documents",
       "est": 2,
       "owner": "oscar",
@@ -2630,6 +2726,13 @@ what a real corpus would let us measure.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
