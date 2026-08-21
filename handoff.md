@@ -1329,6 +1329,77 @@ clean build, pipeline 160.
 
 No prompt or intent schema changed, so no live intent re-check was needed.
 
+## 2026-08-21 (fourth) - The catalogue meets the user, and the answer stops inventing links
+
+First: the previous entry's worry was stale before the session began - PR #21 was already
+merged; develop had it. The real work started by driving the whole stack in the browser
+against the new catalogue, and the smoke earned its keep twice over.
+
+The answer model was linking every route name to trailforks.com - five routes, five
+invented links, to the one domain no VaiVia result comes from, over OSM data that is not
+theirs. The prompt had asked for the opposite; a Trailforks-era rule whose negative half
+did not hold. The fix is the Cypher boundary's doctrine applied to prose:
+chat/sanitize.py strips links from the answer STREAM (markdown links keep their label,
+bare URLs go, held back only while a fragment could still grow into a link), and the
+prompt now forbids links outright. fragilities.md #14 records the general shape: a
+prompt that mentions a forbidden thing at all is a prompt that suggests it.
+
+Then the owner's rule landed: a trail ask answers with BOTH kinds. catalogue_view derives
+the catalogue's version of any trail_search and runs it beside search_trails - but only
+when every stated constraint can be honoured there (season, hazard, surface, floors kill
+it; duration is dropped loudly, the ratified exception). And vague asks are guided: "I
+want to go hiking" composes to a deterministic clarify - what shape of outing, roughly
+how far - with tappable suggestions. Python decides when to ask, never the model. Three
+gpt-4o-mini wobbles were fixed on the way: invented constraints for bare invitations
+(vacuous full-range difficulty now sanitized), history contaminating self-contained asks
+(a phantom 240-minute duration was silently suppressing the catalogue), and "easy"
+converted into a duration. eval_golden grew loop.<field> expectations and two guiding
+cases: 26/26, adversarial 7/7.
+
+## 2026-08-21 (fifth) - Shape measured, the full card, and saved routes
+
+Three stacked PRs (#23, #24, #25 on #22), one plan, all verified live.
+
+**Shape.** Every OSM named relation wore shape='named', invented at Neo4j load. Schema
+1.2 carries a top-level shape: loop/destination stay CONSTRUCTED (generation intent),
+circular/linear are MEASURED (export/shape.py). The mapper's roundtrip tag wins - it
+rescues the ring our coverage clips at 650 m of gap - then the endpoint gap at
+GAP_RATIO 0.01 of length, calibrated the honest way: rings close at <= 0.0005,
+everything else jumps to >= 0.14, and a route in pieces is linear unless tagged,
+because calling a linear route a loop strands a walker. The catalogue now reads 693
+linear / 126 loop / 102 destination / 59 circular, and 'named' is gone.
+
+**The full card.** The graph returns 20 rows, the answer model sees 5 (a prefix, never
+a re-sort - the prose and the cards above the fold are the same routes), and
+FoldedCards reveals five at a time, fetching geometry only for what is visible. "Full
+card" expands into descent, height range, dominant surface, off-road share, every
+place, and the altitude profile from the new GET /routes/{id}/detail - the route
+document serving what it always carried. profile_quality marks the 16 multi-piece
+concatenations 'approximate' with a visible caveat. The elevation panel under the map,
+dormant since the brand pass, now draws the selected route's profile - the same
+ElevationProfile component as the card, so the two cannot drift.
+
+**Saved routes.** Supabase, not the social layer's Mongo - a personal favorite is
+account data, and that doc's own trade-off paragraph anticipated exactly this (a
+postscript there records it). Migration 0003: RLS select policy AND the grant, rows
+keyed on the geometry-derived route_id so they survive the catalogue being replaced
+wholesale per export; vanished ids come back as `missing`, named rather than dropped.
+Everything mounts under /routes so the gateway is untouched; unfavorite is a POST.
+The brand icon set grew its deliberate eleventh member (a bookmark, asset first). One
+Set in page.tsx feeds the card bookmarks, the header mark, and the saved view.
+
+The live e2e now walks the whole card - kind label, expand + profile, fold reveal,
+favorites round-trip - 4/4. It also met two production behaviours doing their job:
+back-to-back runs trip the gateway's 60/min rate limit, and a day of live testing
+exhausts the dev user's daily LLM quota. Both are documented in the spec header rather
+than raised.
+
+Left honest and open: the "How I read it" block still says not wired up (the composed
+plan never reaches the browser); trail_search's poi_types is a conjunction, so "a lake
+OR a peak" quietly becomes AND; the five mock trails still carry synthetic
+trailforks_url links into TrailCard, which after the sanitize work reads as the next
+thing to retire.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1884,6 +1955,34 @@ No prompt or intent schema changed, so no live intent re-check was needed.
         {
           "date": "2026-08-21",
           "text": "Duration constraints are not enforced until DIN 33466 is calibrated - dropping the filter loudly beats filtering on a figure that reads 10 h for a 6-8 h classic"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "The answer carries no links, enforced in code: chat/sanitize.py strips links from the answer stream, because a prompt that mentions a forbidden thing at all is a prompt that suggests it (fragilities.md #14, found live when the model linked every route to trailforks.com)"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Owner rule: a trail ask answers with both kinds - named trails and catalogue routes, distinguishable to the eye - via composer.catalogue_view, which exists only when every stated constraint can be honoured on the catalogue (duration is dropped loudly, the ratified exception)"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Owner rule: an ask that is only an activity earns a deterministic guiding clarify (what shape of outing, roughly how far) with tappable suggestions; Python decides when to ask, never the model"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Route document schema 1.2: top-level shape, required. loop/destination are constructed (generation intent), circular/linear are measured (roundtrip tag first, then endpoint gap <= 0.01 of length, calibrated from the distribution; in pieces = linear unless tagged). The pairs stay distinct so a classifier bug cannot impersonate intent"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "The cards can show more than the prose narrates: graph returns CARD_RESULT_LIMIT (20), the answer model sees ANSWER_RESULT_LIMIT (5) as a prefix never a re-sort, answered_count marks the fold, geometry is fetched per visible card"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "GET /routes/{id}/detail serves the document's profile, measures, continuity, surface and places with the same 404/503 honesty ladder as /geojson; profile_quality marks multi-piece concatenations 'approximate' and the chart carries the caveat visibly"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Favorites live in Supabase (route_favorites, migration 0003), not the social layer's MongoDB - a personal favorite is account data and the ownership check belongs in the database; rows key on the geometry-derived route_id and vanished routes are reported missing, never dropped. Unfavorite is a POST because the gateway forwards only GET and POST"
         }
       ]
     }
@@ -1916,14 +2015,21 @@ No prompt or intent schema changed, so no live intent re-check was needed.
   ],
   "nextSteps": [
     {
-      "title": "Drive the full stack in the browser against the new catalogue (sign in, ask for a loop, see LoopCards and the map) - the e2e smoke exists (npm run test:e2e)",
+      "title": "Merge the PR stack in order: #22 (both kinds + guided) -> #23 (shape) -> #24 (cards) -> #25 (favorites), retargeting each to develop as its base merges",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Retire the five synthetic mock trails (or their trailforks_url links): after the sanitize work, 'View on Trailforks' on a mock card is the next misattribution to go",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Give generated routes an id derived from geometry, not a sequence number or run_id, so photos and comments cannot orphan on a rebuild (docs/social-layer.md)",
+      "title": "poi_types is a conjunction: 'near a lake or past a peak' quietly becomes AND. Decide whether the intent grows an any_of or the prompt splits the ask",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -1932,20 +2038,6 @@ No prompt or intent schema changed, so no live intent re-check was needed.
     {
       "title": "Return the composed plan with /chat results so the \"How I read it\" block can render the constraints it understood",
       "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Return a height series with route geometry so the elevation profile can be drawn",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed — it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
-      "severity": "high",
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2009,13 +2101,6 @@ No prompt or intent schema changed, so no live intent re-check was needed.
     {
       "title": "Rebuild trailheads and the catalogue at --min-off-road 0.3 so lakeside and valley routes exist at all; 220 of 266 trailheads are currently unbuilt",
       "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Push feat/route-catalogue and merge it; the whole route pipeline exists only on the dev machine",
-      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2269,6 +2354,13 @@ No prompt or intent schema changed, so no live intent re-check was needed.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
