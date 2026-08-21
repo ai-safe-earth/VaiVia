@@ -32,6 +32,7 @@ def document(**overrides):
     base = {
         "route_id": "osm-relation-74613",
         "kind": "osm_route",
+        "shape": "linear",
         "identity": {
             "name": None,
             "ref": "14",
@@ -199,3 +200,24 @@ def test_the_schema_rejects_an_unknown_sac_grade(validator):
     doc["difficulty"]["sac_scale"] = "a sentence about stone ruins"
 
     assert not validator.is_valid(doc)
+
+
+def test_shape_is_required_and_closed(validator):
+    """Schema 1.2: every document says what shape of outing it is. The enum is
+    the contract -- loop/destination are constructed, circular/linear are
+    measured -- and a value outside it is a producer bug, not a new feature."""
+    import jsonschema
+    import pytest
+
+    missing = document()
+    del missing["shape"]
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(missing)
+
+    invented = document()
+    invented["shape"] = "named"  # the pre-1.2 placeholder must not come back
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(invented)
+
+    for value in ("loop", "destination", "circular", "linear"):
+        validator.validate(document(shape=value))

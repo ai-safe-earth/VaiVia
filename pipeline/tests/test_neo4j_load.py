@@ -10,10 +10,11 @@ from export.document import Span, build_document
 from export.neo4j_load import document_rows, templates
 
 
-def sample(**overrides):
+def _base_kwargs(**overrides):
     base = {
         "route_id": "generated-abc123",
         "kind": "generated",
+        "shape": "destination",
         "identity": {
             "name": "To Rifugio Elisa",
             "ref": None,
@@ -85,7 +86,11 @@ def sample(**overrides):
         },
     }
     base.update(overrides)
-    return document_rows(build_document(**base))
+    return base
+
+
+def sample(**overrides):
+    return document_rows(build_document(**_base_kwargs(**overrides)))
 
 
 def test_selection_properties_travel_and_geometry_does_not():
@@ -158,10 +163,11 @@ def test_a_place_without_coordinates_is_skipped_not_invented():
     assert rows["passes"] == []
 
 
-def test_an_osm_document_maps_with_shape_named():
+def test_an_osm_document_maps_with_its_measured_shape():
     rows = sample(
         route_id="osm-relation-74613",
         kind="osm_route",
+        shape="circular",  # measured by export/shape.py, carried top-level
         matched_fraction=0.97,
         provenance={
             "run_id": "export-x",
@@ -174,9 +180,37 @@ def test_an_osm_document_maps_with_shape_named():
     props = rows["route"]["props"]
 
     assert props["kind"] == "osm_route"
-    assert props["shape"] == "named"  # not generated: the shape is its identity
+    assert props["shape"] == "circular"
     assert props["matched_fraction"] == 0.97
     assert props["score"] is None  # absent is not zero
+
+
+def test_a_legacy_document_without_shape_falls_back():
+    """Schema 1.1 documents carry no top-level shape. The loader serves them
+    with the old chain -- generation shape for generated, 'named' for OSM --
+    so a store that predates the bump still loads rather than lying."""
+    from export.document import build_document
+
+    generated = build_document(**_base_kwargs())
+    del generated["shape"]
+    assert document_rows(generated)["route"]["props"]["shape"] == "destination"
+
+    osm = build_document(
+        **{
+            **_base_kwargs(),
+            "route_id": "osm-relation-74613",
+            "kind": "osm_route",
+            "provenance": {
+                "run_id": "export-x",
+                "producer": "pipeline/export/route_documents.py",
+                "sources": [
+                    {"name": "OpenStreetMap", "licence": "ODbL 1.0", "attribution": "©"}
+                ],
+            },
+        }
+    )
+    del osm["shape"]
+    assert document_rows(osm)["route"]["props"]["shape"] == "named"
 
 
 def test_every_template_the_loader_runs_exists_and_is_parameterised():
