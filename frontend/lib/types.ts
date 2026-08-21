@@ -20,7 +20,6 @@ export interface Trail {
   duration_mtb_min: number | null;
   best_seasons: string[];
   seasonal_hazards: string[];
-  trailforks_url?: string | null;
   pois: PoiRef[];
 }
 
@@ -129,6 +128,10 @@ export interface ChatResults {
   /** Where the card list folds: the prose narrates the first N results, the
    *  rest sit behind "show more". Absent on older stored turns. */
   answered_count?: number;
+  /** What the composed plan actually did, in the walker's own words — the
+   *  backend's account of the EXECUTED plan, never re-derived here. Absent
+   *  when nothing was searched (a clarify turn). */
+  reading?: { key: string; value: string }[];
   trails?: Trail[];
   /** Circular routes selected from the catalogue. Render on presence, not
    *  on `kind`: a loops+theme turn is still labelled trail_search. */

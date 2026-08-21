@@ -54,7 +54,6 @@ class TrailSummary(BaseModel):
     duration_mtb_min: int | None = None
     best_seasons: list[str] = Field(default_factory=list)
     seasonal_hazards: list[str] = Field(default_factory=list)
-    trailforks_url: str | None = None
     pois: list[PoiRef] = Field(default_factory=list)
 
 

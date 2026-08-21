@@ -285,7 +285,7 @@ export function ChatPanel({
                 QueryReading. It sits between the answer and the routes because
                 that is where a correction would be made. */}
             {message.role === 'assistant' && message.results && !message.streaming && (
-              <QueryReading />
+              <QueryReading reading={message.results.reading} />
             )}
 
             {message.results?.suggestions && message.results.suggestions.length > 0 && (

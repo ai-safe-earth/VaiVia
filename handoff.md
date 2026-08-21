@@ -1400,6 +1400,38 @@ OR a peak" quietly becomes AND; the five mock trails still carry synthetic
 trailforks_url links into TrailCard, which after the sanitize work reads as the next
 thing to retire.
 
+## 2026-08-21 (sixth) - Two lies retired, and the reading block tells the truth
+
+Cleanup that turned out to matter, then the last dark block in the UI.
+
+**The link we were still inventing.** The sanitize work three commits earlier
+stopped the MODEL writing trailforks.com links. It did not stop US: the
+synthetic fixture carries an `alias` per trail, ingestion turned it into
+https://www.trailforks.com/trails/<alias>/, and TrailCard rendered it as a live
+"View on Trailforks" anchor with the sources panel listing a second source,
+"terms pending". Nothing had been taken from Trailforks - the URL was
+constructed from a slug we made up - so it pointed at a real commercial domain,
+for a trail that does not exist there, beside OSM-derived data. Deterministic,
+ours, and rendered as an anchor rather than as prose, which makes it worse than
+the model's version. Gone end to end, with a test pinning that no ingested row
+may carry a url at all. docs/licensing.md's "nothing here covers Trailforks" is
+now closed by emitting nothing.
+
+**How I read it.** Wired, and deliberately showing the EXECUTED plan rather
+than the model's subqueries, because the interesting half is what the composer
+did to the question: a single stated distance widened into the band that
+actually ran (15 km -> 12-18 km), a duration dropped with the reason named, the
+poi conjunction spelled out so "a lake or a peak" cannot silently run as AND,
+"with my kids" shown as the difficulty cap it becomes, and which store answered
+- catalogue, named trails, or both, and when the catalogue was refused, that a
+constraint could not be honoured there. chat/readback.py is pure and every one
+is pinned. A clarify turn reads back nothing and says so, and the footer no
+longer implies the grid is editable.
+
+That last one incidentally makes the poi_types conjunction VISIBLE, which was
+the open question from the previous session. It is still an AND; a walker can
+now at least see that it is.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1983,6 +2015,14 @@ thing to retire.
         {
           "date": "2026-08-21",
           "text": "Favorites live in Supabase (route_favorites, migration 0003), not the social layer's MongoDB - a personal favorite is account data and the ownership check belongs in the database; rows key on the geometry-derived route_id and vanished routes are reported missing, never dropped. Unfavorite is a POST because the gateway forwards only GET and POST"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "No URL is ever synthesised for a trail: the alias-to-trailforks.com link was constructed from a slug we invented and pointed at a real commercial domain for a trail that does not exist there. The property, its Cypher RETURNs, the API field, the card anchor and the sources row are gone, with a test pinning that no ingested row carries a url"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "How I read it shows the EXECUTED plan, not the model's subqueries: the widened distance band, the dropped duration and its reason, the poi conjunction spelled out, the family-friendly difficulty cap, and which store answered. chat/readback.py is pure; the vocabulary lives in the backend because a reader that re-derived it could drift from the truth"
         }
       ]
     }
@@ -2022,22 +2062,15 @@ thing to retire.
       "plan": "redesign"
     },
     {
-      "title": "Retire the five synthetic mock trails (or their trailforks_url links): after the sanitize work, 'View on Trailforks' on a mock card is the next misattribution to go",
+      "title": "Decide whether poi_types grows an any_of: the readback now makes the AND visible, but 'a lake or a peak' still cannot be asked for",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "poi_types is a conjunction: 'near a lake or past a peak' quietly becomes AND. Decide whether the intent grows an any_of or the prompt splits the ask",
-      "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Return the composed plan with /chat results so the \"How I read it\" block can render the constraints it understood",
-      "est": 1,
+      "title": "Make the readback editable - the block names the constraints but ask-again-in-words is still the only way to change one",
+      "est": 1.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"

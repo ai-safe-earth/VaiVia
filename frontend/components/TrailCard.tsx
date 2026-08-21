@@ -149,19 +149,7 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
 
       <Hazard hazards={trail.seasonal_hazards} />
 
-      {trail.trailforks_url && (
-        <a
-          className="route-link vv-body-sm"
-          href={trail.trailforks_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => event.stopPropagation()}
-        >
-          View on Trailforks
-        </a>
-      )}
-
-      <Sources id={trail.id} trailforksUrl={trail.trailforks_url} />
+      <Sources id={trail.id} />
     </div>
   );
 }
