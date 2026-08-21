@@ -24,9 +24,10 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
-from chat.composer import ComposedPlan, TrailSearchIntent, compose
+from chat.composer import ComposedPlan, TrailSearchIntent, catalogue_view, compose
 from chat.intents import RouteIntent
 from chat.llm import LLMClient, results_to_json
+from chat.sanitize import strip_links_stream
 from chat.store import ConversationStore
 from core.config import get_settings
 from core.embeddings import Embedder
@@ -118,8 +119,11 @@ class ChatOrchestrator:
             answer_parts.append(plan.clarify.question)
             yield ChatEvent("token", {"delta": plan.clarify.question})
         else:
-            async for delta in self._llm.stream_answer(
-                message, results_to_json(results), history
+            # Links are stripped here, not asked for in the prompt: a live
+            # smoke had the model linking every route name to trailforks.com,
+            # a domain no result comes from (chat/sanitize.py).
+            async for delta in strip_links_stream(
+                self._llm.stream_answer(message, results_to_json(results), history)
             ):
                 answer_parts.append(delta)
                 yield ChatEvent("token", {"delta": delta})
@@ -189,6 +193,21 @@ class ChatOrchestrator:
             loops = await self._loops(plan.loop)
             results["loops"] = loops
             refs["loop_ids"] = [r["id"] for r in loops]
+        elif plan.search is not None and plan.theme is None:
+            # A trail ask answers with both kinds (owner rule 2026-08-21):
+            # named trails AND complete outings from the catalogue, kept
+            # distinguishable all the way to the screen. The view is None
+            # when a stated constraint cannot be honoured there — and a
+            # theme cannot be (the catalogue has no embeddings), which is
+            # why a semantic turn stays trails-only.
+            view = catalogue_view(plan.search)
+            if view is not None:
+                loops = await self._loops(view)
+                # Implicit query, so an empty block is omitted rather than
+                # making the answer apologise for a list nobody asked for.
+                if loops:
+                    results["loops"] = loops
+                    refs["loop_ids"] = [r["id"] for r in loops]
 
         if plan.routes:
             routes, route_refs = await self._routes(plan.routes)

@@ -39,6 +39,9 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
         }
       }}
     >
+      {/* The kind label keeps trails distinguishable from catalogue outings
+          when one answer holds both (owner rule 2026-08-21). */}
+      <span className="route-kind vv-label">Named trail</span>
       <h3 className="route-name vv-title">{trail.name}</h3>
 
       {/* Numbers lead, units follow. The first figure in the set is the lime

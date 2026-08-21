@@ -68,6 +68,16 @@ export function LoopCard({ loop, selected, onSelect }: Props) {
     (loop.ref ? `Sentiero ${loop.ref}` : `${distance(loop.distance_m)} ${loop.activity} loop`);
   const startName = loop.start_names?.[0] ?? null;
 
+  // Which KIND of outing this is, said out loud (owner rule 2026-08-21): a
+  // trail ask can answer with loops, out-and-backs and named trails in one
+  // list, and the shapes must stay distinguishable at a glance.
+  const shapeLabel =
+    loop.shape === 'loop'
+      ? 'Loop'
+      : loop.shape === 'destination'
+        ? 'Out & back'
+        : 'Named route';
+
   // A div with button semantics, matching TrailCard, so the two lists behave
   // identically to a keyboard and share the route-card styling.
   return (
@@ -84,6 +94,7 @@ export function LoopCard({ loop, selected, onSelect }: Props) {
         }
       }}
     >
+      <span className="route-kind vv-label">{shapeLabel}</span>
       <h3 className="route-name vv-title">{heading}</h3>
 
       <div className="figures">

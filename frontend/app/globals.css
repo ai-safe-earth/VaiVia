@@ -297,6 +297,17 @@ body {
   border-left-color: var(--vv-lime);
 }
 
+/* Which kind of outing the card is — "Loop", "Out & back", "Named trail" —
+   so a mixed answer stays legible without reading the numbers. */
+.route-kind {
+  display: block;
+  padding: var(--vv-s7) var(--vv-s7) 0;
+}
+
+.route-kind + .route-name {
+  padding-top: var(--vv-s1);
+}
+
 .route-name {
   margin: 0;
   padding: var(--vv-s7) var(--vv-s7) 0;

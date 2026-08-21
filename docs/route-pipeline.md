@@ -295,3 +295,21 @@ documented in `docs/fragilities.md` #1, and it is genuinely hard. The existing
 `spatial_match.py` does a constrained version (proximity plus highway
 compatibility) and took real effort. Any multi-source geometry plan should
 budget for that rather than assume a join.
+
+**Runtime, both kinds — BUILT 2026-08-21 (owner rule).** A `trail_search` no
+longer answers from the trail graph alone: `chat/composer.py::catalogue_view`
+derives the same ask against the route catalogue whenever every stated
+constraint can be honoured there, and the turn returns `trails` and `loops` as
+two distinguishable blocks — the cards carry a kind label (Loop / Out & back /
+Named route / Named trail) and the answer prose is told to keep them apart. A
+constraint the catalogue cannot express (season, hazards, surfaces, difficulty
+or climb floors) kills the view rather than being dropped — with one ratified
+exception: a duration cap is dropped loudly, exactly as the explicit loop path
+drops it, until DIN 33466 is calibrated.
+
+The other half of the rule is agentic guiding: an ask that is only an activity
+("I want to go hiking") composes to a deterministic clarify — what shape of
+outing, roughly how far — with tappable suggestions that each land on a
+different shape. Python decides when to ask, never the model. Two intent-prompt
+rules back it: a bare invitation sets activity and nothing else, and history
+feeds follow-ups only — a self-contained ask is decomposed on its own.

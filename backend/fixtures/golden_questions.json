@@ -14,11 +14,8 @@
     "id": "g02",
     "question": "a technical mountain bike loop around the lake",
     "expect": {
-      "search.activity": "mtb"
-    },
-    "expect_trails": [
-      "tf_001"
-    ]
+      "loop.activity": "mtb"
+    }
   },
   {
     "id": "g03",
@@ -194,12 +191,9 @@
     "id": "g20",
     "question": "an easy mountain bike loop near Bergamo",
     "expect": {
-      "search.activity": "mtb",
-      "search.region": "Bergamo"
-    },
-    "expect_trails": [
-      "tf_005"
-    ]
+      "loop.activity": "mtb",
+      "loop.max_difficulty_level": 1
+    }
   },
   {
     "id": "g21",
@@ -245,5 +239,19 @@
     "expect_trails": [
       "tf_005"
     ]
+  },
+  {
+    "id": "g25",
+    "question": "I want to go hiking",
+    "expect": {
+      "clarify": true
+    }
+  },
+  {
+    "id": "g26",
+    "question": "take me out on my mountain bike",
+    "expect": {
+      "clarify": true
+    }
   }
 ]

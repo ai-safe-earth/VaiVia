@@ -29,7 +29,9 @@ class StubLLM:
 
 @pytest.fixture
 def chat_client(client, db):
-    client.app.state.llm = StubLLM({"kind": "trail_search", "activity": "mtb"})
+    client.app.state.llm = StubLLM(
+        {"kind": "trail_search", "activity": "mtb", "max_distance_m": 20000}
+    )
     client.app.state.store = InMemoryStore()
     db.when("search_trails", [])
     return client

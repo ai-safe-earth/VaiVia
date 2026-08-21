@@ -230,3 +230,37 @@ unaffected — they go through the backend, which connects as the owner.
 check *which layer* actually granted the access it was narrowing. A platform
 default that silently does half the work is indistinguishable from a migration
 that does all of it, right up until the default changes.
+
+## 14. A Prompt Rule Naming A Forbidden Source Is An Instruction To Use It
+
+**Risk:** The answer prompt carried a linking rule from the Trailforks era:
+*"When a trail has a `trailforks_url`, cite it as a markdown link on the trail's
+name. Never link a trail that has no `trailforks_url`."* Catalogue routes carry
+no such field, so by the rule's own terms none of them should have been linked.
+
+The first live smoke against the pipeline catalogue (2026-08-21) produced this:
+
+> The loop to [Corno dell'Arco](https://www.trailforks.com) is approximately
+> 11.0 km with an ascent of 1,049 m…
+
+Every one of the five routes, linked to a bare `trailforks.com`. The rule's
+negative half did not hold; naming the domain was enough to make the model
+reach for it. And the routes are OSM-derived and ODbL — sending a walker to a
+commercial site we have no agreement with, over data that is not theirs, is a
+misattribution as well as a dead link.
+
+**Why it matters beyond the one domain:** an invented URL about a real mountain
+is worse than no URL. It looks authoritative, it survives being screenshotted,
+and nothing downstream checks it.
+
+**Our mitigation:** two layers, and the code is the one that counts.
+`chat/sanitize.py` strips links from the answer *stream* — markdown links keep
+their label, bare URLs go — and the prompt rule now forbids links outright
+instead of describing when to write one. Stripping mid-stream is the fiddly
+part, because `[Name](url)` arrives token by token and no single chunk holds
+the whole link: `strip_links_stream` holds back the tail that could still grow
+into one and releases it as soon as it cannot, so the answer still streams.
+
+**The lesson to keep:** this is the Cypher boundary's rule applied to prose. A
+constraint that matters is enforced in Python, not requested in a prompt — and
+a prompt that mentions a forbidden thing at all is a prompt that suggests it.
