@@ -36,7 +36,14 @@ from graph.neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
 
-SEARCH_RESULT_LIMIT = 5
+# Two limits, deliberately different. The CARDS can show more than the PROSE
+# should narrate: the graph returns up to CARD_RESULT_LIMIT rows (the client
+# folds them behind "show more"), while the answer model is handed only the
+# first ANSWER_RESULT_LIMIT so it writes five sentences, not twenty. The fold
+# and the prose must reference the same ordering, so the trim is a prefix,
+# never a re-sort.
+ANSWER_RESULT_LIMIT = 5
+CARD_RESULT_LIMIT = 20
 
 # Our 1-4 difficulty onto the OSM scales GraphHopper decodes. sac_scale: 1
 # hiking, 2 mountain_hiking, 3 demanding_mountain_hiking, 4+ alpine. mtb:scale
@@ -46,6 +53,20 @@ MTB_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 4, 4: 6}
 # The vector index scores this many candidates before the structured filters
 # cut them down, so a filtered semantic search still has enough to choose from.
 SEMANTIC_CANDIDATE_POOL = 25
+
+
+def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
+    """The results as the ANSWER model sees them: card lists cut to a prefix.
+
+    The prompt tells the model to cover every route it is given, so handing it
+    twenty produces twenty sentences. A prefix, never a re-sort: the prose and
+    the cards above the fold must be the same routes in the same order.
+    """
+    view = dict(results)
+    for key in ("loops", "trails"):
+        if isinstance(view.get(key), list):
+            view[key] = view[key][:ANSWER_RESULT_LIMIT]
+    return view
 
 
 @dataclass
@@ -109,7 +130,16 @@ class ChatOrchestrator:
         )
 
         results, refs = await self._execute(plan)
-        yield ChatEvent("results", {"kind": self._result_kind(plan), **results})
+        # answered_count is where the client folds the card list: the prose
+        # narrates the first N, the rest sit behind "show more".
+        yield ChatEvent(
+            "results",
+            {
+                "kind": self._result_kind(plan),
+                "answered_count": ANSWER_RESULT_LIMIT,
+                **results,
+            },
+        )
 
         answer_parts: list[str] = []
         if plan.is_clarify:
@@ -123,7 +153,9 @@ class ChatOrchestrator:
             # smoke had the model linking every route name to trailforks.com,
             # a domain no result comes from (chat/sanitize.py).
             async for delta in strip_links_stream(
-                self._llm.stream_answer(message, results_to_json(results), history)
+                self._llm.stream_answer(
+                    message, results_to_json(_answer_view(results)), history
+                )
             ):
                 answer_parts.append(delta)
                 yield ChatEvent("token", {"delta": delta})
@@ -303,7 +335,7 @@ class ChatOrchestrator:
             near_lat=near_lat,
             near_lon=near_lon,
             near_radius_m=settings.loop_near_radius_m,
-            limit=SEARCH_RESULT_LIMIT,
+            limit=CARD_RESULT_LIMIT,
         )
 
     async def _search(
@@ -340,7 +372,7 @@ class ChatOrchestrator:
                     "semantic_search_trails_filtered",
                     embedding=embedding,
                     candidate_pool=SEMANTIC_CANDIDATE_POOL,
-                    limit=SEARCH_RESULT_LIMIT,
+                    limit=CARD_RESULT_LIMIT,
                     **params,
                 )
             else:
@@ -348,13 +380,13 @@ class ChatOrchestrator:
                 # saying so, then answering from the structured filters alone.
                 semantic_unavailable = True
                 rows = await self._db.run_named(
-                    "search_trails", limit=SEARCH_RESULT_LIMIT, **params
+                    "search_trails", limit=CARD_RESULT_LIMIT, **params
                 )
         else:
             if theme is not None:
                 semantic_unavailable = True
             rows = await self._db.run_named(
-                "search_trails", limit=SEARCH_RESULT_LIMIT, **params
+                "search_trails", limit=CARD_RESULT_LIMIT, **params
             )
 
         # Duration is a post-filter: the graph stores per-activity durations, and

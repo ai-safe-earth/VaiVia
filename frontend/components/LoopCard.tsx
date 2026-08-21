@@ -1,14 +1,24 @@
 'use client';
 
-import { distance, distanceFigure, elevationFigure } from '@/lib/format';
-import type { Loop } from '@/lib/types';
+import { useState } from 'react';
 
+import { distance, distanceFigure, elevationFigure } from '@/lib/format';
+import { profileFromDetail } from '@/lib/profile';
+import type { Loop, RouteDetail } from '@/lib/types';
+
+import { ElevationProfile } from './MapChrome';
 import { Sources } from './Sources';
 
 interface Props {
   loop: Loop;
   selected: boolean;
   onSelect: (loop: Loop) => void;
+  /** The document detail, fetched by the parent on first expand: undefined =
+   *  not asked yet / loading, null = route left the catalogue. */
+  detail?: RouteDetail | null;
+  /** Fired when the card opens, so the parent can fetch the detail and focus
+   *  the map on this route. */
+  onExpand?: (loop: Loop) => void;
 }
 
 /** SAC grades in catalogue order — index+1 is the rank the squares fill to. */
@@ -45,7 +55,10 @@ function SacScale({ rank }: { rank: number }) {
   );
 }
 
-export function LoopCard({ loop, selected, onSelect }: Props) {
+export function LoopCard({ loop, selected, onSelect, detail, onExpand }: Props) {
+  // Sources.tsx idiom: per-card state, stopPropagation on the toggle because
+  // the card body is the selection click target.
+  const [open, setOpen] = useState(false);
   const length = distanceFigure(loop.distance_m);
   const climb = elevationFigure(loop.ascent_m);
   // The exigent grade drives the display (owner rule 2026-08-20).
@@ -154,7 +167,105 @@ export function LoopCard({ loop, selected, onSelect }: Props) {
         </div>
       )}
 
+      <button
+        type="button"
+        className="detail-toggle"
+        aria-expanded={open}
+        onClick={(event) => {
+          event.stopPropagation();
+          const next = !open;
+          setOpen(next);
+          if (next) onExpand?.(loop);
+        }}
+      >
+        <span>{open ? 'Less' : 'Full card'}</span>
+        <span className="sign" aria-hidden="true">
+          {open ? '−' : '+'}
+        </span>
+      </button>
+
+      {open && <LoopDetail loop={loop} detail={detail} />}
+
       <Sources id={loop.id} />
+    </div>
+  );
+}
+
+/** The expanded half: the figures the row already carries, every named place,
+ *  and the altitude profile once the document detail arrives. */
+function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null }) {
+  const profile = detail ? profileFromDetail(detail) : undefined;
+  const descent = elevationFigure(loop.descent_m);
+  const extended: { label: string; value: string }[] = [];
+  if (descent) extended.push({ label: 'down', value: `${descent.value} m` });
+  if (loop.highest_m !== null && loop.lowest_m !== null) {
+    extended.push({
+      label: 'heights',
+      value: `${Math.round(loop.lowest_m)}–${Math.round(loop.highest_m)} m`,
+    });
+  }
+  if (loop.surface_dominant) {
+    extended.push({ label: 'mostly', value: loop.surface_dominant.replace('_', ' ') });
+  }
+  if (loop.off_road_share !== null) {
+    extended.push({
+      label: 'off-road',
+      value: `${Math.round(loop.off_road_share * 100)}%`,
+    });
+  }
+  const namedPois = loop.pois.filter((poi) => poi.name);
+
+  return (
+    <div className="route-detail">
+      {extended.length > 0 && (
+        <div className="detail-figures">
+          {extended.map((item) => (
+            <div key={item.label} className="detail-figure">
+              <span className="vv-label">{item.label}</span>
+              <span className="vv-data">{item.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* A route the network holds in pieces says so, before anyone plans
+          around a line that is not continuous on the ground. */}
+      {loop.continuous === false && loop.pieces !== null && (
+        <p className="detail-note vv-body-sm">
+          Mapped in {loop.pieces} pieces — the route exists, our network has
+          gaps in it.
+        </p>
+      )}
+
+      {namedPois.length > 3 && (
+        <div className="detail-pois">
+          <span className="vv-label">Everything it passes</span>
+          <div className="poi-list">
+            {namedPois.map((poi) => (
+              <span className="poi vv-body-sm" key={`${poi.name}-${poi.type}`}>
+                {poi.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {profile ? (
+        <div className="detail-profile">
+          <ElevationProfile profile={profile} quality={detail?.profile_quality} />
+          <div className="profile-labels">
+            <span className="vv-label">start {Math.round(profile.startM)} m</span>
+            <span className="vv-label">max {Math.round(profile.maxM)} m</span>
+            <span className="vv-label">end {Math.round(profile.endM)} m</span>
+          </div>
+        </div>
+      ) : detail === undefined ? (
+        <p className="detail-note vv-body-sm">Fetching the altitude profile…</p>
+      ) : (
+        <p className="detail-note vv-body-sm">
+          No altitude profile for this route — absent is not zero.
+        </p>
+      )}
     </div>
   );
 }

@@ -269,3 +269,84 @@ def test_route_geojson_serves_the_longest_piece_of_a_multipart_route(
     body = client.get(f"/routes/{ROUTE_ID}/geojson").json()
     assert len(body["geometry"]["coordinates"]) == 3
     assert "pieces" in body["properties"]["note"]
+
+
+# ── /routes/{id}/detail: the expandable card's payload ──────────────────────
+
+DETAIL_DOCUMENT = {
+    "shape": "circular",
+    "geometry": {"type": "LineString", "coordinates": [[9.4, 45.9], [9.41, 45.91]]},
+    "measures": {
+        "distance_m": 11000.0,
+        "ascent_m": 1050.0,
+        "descent_m": 1050.0,
+        "lowest_m": 400.0,
+        "highest_m": 1450.0,
+    },
+    "profile": {
+        "distance_m": [0.0, 5500.0, 11010.0],
+        "elevation_m": [400.0, 1450.0, 400.0],
+    },
+    "continuity": {"pieces": 1, "continuous": True},
+    "surface": {"distribution": {"unpaved": 0.8, "paved": 0.2}, "dominant": "unpaved"},
+    "places": [{"id": "n1", "kind": "peak", "name": "Corno", "offset_m": 12.0}],
+    "provenance": {"sources": [{"attribution": "© OpenStreetMap contributors"}]},
+}
+
+
+def test_route_detail_serves_the_documents_knowledge(client, db, tmp_path, monkeypatch):
+    """Geometry stays on /geojson; /detail carries the rest — the profile the
+    elevation panel exists to draw, measures, continuity, surface, places —
+    with attribution, because the document is the ODbL Produced Work."""
+    _documents_dir(tmp_path, monkeypatch, DETAIL_DOCUMENT)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    body = client.get(f"/routes/{ROUTE_ID}/detail").json()
+    assert body["shape"] == "circular"
+    assert body["profile"]["elevation_m"] == [400.0, 1450.0, 400.0]
+    assert body["profile_quality"] == "ok"  # 11010 vs 11000 is within 1%
+    assert body["measures"]["highest_m"] == 1450.0
+    assert body["surface"]["dominant"] == "unpaved"
+    assert body["places"][0]["name"] == "Corno"
+    assert "OpenStreetMap" in body["attribution"]
+
+
+def test_route_detail_flags_a_concatenated_profile_as_approximate(
+    client, db, tmp_path, monkeypatch
+):
+    """A multi-piece OSM profile is a concatenation across gaps (16 of 752
+    measured >1% off the route length on 2026-08-21). It is served — the data
+    is real heights — but marked, so the client draws it with a caveat, never
+    as a clean along-route measure."""
+    document = dict(DETAIL_DOCUMENT)
+    document["profile"] = {
+        "distance_m": [0.0, 6160.0],
+        "elevation_m": [400.0, 900.0],
+    }
+    document["measures"] = {**DETAIL_DOCUMENT["measures"], "distance_m": 4489.8}
+    document["continuity"] = {"pieces": 3, "continuous": False}
+    _documents_dir(tmp_path, monkeypatch, document)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    body = client.get(f"/routes/{ROUTE_ID}/detail").json()
+    assert body["profile_quality"] == "approximate"
+
+
+def test_route_detail_with_no_profile_says_so(client, db, tmp_path, monkeypatch):
+    """Absent is not zero: a route whose DEM tile is missing carries
+    profile: null, and quality is absent rather than invented."""
+    document = {**DETAIL_DOCUMENT, "profile": None}
+    _documents_dir(tmp_path, monkeypatch, document)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    body = client.get(f"/routes/{ROUTE_ID}/detail").json()
+    assert body["profile"] is None
+    assert body["profile_quality"] is None
+
+
+def test_route_detail_shares_the_honesty_ladder(client, db, tmp_path, monkeypatch):
+    from core.config import get_settings
+
+    db.when("route_exists", [])
+    assert client.get("/routes/nope/detail").status_code == 404
+
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    monkeypatch.setattr(get_settings(), "route_documents_dir", None)
+    assert client.get(f"/routes/{ROUTE_ID}/detail").status_code == 503

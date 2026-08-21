@@ -4,13 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   AuthRequiredError,
+  fetchRouteDetail,
   fetchRouteGeoJson,
   fetchTrailGeoJson,
   sendChat,
 } from '@/lib/api';
 import { isAuthConfigured } from '@/lib/supabaseClient';
-import type { ChatMessage, Loop, Trail } from '@/lib/types';
+import type { ChatMessage, Loop, RouteDetail, Trail } from '@/lib/types';
 
+import { FoldedCards } from './FoldedCards';
 import { LoopCard } from './LoopCard';
 import { QueryReading } from './QueryReading';
 import { TrailCard } from './TrailCard';
@@ -21,10 +23,17 @@ const SUGGESTIONS = [
   'hike with a hut at the halfway point',
 ];
 
+/** Where the card list folds when the results event carries no
+ *  answered_count (older stored turns). */
+const DEFAULT_FOLD = 5;
+
 interface Props {
   onGeometry: (
     geometry: GeoJSON.Feature | GeoJSON.FeatureCollection | GeoJSON.Geometry | null,
   ) => void;
+  /** The selected route's document detail (or null), so the map column's
+   *  elevation panel can draw the profile of whatever the chat selected. */
+  onDetail?: (detail: RouteDetail | null) => void;
   /** Resume this stored conversation; null starts fresh. The page remounts the
    *  panel (via key) on explicit navigation, so state never leaks across
    *  switches — but not when this panel's own first turn is assigned an id. */
@@ -36,6 +45,7 @@ interface Props {
 
 export function ChatPanel({
   onGeometry,
+  onDetail,
   initialConversationId = null,
   initialMessages = [],
   onConversationCreated,
@@ -53,6 +63,14 @@ export function ChatPanel({
   // clicking between loops restyles what is already drawn instead of
   // refetching and making the map flicker.
   const loopFeatures = useRef<Map<string, GeoJSON.Feature>>(new Map());
+  // Route documents' detail (profile, measures), fetched once per route on
+  // first expand or selection. undefined = never asked, null = gone/failed.
+  const [routeDetails, setRouteDetails] = useState<
+    Record<string, RouteDetail | null>
+  >({});
+  const detailInFlight = useRef<Set<string>>(new Set());
+  // Selection, readable from async continuations without a stale closure.
+  const selectedRef = useRef<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,8 +79,32 @@ export function ChatPanel({
 
   async function selectTrail(trail: Trail) {
     setSelectedTrail(trail.id);
+    selectedRef.current = trail.id;
+    // Trails carry no document detail; the elevation panel goes quiet rather
+    // than showing the previous route's profile under a trail's name.
+    onDetail?.(null);
     loopFeatures.current.clear();
     onGeometry(await fetchTrailGeoJson(trail.id));
+  }
+
+  /** Fetch a route's document detail once and hand it to the elevation
+   *  panel. A failure records null — "no profile", never a spinner forever. */
+  async function loadDetail(loop: Loop) {
+    if (loop.id in routeDetails) {
+      onDetail?.(routeDetails[loop.id] ?? null);
+      return;
+    }
+    if (detailInFlight.current.has(loop.id)) return;
+    detailInFlight.current.add(loop.id);
+    try {
+      const detail = await fetchRouteDetail(loop.id);
+      setRouteDetails((current) => ({ ...current, [loop.id]: detail }));
+      if (selectedRef.current === loop.id) onDetail?.(detail);
+    } catch {
+      setRouteDetails((current) => ({ ...current, [loop.id]: null }));
+    } finally {
+      detailInFlight.current.delete(loop.id);
+    }
   }
 
   /** Every loop drawn at once, with `selected` marking the one to highlight.
@@ -79,22 +121,31 @@ export function ChatPanel({
 
   function selectLoop(loop: Loop) {
     setSelectedTrail(loop.id);
+    selectedRef.current = loop.id;
     drawLoops(loop.id);
+    void loadDetail(loop);
   }
 
   async function loadLoopGeometry(loops: Loop[]) {
     loopFeatures.current.clear();
-    // Settled, not all: one route missing its geometry must not stop the
-    // others being drawn.
+    await appendLoopGeometry(loops);
+  }
+
+  /** Fetch geometry for these loops and merge it into the drawn set — used
+   *  both for the visible fold of a fresh answer and for cards a "show more"
+   *  just revealed. Settled, not all: one route missing its geometry must not
+   *  stop the others being drawn. */
+  async function appendLoopGeometry(loops: Loop[]) {
+    const missing = loops.filter((loop) => !loopFeatures.current.has(loop.id));
     const results = await Promise.allSettled(
-      loops.map((loop) => fetchRouteGeoJson(loop.id)),
+      missing.map((loop) => fetchRouteGeoJson(loop.id)),
     );
     results.forEach((result, index) => {
       if (result.status === 'fulfilled' && result.value) {
-        loopFeatures.current.set(loops[index].id, result.value);
+        loopFeatures.current.set(missing[index].id, result.value);
       }
     });
-    drawLoops(null);
+    drawLoops(selectedRef.current);
   }
 
   async function submit(text: string) {
@@ -129,10 +180,11 @@ export function ChatPanel({
           case 'results': {
             updateLast({ results: event.results });
             // Loops arrive without geometry — it is fetched per route so the
-            // answer model is not handed thousands of coordinates. Draw them
-            // all; clicking a card highlights and zooms to one.
+            // answer model is not handed thousands of coordinates. Only the
+            // visible fold is fetched; "show more" fetches what it reveals.
             if (event.results.loops?.length) {
-              void loadLoopGeometry(event.results.loops);
+              const fold = event.results.answered_count ?? DEFAULT_FOLD;
+              void loadLoopGeometry(event.results.loops.slice(0, fold));
               break;
             }
             // A composed plan can resolve several routes; draw them all.
@@ -248,23 +300,44 @@ export function ChatPanel({
             {/* Rendered on presence, not on `kind`: a loops+theme turn is
                 still labelled trail_search, so keying off kind would hide
                 them. */}
-            {message.results?.loops?.map((loop) => (
-              <LoopCard
-                key={loop.id}
-                loop={loop}
-                selected={selectedTrail === loop.id}
-                onSelect={selectLoop}
-              />
-            ))}
+            {message.results?.loops && message.results.loops.length > 0 && (
+              <FoldedCards
+                count={message.results.loops.length}
+                fold={message.results.answered_count ?? DEFAULT_FOLD}
+                onReveal={(from, to) =>
+                  void appendLoopGeometry(
+                    (message.results?.loops ?? []).slice(from, to),
+                  )
+                }
+              >
+                {message.results.loops.map((loop) => (
+                  <LoopCard
+                    key={loop.id}
+                    loop={loop}
+                    selected={selectedTrail === loop.id}
+                    onSelect={selectLoop}
+                    onExpand={selectLoop}
+                    detail={routeDetails[loop.id]}
+                  />
+                ))}
+              </FoldedCards>
+            )}
 
-            {message.results?.trails?.map((trail) => (
-              <TrailCard
-                key={trail.id}
-                trail={trail}
-                selected={selectedTrail === trail.id}
-                onSelect={(selected) => void selectTrail(selected)}
-              />
-            ))}
+            {message.results?.trails && message.results.trails.length > 0 && (
+              <FoldedCards
+                count={message.results.trails.length}
+                fold={message.results.answered_count ?? DEFAULT_FOLD}
+              >
+                {message.results.trails.map((trail) => (
+                  <TrailCard
+                    key={trail.id}
+                    trail={trail}
+                    selected={selectedTrail === trail.id}
+                    onSelect={(selected) => void selectTrail(selected)}
+                  />
+                ))}
+              </FoldedCards>
+            )}
 
             {message.error && (
               <div className="notice">
