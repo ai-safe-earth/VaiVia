@@ -2,13 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import {
-  fetchFavorites,
-  fetchRouteDetail,
-  fetchRouteGeoJson,
-  type FavoritesList,
-} from '@/lib/api';
+import { fetchFavorites, fetchRouteGeoJson, type FavoritesList } from '@/lib/api';
 import type { Loop, RouteDetail } from '@/lib/types';
+import { useRouteDetails } from '@/lib/useRouteDetails';
 
 import { LoopCard } from './LoopCard';
 
@@ -45,12 +41,11 @@ export function FavoritesView({
   // undefined = loading, null = failed.
   const [list, setList] = useState<FavoritesList | null | undefined>(initial);
   const [selected, setSelected] = useState<string | null>(null);
-  const [details, setDetails] = useState<Record<string, RouteDetail | null>>({});
-  // The same two guards the chat cards have: what is already being fetched,
-  // and what is selected NOW — readable from an async continuation without a
-  // stale closure, so a slow card A cannot land on top of card B.
-  const inFlight = useRef<Set<string>>(new Set());
-  const selectedRef = useRef<string | null>(null);
+  // The same detail loading the chat cards use, guards included.
+  const routeDetails = useRouteDetails(onDetail);
+  // Geometry, kept per route: clicking between saved cards re-drew the map by
+  // re-fetching the same GeoJSON every time.
+  const geometries = useRef<Map<string, GeoJSON.Feature | null>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -72,39 +67,25 @@ export function FavoritesView({
 
   /** Draw the route and load its profile.
    *
-   *  Everything that can fail is inside the try: the geometry fetch used to
-   *  sit outside it, so a 503 from the documents store threw past an
+   *  Everything that can fail is awaited defensively: the geometry fetch sat
+   *  outside the try once, so a 503 from the documents store threw past an
    *  un-caught `void select(...)` and left the expanded card saying
-   *  "Fetching the altitude profile…" for ever, with nothing written to
-   *  `details` — not even the null that means "asked, there is none".
+   *  "Fetching the altitude profile…" for ever.
    */
   async function select(loop: Loop) {
     setSelected(loop.id);
-    selectedRef.current = loop.id;
-    if (loop.id in details) {
-      const known = await fetchRouteGeoJson(loop.id).catch(() => null);
-      // Late geometry for a card the user has already moved off must not
-      // repaint the map under the one they are looking at now.
-      if (selectedRef.current !== loop.id) return;
-      onGeometry(known);
-      onDetail?.(details[loop.id] ?? null);
-      return;
+    routeDetails.select(loop.id);
+    if (!geometries.current.has(loop.id)) {
+      geometries.current.set(
+        loop.id,
+        await fetchRouteGeoJson(loop.id).catch(() => null),
+      );
     }
-    if (inFlight.current.has(loop.id)) return;
-    inFlight.current.add(loop.id);
-    try {
-      const geometry = await fetchRouteGeoJson(loop.id).catch(() => null);
-      if (selectedRef.current === loop.id) onGeometry(geometry);
-      const detail = await fetchRouteDetail(loop.id);
-      setDetails((current) => ({ ...current, [loop.id]: detail }));
-      if (selectedRef.current === loop.id) onDetail?.(detail);
-    } catch {
-      // null is "we asked and there is none", which the card can render.
-      setDetails((current) => ({ ...current, [loop.id]: null }));
-      if (selectedRef.current === loop.id) onDetail?.(null);
-    } finally {
-      inFlight.current.delete(loop.id);
-    }
+    // Late geometry for a card the user has already moved off must not
+    // repaint the map under the one they are looking at now.
+    if (routeDetails.current() !== loop.id) return;
+    onGeometry(geometries.current.get(loop.id) ?? null);
+    await routeDetails.load(loop.id);
   }
 
   // Unsaving from this view keeps the card until the list is reopened — an
@@ -134,7 +115,7 @@ export function FavoritesView({
             selected={selected === loop.id}
             onSelect={(picked) => void select(picked)}
             onExpand={(picked) => void select(picked)}
-            detail={details[loop.id]}
+            detail={routeDetails.details[loop.id]}
             favorited={favorites.has(loop.id)}
             onToggleFavorite={onToggleFavorite}
           />

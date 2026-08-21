@@ -68,3 +68,30 @@ describe('a late result never repaints another card', () => {
     expect(mayPaint(null, 'a')).toBe(false); // selection cleared meanwhile
   });
 });
+
+/**
+ * The three rules useRouteDetails keeps for every card list, mirrored the way
+ * the rest of this suite mirrors component logic. They were dropped once, in
+ * the second copy of this code: the saved-routes view had no in-flight guard,
+ * no stale-selection guard, and left a failed fetch looking like a card that
+ * was still loading.
+ */
+type Cache = Record<string, unknown | null>;
+
+function shouldFetch(details: Cache, inFlight: Set<string>, id: string): boolean {
+  if (id in details) return false;
+  return !inFlight.has(id);
+}
+
+describe('a route detail is asked for once', () => {
+  it('does not refetch what is already known, including a known failure', () => {
+    expect(shouldFetch({ a: { profile: 1 } }, new Set(), 'a')).toBe(false);
+    // null is "asked, there is none" — not "never asked".
+    expect(shouldFetch({ a: null }, new Set(), 'a')).toBe(false);
+    expect(shouldFetch({}, new Set(), 'a')).toBe(true);
+  });
+
+  it('does not start a second fetch while the first is in flight', () => {
+    expect(shouldFetch({}, new Set(['a']), 'a')).toBe(false);
+  });
+});

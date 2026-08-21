@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   AuthRequiredError,
-  fetchRouteDetail,
   fetchRouteGeoJson,
   fetchTrailGeoJson,
   sendChat,
 } from '@/lib/api';
 import { isAuthConfigured } from '@/lib/supabaseClient';
 import type { ChatMessage, Loop, RouteDetail, Trail } from '@/lib/types';
+import { useRouteDetails } from '@/lib/useRouteDetails';
 
 import { FoldedCards } from './FoldedCards';
 import { LoopCard } from './LoopCard';
@@ -82,13 +82,10 @@ export function ChatPanel({
   // answer's map — a picture belonging to neither turn.
   const drawnTurn = useRef<number | null>(null);
   // Route documents' detail (profile, measures), fetched once per route on
-  // first expand or selection. undefined = never asked, null = gone/failed.
-  const [routeDetails, setRouteDetails] = useState<
-    Record<string, RouteDetail | null>
-  >({});
-  const detailInFlight = useRef<Set<string>>(new Set());
-  // Selection, readable from async continuations without a stale closure.
-  const selectedRef = useRef<string | null>(null);
+  // first expand or selection — asked once, null on failure, and only painted
+  // if its card is still the selected one. Shared with the saved-routes view,
+  // which is where those three rules were dropped when they were copied.
+  const routes = useRouteDetails(onDetail);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -97,7 +94,7 @@ export function ChatPanel({
 
   async function selectTrail(trail: Trail) {
     setSelectedTrail(trail.id);
-    selectedRef.current = trail.id;
+    routes.select(trail.id);
     // Trails carry no document detail; the elevation panel goes quiet rather
     // than showing the previous route's profile under a trail's name.
     onDetail?.(null);
@@ -105,26 +102,6 @@ export function ChatPanel({
     // A trail whose geometry will not come (gone, or the session expired) is
     // a blank map, not an unhandled rejection out of a void-ed handler.
     onGeometry(await fetchTrailGeoJson(trail.id).catch(() => null));
-  }
-
-  /** Fetch a route's document detail once and hand it to the elevation
-   *  panel. A failure records null — "no profile", never a spinner forever. */
-  async function loadDetail(loop: Loop) {
-    if (loop.id in routeDetails) {
-      onDetail?.(routeDetails[loop.id] ?? null);
-      return;
-    }
-    if (detailInFlight.current.has(loop.id)) return;
-    detailInFlight.current.add(loop.id);
-    try {
-      const detail = await fetchRouteDetail(loop.id);
-      setRouteDetails((current) => ({ ...current, [loop.id]: detail }));
-      if (selectedRef.current === loop.id) onDetail?.(detail);
-    } catch {
-      setRouteDetails((current) => ({ ...current, [loop.id]: null }));
-    } finally {
-      detailInFlight.current.delete(loop.id);
-    }
   }
 
   /** Every loop drawn at once, with `selected` marking the one to highlight.
@@ -141,9 +118,9 @@ export function ChatPanel({
 
   function selectLoop(loop: Loop) {
     setSelectedTrail(loop.id);
-    selectedRef.current = loop.id;
+    routes.select(loop.id);
     drawLoops(loop.id);
-    void loadDetail(loop);
+    void routes.load(loop.id);
   }
 
   async function loadLoopGeometry(loops: Loop[]) {
@@ -164,7 +141,7 @@ export function ChatPanel({
       return;
     }
     drawnTurn.current = turn;
-    selectedRef.current = null;
+    routes.select(null);
     setSelectedTrail(null);
     await loadLoopGeometry(loops.slice(0, to));
   }
@@ -183,7 +160,7 @@ export function ChatPanel({
         loopFeatures.current.set(missing[index].id, result.value);
       }
     });
-    drawLoops(selectedRef.current);
+    drawLoops(routes.current());
   }
 
   async function submit(text: string) {
@@ -360,7 +337,7 @@ export function ChatPanel({
                     selected={selectedTrail === loop.id}
                     onSelect={selectLoop}
                     onExpand={selectLoop}
-                    detail={routeDetails[loop.id]}
+                    detail={routes.details[loop.id]}
                     favorited={favorites?.has(loop.id) ?? false}
                     onToggleFavorite={onToggleFavorite}
                   />
