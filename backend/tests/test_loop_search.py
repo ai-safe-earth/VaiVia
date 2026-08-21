@@ -193,10 +193,12 @@ async def test_loops_execute_against_the_catalogue(db):
         [{"id": "th1:15000:0", "distance_m": 15300.0, "score": 0.9}],
     )
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
-    rows = await orchestrator._loops(  # noqa: SLF001 — exercising the real path
+    rows, near_resolved = await orchestrator._loops(  # noqa: SLF001 — real path
         LoopSearchIntent(max_distance_m=16000, poi_types=["peak"])
     )
     assert [r["id"] for r in rows] == ["th1:15000:0"]
+    # Nothing was asked to be near anything, so there was nothing to fail.
+    assert near_resolved is True
     name, params = next(c for c in db.calls if c[0] == "search_loops")
     assert params["max_distance_m"] == 16000
     assert params["poi_types"] == ["peak"]
@@ -390,3 +392,90 @@ async def test_the_answer_sees_a_prefix_while_the_cards_get_the_rest(db):
     answered = json.loads(results_json)["loops"]
     assert len(answered) == ANSWER_RESULT_LIMIT
     assert [r["id"] for r in answered] == [r["id"] for r in rows[:ANSWER_RESULT_LIMIT]]
+
+
+def test_a_stated_distance_widens_on_the_implicit_catalogue_path_too():
+    """'a 15 km hike' must reach the catalogue the same way 'a 15 km loop' does.
+
+    catalogue_view copied min/max verbatim, so the implicit block ran
+    distance >= 15000 AND <= 15000 over routes that are 15,328 m long, matched
+    nothing, and vanished — while the same ask phrased as a loop got a band
+    and results.
+    """
+    from chat.composer import catalogue_view
+
+    view = catalogue_view(TrailSearchIntent(min_distance_m=15000, max_distance_m=15000))
+    assert view is not None
+    assert view.min_distance_m == pytest.approx(12000)
+    assert view.max_distance_m == pytest.approx(18000)
+
+
+def test_a_genuine_range_reaches_the_catalogue_untouched():
+    from chat.composer import catalogue_view
+
+    view = catalogue_view(TrailSearchIntent(min_distance_m=10000, max_distance_m=20000))
+    assert view is not None
+    assert (view.min_distance_m, view.max_distance_m) == (10000, 20000)
+
+
+@pytest.mark.asyncio
+async def test_an_unresolvable_place_is_reported_not_ignored(db):
+    """A place we cannot find must not become 'no geo filter at all'.
+
+    The catalogue would then answer with routes from anywhere while the
+    readback says 'starting near: Atlantis' — a stated constraint silently
+    dropped, which is the failure the routing path already guards with
+    unknown_place.
+    """
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("poi_by_name_fulltext", [])
+    db.when("poi_by_name", [])
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+
+    rows, near_resolved = await orchestrator._loops(  # noqa: SLF001
+        LoopSearchIntent(near="Atlantis")
+    )
+    assert near_resolved is False
+    assert db.params_for("search_loops")["near_lat"] is None
+
+    plan = compose([LoopSearchIntent(near="Atlantis")])
+    results, refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["loops"] == []
+    assert results["loops_unknown_place"] == "Atlantis"
+    assert refs["loop_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_resolvable_place_still_answers(db):
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("poi_by_name_fulltext", [{"lat": 45.85, "lon": 9.39}])
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+
+    plan = compose([LoopSearchIntent(near="Lecco")])
+    results, _ = await orchestrator._execute(plan)  # noqa: SLF001
+    assert [r["id"] for r in results["loops"]] == ["th1:15000:0"]
+    assert "loops_unknown_place" not in results
+    assert db.params_for("search_loops")["near_lat"] == 45.85
+
+
+@pytest.mark.asyncio
+async def test_the_implicit_block_is_dropped_when_the_region_does_not_resolve(db):
+    """catalogue_view refuses any constraint the catalogue cannot honour; a
+    region that fails resolution is one, it just cannot be known until the
+    lookup has run."""
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("poi_by_name_fulltext", [])
+    db.when("poi_by_name", [])
+    db.when("search_trails", [{"id": "t1"}])
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+
+    plan = compose([TrailSearchIntent(activity="hike", region="Atlantis")])
+    results, _ = await orchestrator._execute(plan)  # noqa: SLF001
+    assert "loops" not in results  # the trails answer alone, and honestly
+    assert results["trails"] == [{"id": "t1"}]

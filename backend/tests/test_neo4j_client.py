@@ -6,7 +6,7 @@ guarding a security property, not an implementation detail.
 """
 
 import pytest
-from neo4j import RoutingControl
+from neo4j import Query, RoutingControl
 
 from graph.neo4j_client import Neo4jClient
 
@@ -42,17 +42,28 @@ def client(monkeypatch) -> Neo4jClient:
 
 @pytest.mark.asyncio
 async def test_run_read_requests_read_routing_and_timeout(client):
+    """The timeout must ride inside the Query, not as a driver kwarg.
+
+    execute_query merges its **kwargs into the Cypher parameters, so a bare
+    timeout= would arrive as an unused $timeout and cap nothing; only
+    Query(text, timeout=...) reaches unit_of_work.
+    """
     await client.run_read("MATCH (n) RETURN n", timeout_s=3.0, foo=1)
     call = client._driver.calls[0]  # noqa: SLF001 — asserting the driver call
     assert call["routing_"] == RoutingControl.READ
-    assert call["timeout"] == 3.0
+    assert isinstance(call["query"], Query)
+    assert call["query"].text == "MATCH (n) RETURN n"
+    assert call["query"].timeout == 3.0
     assert call["params"] == {"foo": 1}
+    assert "timeout" not in call
 
 
 @pytest.mark.asyncio
 async def test_run_read_omits_timeout_when_unset(client):
     await client.run_read("MATCH (n) RETURN n")
-    assert "timeout" not in client._driver.calls[0]  # noqa: SLF001
+    call = client._driver.calls[0]  # noqa: SLF001
+    assert call["query"] == "MATCH (n) RETURN n"
+    assert "timeout" not in call
 
 
 @pytest.mark.asyncio

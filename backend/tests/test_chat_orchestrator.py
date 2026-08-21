@@ -139,6 +139,49 @@ async def test_semantic_theme_composes_with_filters(db, embedder):
     assert results_of(events)["trails"][0]["id"] == TRAIL_ROW["id"]
 
 
+async def test_a_theme_ships_only_the_matches_near_the_best_one(db, embedder):
+    """The vector index returns its nearest neighbours however distant they are.
+
+    With the card limit at 20 over a 25-candidate pool that meant nearly the
+    whole pool rendered as "matching the theme"; the rows far below the top
+    score are near-arbitrary trails wearing a theme they do not answer.
+    """
+    db.when("count_embedded_trails", [{"trails": 9, "embedded": 9}])
+    db.when(
+        "semantic_search_trails_filtered",
+        [
+            {**TRAIL_ROW, "id": "t1", "score": 0.93},
+            {**TRAIL_ROW, "id": "t2", "score": 0.91},
+            {**TRAIL_ROW, "id": "t3", "score": 0.885},  # still within the drop
+            {**TRAIL_ROW, "id": "t4", "score": 0.80},  # a neighbour, not a match
+            {**TRAIL_ROW, "id": "t5", "score": 0.72},
+        ],
+    )
+    orchestrator, _, _ = build(
+        db,
+        [{"kind": "semantic_theme", "text": "shady forest trails"}],
+        embedder=embedder,
+    )
+    events = await collect(orchestrator, user_id="u1", message="shady forest trails")
+
+    kept = [t["id"] for t in results_of(events)["trails"]]
+    assert kept == ["t1", "t2", "t3"]  # a prefix, so fold and prose agree
+
+
+async def test_a_theme_with_one_weak_match_still_answers(db, embedder):
+    """The cut is relative, so it can never empty a non-empty result: the best
+    match survives whatever its absolute score."""
+    db.when("count_embedded_trails", [{"trails": 1, "embedded": 1}])
+    db.when(
+        "semantic_search_trails_filtered", [{**TRAIL_ROW, "id": "t1", "score": 0.41}]
+    )
+    orchestrator, _, _ = build(
+        db, [{"kind": "semantic_theme", "text": "volcano rim"}], embedder=embedder
+    )
+    events = await collect(orchestrator, user_id="u1", message="volcano rim")
+    assert [t["id"] for t in results_of(events)["trails"]] == ["t1"]
+
+
 async def test_semantic_theme_degrades_when_index_unpopulated(db, embedder):
     """503-until-populated, chat flavour: fall back to filters and say so."""
     db.when("count_embedded_trails", [{"trails": 3, "embedded": 0}])

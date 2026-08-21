@@ -142,25 +142,30 @@ export default function Home() {
             onSelect={(id) => void selectConversation(id)}
           />
         )}
-        {showFavorites ? (
+        {showFavorites && (
           <FavoritesView
             onGeometry={setGeometry}
             onDetail={setRouteDetail}
             favorites={favoriteIds}
             onToggleFavorite={toggleFavorite}
           />
-        ) : (
-          <ChatPanel
-            key={panelKey}
-            onGeometry={setGeometry}
-            onDetail={setRouteDetail}
-            initialConversationId={selected}
-            initialMessages={history}
-            onConversationCreated={conversationCreated}
-            favorites={user ? favoriteIds : undefined}
-            onToggleFavorite={user ? toggleFavorite : undefined}
-          />
         )}
+        {/* The chat panel is HIDDEN behind the favorites view, never replaced.
+            Rendering one or the other unmounted the panel and remounted it
+            seeded from `history`, which only selectConversation writes — so a
+            look at Saved routes wiped the transcript of the conversation you
+            were having. */}
+        <ChatPanel
+          key={panelKey}
+          hidden={showFavorites}
+          onGeometry={setGeometry}
+          onDetail={setRouteDetail}
+          initialConversationId={selected}
+          initialMessages={history}
+          onConversationCreated={conversationCreated}
+          favorites={user ? favoriteIds : undefined}
+          onToggleFavorite={user ? toggleFavorite : undefined}
+        />
         {/* Trail geometry, paths and POIs in every answer are OSM-derived, so
             the credit belongs in the app chrome and not only on the map — a
             user reading results never has to open the map to see it. */}

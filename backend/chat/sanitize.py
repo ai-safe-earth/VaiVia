@@ -64,11 +64,32 @@ def _hold_from(buffer: str) -> int:
     opening = buffer.rfind("[")
     while opening != -1:
         if not _MARKDOWN_LINK.search(buffer, opening):
-            hold = min(hold, opening)
-            break
+            if _link_still_possible(buffer, opening):
+                hold = min(hold, opening)
+                break
         opening = buffer.rfind("[", 0, opening)
 
     return hold
+
+
+def _link_still_possible(buffer: str, opening: int) -> bool:
+    r"""Could the '[' at ``opening`` still grow into a link, or is it just a '['?
+
+    Holding on a bracket that can never close is what turns a streamed answer
+    into one late blob: a '[1]' citation or an aside like '[T1 to T3 apply'
+    would pin the hold and buffer every later token to end of stream. Two
+    things rule a link out for good, both read off _MARKDOWN_LINK: a newline in
+    the label, which its ``[^\]\n]*`` class forbids, and a ']' followed by
+    anything other than the '(' the pattern requires next.
+    """
+    rest = buffer[opening + 1 :]
+    close = rest.find("]")
+    label = rest if close == -1 else rest[:close]
+    if "\n" in label:
+        return False
+    if close == -1:
+        return True  # the ']' may still be on its way
+    return rest[close + 1 : close + 2] in ("", "(")
 
 
 async def strip_links_stream(deltas: AsyncIterator[str]) -> AsyncIterator[str]:

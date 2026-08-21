@@ -11,7 +11,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
 
-from neo4j import AsyncDriver, AsyncGraphDatabase
+from neo4j import AsyncDriver, AsyncGraphDatabase, Query, RoutingControl
 
 from core.config import get_settings
 
@@ -78,17 +78,17 @@ class Neo4jClient:
         verified 2026-08-21 that a write, including the apoc.cypher.doIt string
         bypass, is rejected with Neo.ClientError.Statement.AccessMode
         (docs/fragilities.md #15). timeout_s is defence in depth; the hard cap
-        is the server's db.transaction.timeout, because the client hint does
-        not bite on its own here.
-        """
-        from neo4j import RoutingControl
+        is the server's db.transaction.timeout.
 
+        The timeout has to travel inside a Query: execute_query merges its
+        **kwargs into the Cypher parameters, so a bare timeout= would arrive as
+        an unused $timeout and cap nothing.
+        """
         result = await self._driver.execute_query(
-            query,
+            query if timeout_s is None else Query(query, timeout=timeout_s),
             params,
             database_=self._database,
             routing_=RoutingControl.READ,
-            **({"timeout": timeout_s} if timeout_s is not None else {}),
         )
         return [record.data() for record in result.records]
 

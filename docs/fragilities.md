@@ -300,6 +300,16 @@ was probed live rather than assumed.
   generated read is pathological, and it must be in place before the generated-Cypher
   flag is ever switched on.
 
+  **Correction, 2026-08-21 (code review).** Part of that probe was measuring nothing.
+  `execute_query` merges its `**kwargs` into the Cypher **parameters** — so
+  `execute_query(query, params, timeout=2.0)` sent an unused `$timeout` parameter and
+  applied no client timeout whatsoever. A real one has to travel inside the query
+  object: `Query(text, timeout=...)`, which is what `Neo4jClient.run_read` now builds
+  (`backend/graph/neo4j_client.py`, pinned in `tests/test_neo4j_client.py`). The
+  server-setting conclusion above still stands as the availability control, but it was
+  reached from a call that never carried a timeout — re-run the expensive-read probe
+  once `db.transaction.timeout` is set, now that the client hint is actually sent.
+
 **The lesson to keep:** on Community, every "read-only" layer is something you build and
 must test empirically — the write-rejection was real, the timeout was theatre until the
 server setting backed it. Probe, do not assume, and pin the probe's result where the next

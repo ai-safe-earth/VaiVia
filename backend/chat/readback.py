@@ -99,7 +99,9 @@ def _features(poi_types: list[str]) -> str | None:
     return " and ".join([", ".join(named[:-1]), named[-1]])
 
 
-def _search_rows(search: TrailSearchIntent, rows: list[dict[str, str]]) -> None:
+def _search_rows(
+    search: TrailSearchIntent, rows: list[dict[str, str]], *, catalogue: bool = False
+) -> None:
     _row(rows, "activity", ACTIVITY_WORDS.get(search.activity or ""))
     _row(rows, "distance", _band(search.min_distance_m, search.max_distance_m))
     _row(
@@ -108,7 +110,21 @@ def _search_rows(search: TrailSearchIntent, rows: list[dict[str, str]]) -> None:
         _climb_band(search.min_elevation_gain_m, search.max_elevation_gain_m),
     )
     if search.max_duration_min is not None:
-        _row(rows, "time", f"under {_hours(search.max_duration_min)}")
+        # Trails ARE post-filtered by duration; the catalogue beside them is
+        # not (its durations wait on DIN 33466 calibration). When both kinds
+        # answer the same ask, a bare "under 2 h" asserts a filter over half
+        # the results it did not run — the silent drop this module exists to
+        # prevent, and the same caveat _loop_rows carries.
+        _row(
+            rows,
+            "time",
+            (
+                f"under {_hours(search.max_duration_min)} — named trails only; "
+                "our catalogue durations are not calibrated yet"
+                if catalogue
+                else f"under {_hours(search.max_duration_min)}"
+            ),
+        )
     if search.family_friendly:
         # The cap is applied in the orchestrator, so say the cap, not the flag.
         _row(rows, "difficulty", "easy only, for children")
@@ -134,6 +150,11 @@ def _search_rows(search: TrailSearchIntent, rows: list[dict[str, str]]) -> None:
 def _difficulty(low: int | None, high: int | None) -> str | None:
     if low is not None and high is not None and low == high:
         return DIFFICULTY_WORDS.get(high)
+    if low is not None and high is not None:
+        # Both ran, so both are shown. Rendering the ceiling alone hid a floor
+        # the query applied, and a hidden filter is the one thing a readback
+        # must never do.
+        return f"{DIFFICULTY_WORDS.get(low, low)} to {DIFFICULTY_WORDS.get(high, high)}"
     if high is not None:
         return f"{DIFFICULTY_WORDS.get(high, high)} at most"
     if low is not None:
@@ -175,12 +196,15 @@ def describe(plan: ComposedPlan) -> list[dict[str, str]]:
         _loop_rows(plan.loop, rows)
         _row(rows, "looked in", "our route catalogue")
     elif plan.search is not None:
-        _search_rows(plan.search, rows)
+        # Whether the catalogue was ALSO asked decides how honest the duration
+        # row has to be, so it is settled before the rows are written.
+        also_catalogue = plan.theme is None and catalogue_view(plan.search) is not None
+        _search_rows(plan.search, rows, catalogue=also_catalogue)
         if plan.theme is not None:
             # A theme cannot be matched against the catalogue (no embeddings
             # there), which is why such a turn stays trails-only.
             _row(rows, "looked in", "named trails, matched by description")
-        elif catalogue_view(plan.search) is not None:
+        elif also_catalogue:
             _row(rows, "looked in", "named trails and our route catalogue")
         else:
             _row(

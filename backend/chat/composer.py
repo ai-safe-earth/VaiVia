@@ -192,7 +192,12 @@ def catalogue_view(search: TrailSearchIntent) -> LoopSearchIntent | None:
     if search.family_friendly:
         # Same rule as the trail search: family caps the ceiling at 1.
         view.max_difficulty_level = min(view.max_difficulty_level or 1, 1)
-    return view
+    # The same widening merge_loops applies. "a 15 km hike" arrives as
+    # min = max = 15000, which is an exact-equality filter over a catalogue
+    # whose routes are 15,328 m long: without this the implicit block matches
+    # nothing and silently vanishes, while "a 15 km loop" gets a band and
+    # results. One ask, two phrasings, must reach the catalogue the same way.
+    return widen_narrow_band(view)
 
 
 def merge_searches(intents: list[TrailSearchIntent]) -> TrailSearchIntent:

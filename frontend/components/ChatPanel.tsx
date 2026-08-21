@@ -45,6 +45,13 @@ interface Props {
    *  in the favorites view are the same state. Absent when signed out. */
   favorites?: Set<string>;
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
+  /** Out of sight, still mounted. The Saved-routes view takes over the column
+   *  but must not DESTROY the conversation underneath it: this panel owns the
+   *  visible transcript, and unmounting it threw the transcript away and
+   *  remounted from a `history` prop that only stored-conversation navigation
+   *  ever writes. Hidden, not unmounted, so closing Saved routes returns to
+   *  the answer you were reading — mid-stream turns included. */
+  hidden?: boolean;
 }
 
 export function ChatPanel({
@@ -55,6 +62,7 @@ export function ChatPanel({
   onConversationCreated,
   favorites,
   onToggleFavorite,
+  hidden = false,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
@@ -69,6 +77,10 @@ export function ChatPanel({
   // clicking between loops restyles what is already drawn instead of
   // refetching and making the map flicker.
   const loopFeatures = useRef<Map<string, GeoJSON.Feature>>(new Map());
+  // Which ANSWER those features belong to. The drawn set is one answer's, and
+  // "show more" under an older one used to merge its routes into the current
+  // answer's map — a picture belonging to neither turn.
+  const drawnTurn = useRef<number | null>(null);
   // Route documents' detail (profile, measures), fetched once per route on
   // first expand or selection. undefined = never asked, null = gone/failed.
   const [routeDetails, setRouteDetails] = useState<
@@ -137,6 +149,24 @@ export function ChatPanel({
     await appendLoopGeometry(loops);
   }
 
+  /** "Show more" under one answer's loops.
+   *
+   *  Revealing cards of the answer already on the map ADDS them to it. From
+   *  any other answer it is a change of subject: that turn takes the map
+   *  over, drawn from its first card so what is shown is one answer whole,
+   *  never a mix of two.
+   */
+  async function revealLoops(turn: number, loops: Loop[], from: number, to: number) {
+    if (drawnTurn.current === turn) {
+      await appendLoopGeometry(loops.slice(from, to));
+      return;
+    }
+    drawnTurn.current = turn;
+    selectedRef.current = null;
+    setSelectedTrail(null);
+    await loadLoopGeometry(loops.slice(0, to));
+  }
+
   /** Fetch geometry for these loops and merge it into the drawn set — used
    *  both for the visible fold of a fresh answer and for cards a "show more"
    *  just revealed. Settled, not all: one route missing its geometry must not
@@ -175,6 +205,11 @@ export function ChatPanel({
         return next;
       });
 
+    // Which assistant turn this submit is writing: the user turn is appended
+    // first, so it is the one after it. A later "show more" compares against
+    // this to tell whose geometry is on the map.
+    const turnIndex = messages.length + 1;
+
     let streamed = '';
     try {
       for await (const event of sendChat(message, conversationId)) {
@@ -190,6 +225,7 @@ export function ChatPanel({
             // visible fold is fetched; "show more" fetches what it reveals.
             if (event.results.loops?.length) {
               const fold = event.results.answered_count ?? DEFAULT_FOLD;
+              drawnTurn.current = turnIndex;
               void loadLoopGeometry(event.results.loops.slice(0, fold));
               break;
             }
@@ -238,7 +274,9 @@ export function ChatPanel({
   }
 
   return (
-    <section className="chat">
+    // display:none rather than a class, so it beats `.chat { display: flex }`
+    // — and it takes the panel out of the tab order and the a11y tree too.
+    <section className="chat" style={hidden ? { display: 'none' } : undefined}>
       {!isAuthConfigured() && (
         <div className="notice">
           <div className="notice-bar" />
@@ -311,9 +349,7 @@ export function ChatPanel({
                 count={message.results.loops.length}
                 fold={message.results.answered_count ?? DEFAULT_FOLD}
                 onReveal={(from, to) =>
-                  void appendLoopGeometry(
-                    (message.results?.loops ?? []).slice(from, to),
-                  )
+                  void revealLoops(index, message.results?.loops ?? [], from, to)
                 }
               >
                 {message.results.loops.map((loop) => (

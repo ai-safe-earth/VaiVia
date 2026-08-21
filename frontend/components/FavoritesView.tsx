@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   fetchFavorites,
@@ -34,6 +34,11 @@ export function FavoritesView({ onGeometry, onDetail, favorites, onToggleFavorit
   const [list, setList] = useState<FavoritesList | null | undefined>(undefined);
   const [selected, setSelected] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, RouteDetail | null>>({});
+  // The same two guards the chat cards have: what is already being fetched,
+  // and what is selected NOW — readable from an async continuation without a
+  // stale closure, so a slow card A cannot land on top of card B.
+  const inFlight = useRef<Set<string>>(new Set());
+  const selectedRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,19 +54,40 @@ export function FavoritesView({ onGeometry, onDetail, favorites, onToggleFavorit
     };
   }, []);
 
+  /** Draw the route and load its profile.
+   *
+   *  Everything that can fail is inside the try: the geometry fetch used to
+   *  sit outside it, so a 503 from the documents store threw past an
+   *  un-caught `void select(...)` and left the expanded card saying
+   *  "Fetching the altitude profile…" for ever, with nothing written to
+   *  `details` — not even the null that means "asked, there is none".
+   */
   async function select(loop: Loop) {
     setSelected(loop.id);
-    onGeometry(await fetchRouteGeoJson(loop.id));
+    selectedRef.current = loop.id;
     if (loop.id in details) {
+      const known = await fetchRouteGeoJson(loop.id).catch(() => null);
+      // Late geometry for a card the user has already moved off must not
+      // repaint the map under the one they are looking at now.
+      if (selectedRef.current !== loop.id) return;
+      onGeometry(known);
       onDetail?.(details[loop.id] ?? null);
       return;
     }
+    if (inFlight.current.has(loop.id)) return;
+    inFlight.current.add(loop.id);
     try {
+      const geometry = await fetchRouteGeoJson(loop.id).catch(() => null);
+      if (selectedRef.current === loop.id) onGeometry(geometry);
       const detail = await fetchRouteDetail(loop.id);
       setDetails((current) => ({ ...current, [loop.id]: detail }));
-      onDetail?.(detail);
+      if (selectedRef.current === loop.id) onDetail?.(detail);
     } catch {
+      // null is "we asked and there is none", which the card can render.
       setDetails((current) => ({ ...current, [loop.id]: null }));
+      if (selectedRef.current === loop.id) onDetail?.(null);
+    } finally {
+      inFlight.current.delete(loop.id);
     }
   }
 

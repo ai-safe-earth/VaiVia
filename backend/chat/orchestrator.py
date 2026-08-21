@@ -55,6 +55,33 @@ MTB_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 4, 4: 6}
 # cut them down, so a filtered semantic search still has enough to choose from.
 SEMANTIC_CANDIDATE_POOL = 25
 
+# ...and this is how far below the best match a candidate may still be called a
+# match. db.index.vector.queryNodes has no notion of "nothing here is close":
+# it returns its nearest neighbours however distant they are, so with the card
+# limit at 20 against a pool of 25 nearly the whole pool shipped as "matching
+# the theme" and the rows behind the fold were near-arbitrary.
+#
+# The cut is RELATIVE to the best match rather than an absolute floor. A
+# normalized cosine score has no bright line to put a floor on, and a relative
+# cut cannot empty a non-empty answer: the top match always survives and only
+# the tail that falls away from it is dropped. The value wants calibrating
+# against a populated index; until then it is deliberately generous.
+SEMANTIC_SCORE_DROP = 0.05
+
+
+def _strong_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The semantic rows that are close to the best one, in their own order.
+
+    Rows arrive ordered by score DESC, so the result is a PREFIX of them —
+    which matters, because the fold on screen and the prose the answer model
+    writes must reference one ordering (see the limits above).
+    """
+    scores = [r["score"] for r in rows if r.get("score") is not None]
+    if not scores:
+        return rows
+    floor = max(scores) - SEMANTIC_SCORE_DROP
+    return [r for r in rows if r.get("score") is None or r["score"] >= floor]
+
 
 def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
     """The results as the ANSWER model sees them: card lists cut to a prefix.
@@ -229,9 +256,19 @@ class ChatOrchestrator:
             refs["trail_ids"] = [r["id"] for r in trails]
 
         if plan.loop is not None:
-            loops = await self._loops(plan.loop)
-            results["loops"] = loops
-            refs["loop_ids"] = [r["id"] for r in loops]
+            loops, near_resolved = await self._loops(plan.loop)
+            if not near_resolved:
+                # The place was stated and we could not find it. Answering with
+                # the unfiltered catalogue would present routes from anywhere
+                # as routes from there, which is the one thing worse than an
+                # empty block — the same rule the routing path applies with
+                # unknown_place rather than routing from a guess.
+                results["loops"] = []
+                results["loops_unknown_place"] = plan.loop.near
+                refs["loop_ids"] = []
+            else:
+                results["loops"] = loops
+                refs["loop_ids"] = [r["id"] for r in loops]
         elif plan.search is not None and plan.theme is None:
             # A trail ask answers with both kinds (owner rule 2026-08-21):
             # named trails AND complete outings from the catalogue, kept
@@ -241,7 +278,14 @@ class ChatOrchestrator:
             # why a semantic turn stays trails-only.
             view = catalogue_view(plan.search)
             if view is not None:
-                loops = await self._loops(view)
+                loops, near_resolved = await self._loops(view)
+                # A region we cannot place is a constraint the catalogue cannot
+                # honour, which is exactly when catalogue_view declines to pose
+                # the ask at all — it just cannot know that until resolution
+                # has run. Dropping the block here keeps the promise its
+                # docstring makes: no result that ignores a stated filter.
+                if not near_resolved:
+                    loops = []
                 # Implicit query, so an empty block is omitted rather than
                 # making the answer apologise for a list nobody asked for.
                 if loops:
@@ -266,14 +310,22 @@ class ChatOrchestrator:
 
         return results, refs
 
-    async def _loops(self, intent: Any) -> list[dict[str, Any]]:
-        """Select from the precomputed catalogue. No routing happens here.
+    async def _loops(self, intent: Any) -> tuple[list[dict[str, Any]], bool]:
+        """Select from the precomputed catalogue; returns (rows, near_resolved).
 
         Everything costly ran offline in scripts.build_routes, so this is a
         filter over (:Route) ordered by the score computed there.
+
+        near_resolved is False only when the user named a place and the
+        catalogue could not find it. It matters because the fallback is to run
+        with no geo filter at all: the caller must not present routes from the
+        whole region as if they were near a place we never located — the
+        readback would say "near: Bergamo" over a list from Lecco.
         """
         near_lat = near_lon = None
+        near_resolved = True
         if intent.near:
+            near_resolved = False
             # Same resolution path as point-to-point routing: escaped full-text
             # first, CONTAINS as fallback. User text never reaches Cypher as
             # anything but a parameter.
@@ -289,6 +341,7 @@ class ChatOrchestrator:
                 )
             if rows:
                 near_lat, near_lon = rows[0]["lat"], rows[0]["lon"]
+                near_resolved = True
 
         # Our 1-4 difficulty maps onto two different OSM scales. sac_scale runs
         # T1-T6 and mtb:scale 0-6, so the same "moderate" is a different number
@@ -321,7 +374,7 @@ class ChatOrchestrator:
         # silently. The answer presents distance and climb, which are measured.
 
         settings = get_settings()
-        return await self._db.run_named(
+        rows = await self._db.run_named(
             "search_loops",
             activities=activities,
             mtb_only=mtb_only,
@@ -344,6 +397,7 @@ class ChatOrchestrator:
             near_radius_m=settings.loop_near_radius_m,
             limit=CARD_RESULT_LIMIT,
         )
+        return rows, near_resolved
 
     async def _search(
         self, intent: TrailSearchIntent, theme: str | None
@@ -375,12 +429,14 @@ class ChatOrchestrator:
             embedded = status[0]["embedded"] if status else 0
             if embedded:
                 [embedding] = await self._embedder.embed_texts([theme])
-                rows = await self._db.run_named(
-                    "semantic_search_trails_filtered",
-                    embedding=embedding,
-                    candidate_pool=SEMANTIC_CANDIDATE_POOL,
-                    limit=CARD_RESULT_LIMIT,
-                    **params,
+                rows = _strong_matches(
+                    await self._db.run_named(
+                        "semantic_search_trails_filtered",
+                        embedding=embedding,
+                        candidate_pool=SEMANTIC_CANDIDATE_POOL,
+                        limit=CARD_RESULT_LIMIT,
+                        **params,
+                    )
                 )
             else:
                 # 503-until-populated (CLAUDE.md) — in a chat turn that means

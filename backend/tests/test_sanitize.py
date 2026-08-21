@@ -78,3 +78,52 @@ async def test_unclosed_bracket_still_reaches_the_reader() -> None:
         await _collect(["Grades [T1", " to T3 on this one"])
         == "Grades [T1 to T3 on this one"
     )
+
+
+async def _parts(chunks: list[str]) -> list[str]:
+    return [part async for part in strip_links_stream(_stream(chunks))]
+
+
+@pytest.mark.asyncio
+async def test_a_bracket_that_cannot_close_does_not_freeze_the_stream() -> None:
+    """A '[1]'-style citation must not pin the hold to end of stream.
+
+    The regression: ``_hold_from`` held on any '[' without a '](url)' after it,
+    so one non-link bracket buffered the whole rest of the answer and the
+    reader got a late blob instead of a stream.
+    """
+    chunks = ["See [1] ", "and the answer ", "keeps arriving ", "word by word."]
+    parts = await _parts(chunks)
+    assert "".join(parts) == "".join(chunks)
+    # Each whitespace-terminated chunk left as it arrived, not at the flush.
+    assert parts[:3] == chunks[:3]
+
+
+@pytest.mark.asyncio
+async def test_a_newline_in_the_label_rules_the_link_out() -> None:
+    # _MARKDOWN_LINK's label class is [^\]\n]*, so a newline settles it: this
+    # '[' can never become a link and must stop holding.
+    chunks = ["Grades [T1 to T3 apply\n", "on the north face ", "of the ridge."]
+    parts = await _parts(chunks)
+    assert "".join(parts) == "".join(chunks)
+    assert parts[:2] == chunks[:2]
+
+
+@pytest.mark.asyncio
+async def test_a_bracket_that_could_still_close_is_held() -> None:
+    # The other half of the same rule: an open label is still a possible link,
+    # so nothing from '[' onwards may be emitted yet.
+    parts = await _parts(
+        ["The loop to [Corno", " dell'Arco](https://www.trailforks.com)", " is 11 km."]
+    )
+    assert parts[0] == "The loop to "
+    assert "".join(parts) == "The loop to Corno dell'Arco is 11 km."
+
+
+@pytest.mark.asyncio
+async def test_a_closed_label_followed_by_a_paren_is_held() -> None:
+    # ']' then '(' is exactly the shape _MARKDOWN_LINK wants next, so the
+    # bracket keeps holding until the URL lands.
+    parts = await _parts(["Try [Monte Misma](", "https://www.trailforks.com) next."])
+    assert parts[0] == "Try "
+    assert "".join(parts) == "Try Monte Misma next."

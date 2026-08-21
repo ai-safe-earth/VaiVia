@@ -531,7 +531,13 @@ RETURN total, rows
 // where a second home for it is how two truths start. This template only
 // answers "is this a catalogue route", so the endpoint can 404 honestly
 // before touching the filesystem.
+//
+// warnings = 0 for the same reason loop_candidates carries it: a quarantined
+// row is qa's business, not an answer. Without it, POSTing any route_id makes
+// favorites the one surface where a 0.0 km OSM fragment wearing a famous name
+// reaches the screen as a full card, past the filter every search applies.
 MATCH (r:Route {route_id: $route_id})
+WHERE r.warnings = 0
 RETURN r.route_id AS id
 
 // name: healthcheck
@@ -557,8 +563,11 @@ RETURN trails, segments, intersections, pois, connects_to,
 // yields no row — the API reports it as missing rather than dropping it
 // silently, because :Route nodes are replaced wholesale per export and only
 // the geometry-derived id persists.
+// A quarantined route yields no row here either (loop_candidates' rule), so a
+// favorite that grew warnings on a later export reads as missing rather than
+// rendering as a card search would never show.
 MATCH (r:Route)
-WHERE r.route_id IN $route_ids
+WHERE r.route_id IN $route_ids AND r.warnings = 0
 OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
 CALL (r) {
   MATCH (r)-[e:PASSES]->(p:Place)
