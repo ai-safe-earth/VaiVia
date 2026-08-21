@@ -1,6 +1,6 @@
 # Handoff — VaiVia
 
-Last updated 2026-08-18.
+Last updated 2026-08-21.
 
 The project was renamed from `get-out-door` to **VaiVia** on 2026-08-17. The
 GitHub remote is now `https://github.com/ai-safe-earth/VaiVia.git` and the local
@@ -1474,6 +1474,75 @@ EVERY recreate re-fetches and can lose GDS. Durable fix (owner infra call):
 mount a plugins volume and seed GDS once from a reachable source, or pin a local
 jar. I did not change the plugin strategy unilaterally.
 
+## 2026-08-21 (eighth) - The code review, applied: ten findings and the eight the cap cut
+
+A high-effort review of feat/query-loop-foundations verified 27 deduped
+candidates (24 confirmed) and reported the 10 most severe. All ten are fixed,
+plus every cleanup finding the ten-item cap pushed out. Five commits, all tiers
+green: backend 314, frontend 58, gateway 40, ruff/black/tsc/next build clean.
+
+**The theme across the correctness ten was a claim with nothing behind it.**
+catalogue_view copied a stated distance verbatim, so "a 15 km hike" ran
+>= 15000 AND <= 15000 over routes that are 15,328 m long and the implicit
+block vanished, while "a 15 km loop" got a band and results. A region that
+failed POI resolution left the catalogue with NO geo filter while the readback
+said "near: Bergamo" over a list from Lecco. The reading showed "time: under
+2 h" on the catalogue path, where duration is deliberately not filtered, and
+showed a difficulty ceiling while hiding the floor beside it. And run_read's
+timeout was merged into the Cypher PARAMETERS by execute_query, arriving as an
+unused $timeout - so **docs/fragilities.md #15 is corrected**: the live probe
+that concluded "the server setting is the real control" was calling a driver
+that never sent a timeout at all. The server setting is still the availability
+control, but that probe wants re-running now the client hint is really sent.
+
+Favorites was the one surface where a quarantined route could reach the screen:
+route_exists and routes_by_ids carried no `warnings = 0`, so POSTing any id
+saved a 0.0 km OSM fragment wearing a famous name and the list rendered it as a
+full card. The theme path shipped 20 cards off a 25-candidate vector pool with
+no similarity floor; the cut is now RELATIVE to the best match (a normalized
+cosine score has no bright line) so it can shrink a result set but never empty
+one - **the constant wants calibrating against a populated index**.
+
+Three frontend state bugs: opening Saved routes UNMOUNTED the chat panel and
+remounted it from a `history` prop that only stored-conversation navigation
+writes, wiping the transcript you were reading; "show more" under an older
+answer merged its routes into the current answer's map, a picture belonging to
+neither turn; and FavoritesView awaited geometry outside its try, so a 503 left
+the card fetching a profile for ever.
+
+**Then the eight the cap cut.** Four more correctness: profile_quality read
+`off_by = ... if route_m else 0.0` and a zero disagreement is a PERFECT one, so
+a fragment measuring 0 m was served 'ok'; the saved set was built from `routes`
+alone and dropped `missing`, so a bookmark showed unfilled on a route saved
+long ago and the second tap DELETED it; the link ban only knew scheme-ful and
+www-prefixed URLs, and "trailforks.com/trails/lecco" is a link a walker can
+type; golden g20 lost its region pin when it was rewritten from search.* to
+loop.* (asserted now, but **not yet run - scripts.eval_golden calls OpenAI**).
+
+The reuse findings were all one rule written twice, and two had already
+drifted. routes_by_ids hand-copied search_loops' POI subquery and its 28-column
+RETURN and had grown a stray relationship variable; both now end in a
+route_card fragment, guarded byte-identical. The family-friendly cap lived at
+both call sites that promise it. api.ts had six copies of "get the token, set
+the header, fetch" reading the 401 four different ways, so an expired session
+showed up as a card that would not load. The chat panel and the saved-routes
+view both loaded route detail, and the copy is where the in-flight guard, the
+stale-selection guard and null-on-failure went missing - that copy is what
+produced one of the ten. One hook now.
+
+Two efficiency ones: selecting a card read and parsed the same document file
+twice (cached, keyed by mtime and size so a re-export invalidates by not
+matching), and a both-kinds turn ran the trail search, the place lookup and the
+catalogue strictly one after another (gathered; pinned by a fake db that makes
+the trail search wait for the catalogue query to start, and verified to fail
+against a sequential variant).
+
+Left deliberately, because they are design calls rather than defects:
+catalogue_view guards with a default-open blocklist where an allowlist would be
+safer; readback re-derives what the orchestrator did instead of rendering the
+parameters that actually ran; and the shape vocabulary (loop/circular/
+destination/linear) is spelled out in four places across three tiers.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1752,7 +1821,7 @@ jar. I did not change the plugin strategy unilaterally.
         },
         {
           "date": "2026-08-16",
-          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) — never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
+          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) \u2014 never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
         },
         {
           "date": "2026-08-16",
@@ -1760,7 +1829,7 @@ jar. I did not change the plugin strategy unilaterally.
         },
         {
           "date": "2026-08-16",
-          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node — the lake's node sits ~400 m off its own shoreline path"
+          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node \u2014 the lake's node sits ~400 m off its own shoreline path"
         },
         {
           "date": "2026-08-16",
@@ -2108,6 +2177,41 @@ jar. I did not change the plugin strategy unilaterally.
     }
   ],
   "nextSteps": [
+    {
+      "title": "Calibrate the semantic similarity cut (SEMANTIC_SCORE_DROP) against a populated vector index - it is a relative cut chosen to be generous, never measured",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Re-run the expensive-read probe with db.transaction.timeout set, now that run_read actually sends the client timeout (fragilities #15 was measured against a call that never carried one)",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Run scripts.eval_golden (costs money) to confirm g20's restored region pin actually decomposes to loop.near",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether catalogue_view should guard with an allowlist of fields it can map rather than the current blocklist of constraints it cannot",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether readback should render the parameters that RAN rather than re-deriving them from the intent - the claims it hand-maintains are what two review findings were about",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Reinstall GDS and stop the recreate hazard: mount the Neo4j plugins dir as a volume and seed GDS once from a reachable source (graphdatascience.ninja is down here; github/maven work), or pin a local jar. Until then routing runs on the shortestPath fallback",
       "est": 0.5,
@@ -2462,6 +2566,13 @@ jar. I did not change the plugin strategy unilaterally.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
