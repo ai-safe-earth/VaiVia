@@ -1517,7 +1517,8 @@ alone and dropped `missing`, so a bookmark showed unfilled on a route saved
 long ago and the second tap DELETED it; the link ban only knew scheme-ful and
 www-prefixed URLs, and "trailforks.com/trails/lecco" is a link a walker can
 type; golden g20 lost its region pin when it was rewritten from search.* to
-loop.* (asserted now, but **not yet run - scripts.eval_golden calls OpenAI**).
+loop.*. Re-run since: **scripts.eval_golden is 26/26 against the live model**,
+g20 included, so the region really does survive decomposition on the loop path.
 
 The reuse findings were all one rule written twice, and two had already
 drifted. routes_by_ids hand-copied search_loops' POI subquery and its 28-column
@@ -2186,13 +2187,6 @@ destination/linear) is spelled out in four places across three tiers.
     },
     {
       "title": "Re-run the expensive-read probe with db.transaction.timeout set, now that run_read actually sends the client timeout (fragilities #15 was measured against a call that never carried one)",
-      "est": 0.25,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Run scripts.eval_golden (costs money) to confirm g20's restored region pin actually decomposes to loop.near",
       "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
