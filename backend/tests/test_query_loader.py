@@ -22,6 +22,12 @@ EXPECTED = {
     "graph_drop_routing",
     "healthcheck",
     "graph_counts",
+    # The catalogue templates. Absent until 2026-08-21, which meant deleting
+    # the whole loop-search surface would not have failed this test.
+    "search_loops",
+    "estimate_loops",
+    "route_exists",
+    "routes_by_ids",
 }
 
 

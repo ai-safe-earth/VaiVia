@@ -156,3 +156,35 @@ def test_a_difficulty_floor_and_ceiling_are_both_shown():
 def test_a_single_difficulty_still_reads_as_one_word():
     rows = rows_for(TrailSearchIntent(min_difficulty_level=3, max_difficulty_level=3))
     assert rows["difficulty"] == "difficult"
+
+
+def test_the_reading_shows_both_bands_when_they_differ():
+    """A single stated distance runs EXACT for trails and WIDENED for the
+    catalogue, and one heading cannot claim both. The reading names each.
+
+    Without this, "a 15 km hike" read as "distance: exactly 15 km" while
+    the catalogue beside it had searched 12-18 km — a filter reported over
+    results it did not run, which is the thing this block exists to stop.
+    """
+    rows = rows_for(TrailSearchIntent(min_distance_m=15000, max_distance_m=15000))
+    assert rows["looked in"] == "named trails and our route catalogue"
+    assert (
+        rows["distance"]
+        == "exactly 15 km for trails, 12 km to 18 km in our route catalogue"
+    )
+
+
+def test_one_band_is_shown_when_both_searches_ran_it():
+    """A genuine range reaches the catalogue untouched, so there is nothing to
+    disambiguate and the row stays plain."""
+    rows = rows_for(TrailSearchIntent(min_distance_m=10000, max_distance_m=20000))
+    assert rows["distance"] == "10 km to 20 km"
+
+
+def test_the_trails_only_reading_shows_the_stated_band_alone():
+    # A season the catalogue cannot express keeps the ask trails-only.
+    rows = rows_for(
+        TrailSearchIntent(min_distance_m=15000, max_distance_m=15000, season="winter")
+    )
+    assert rows["looked in"].startswith("named trails only")
+    assert rows["distance"] == "exactly 15 km"

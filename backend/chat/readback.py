@@ -53,6 +53,10 @@ def _hours(minutes: int) -> str:
 
 def _band(low: float | None, high: float | None) -> str | None:
     if low is not None and high is not None:
+        # A band of one number is an equality filter, and "15 km to 15 km"
+        # reads like a range that happens to be narrow. Say what it does.
+        if low == high:
+            return f"exactly {_km(low)}"
         return f"{_km(low)} to {_km(high)}"
     if high is not None:
         return f"under {_km(high)}"
@@ -93,10 +97,22 @@ def _features(poi_types: list[str]) -> str | None:
 
 
 def _search_rows(
-    search: TrailSearchIntent, rows: list[dict[str, str]], *, catalogue: bool = False
+    search: TrailSearchIntent,
+    rows: list[dict[str, str]],
+    *,
+    view: LoopSearchIntent | None = None,
 ) -> None:
+    """The trail ask as it ran; `view` is the catalogue ask beside it, if any.
+
+    The two are not always the same query. A single stated distance stays
+    exact for the trails and is WIDENED into a band for the catalogue (real
+    routes are 15,328 m, so 15 km exactly matches nothing there), and showing
+    only one of them under one heading reports a filter half the answer did
+    not run.
+    """
+    catalogue = view is not None
     _row(rows, "activity", ACTIVITY_WORDS.get(search.activity or ""))
-    _row(rows, "distance", _band(search.min_distance_m, search.max_distance_m))
+    _row(rows, "distance", _distance_row(search, view))
     _row(
         rows,
         "climb",
@@ -139,6 +155,22 @@ def _search_rows(
         "not on",
         ", ".join(s.replace("_", " ") for s in search.surface_exclusions),
     )
+
+
+def _distance_row(
+    search: TrailSearchIntent, view: LoopSearchIntent | None
+) -> str | None:
+    """The band the trails ran, plus the catalogue's where it differs."""
+    stated = _band(search.min_distance_m, search.max_distance_m)
+    if view is None or stated is None:
+        return stated
+    if (view.min_distance_m, view.max_distance_m) == (
+        search.min_distance_m,
+        search.max_distance_m,
+    ):
+        return stated
+    widened = _band(view.min_distance_m, view.max_distance_m)
+    return f"{stated} for trails, {widened} in our route catalogue"
 
 
 def _difficulty(low: int | None, high: int | None) -> str | None:
@@ -190,10 +222,12 @@ def describe(plan: ComposedPlan) -> list[dict[str, str]]:
         _loop_rows(plan.loop, rows)
         _row(rows, "looked in", "our route catalogue")
     elif plan.search is not None:
-        # Whether the catalogue was ALSO asked decides how honest the duration
-        # row has to be, so it is settled before the rows are written.
-        also_catalogue = plan.theme is None and catalogue_view(plan.search) is not None
-        _search_rows(plan.search, rows, catalogue=also_catalogue)
+        # The catalogue ask that ran beside the trails, if one did. It decides
+        # how honest two rows have to be: the duration the catalogue cannot
+        # filter, and the distance band it widened.
+        view = catalogue_view(plan.search) if plan.theme is None else None
+        also_catalogue = view is not None
+        _search_rows(plan.search, rows, view=view)
         if plan.theme is not None:
             # A theme cannot be matched against the catalogue (no embeddings
             # there), which is why such a turn stays trails-only.

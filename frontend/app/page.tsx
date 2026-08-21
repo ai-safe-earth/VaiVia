@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { AppHeader } from '@/components/AppHeader';
 import { AuthPanel } from '@/components/AuthPanel';
@@ -10,6 +10,7 @@ import { ConversationList } from '@/components/ConversationList';
 import { FavoritesView } from '@/components/FavoritesView';
 import { ElevationPanel, MapLayerTabs } from '@/components/MapChrome';
 import { fetchFavorites, setFavorite, type FavoritesList } from '@/lib/api';
+import { applyToggle, belongsToCurrentUser, savedIds } from '@/lib/favorites';
 import { onSession, signOut, type AuthUser } from '@/lib/auth';
 import {
   listConversations,
@@ -59,21 +60,35 @@ export default function Home() {
   // destroy the answer as it arrives.
   const [panelKey, setPanelKey] = useState('new-0');
 
+  // Who is signed in NOW, readable from a continuation that started under
+  // whoever was signed in THEN.
+  const userRef = useRef(user);
+  userRef.current = user;
+
   useEffect(() => onSession(setUser), []);
 
   useEffect(() => {
-    if (!user) {
-      setConversations([]);
-      setSelected(null);
-      setHistory([]);
-      return;
-    }
+    // Everything below belongs to ONE account. Clearing it up front, rather
+    // than letting the next account's fetch overwrite it, is what stops a
+    // second sign-in seeing the first one's saved routes -- for a moment if
+    // the fetch succeeds, and indefinitely if it fails.
+    setConversations([]);
+    setSelected(null);
+    setHistory([]);
+    setFavoriteIds(new Set());
+    setFavoritesList(undefined);
+    if (!user) return;
+
+    // ...and a response that arrives after the account changed again is not
+    // this account's, so it is dropped rather than rendered.
+    const forUser = user.id;
+    const stillCurrent = () => belongsToCurrentUser(forUser, userRef.current?.id);
     void listConversations()
-      .then(setConversations)
-      .catch(() => setConversations([]));
+      .then((list) => stillCurrent() && setConversations(list))
+      .catch(() => stillCurrent() && setConversations([]));
     void fetchFavorites()
-      .then(receiveFavorites)
-      .catch(() => setFavoritesList(null));
+      .then((list) => stillCurrent() && receiveFavorites(list))
+      .catch(() => stillCurrent() && setFavoritesList(null));
   }, [user]);
 
   /** One saved list, one id set, whoever loaded it.
@@ -85,25 +100,16 @@ export default function Home() {
    */
   function receiveFavorites(list: FavoritesList) {
     setFavoritesList(list);
-    setFavoriteIds(new Set([...list.routes.map((r) => r.id), ...list.missing]));
+    setFavoriteIds(savedIds(list));
   }
 
   /** Optimistic: the bookmark flips at once, and flips back if the save
    *  fails — a favorite that silently did not stick is worse than a flicker. */
   function toggleFavorite(loop: Loop, on: boolean) {
-    setFavoriteIds((current) => {
-      const next = new Set(current);
-      if (on) next.add(loop.id);
-      else next.delete(loop.id);
-      return next;
-    });
+    setFavoriteIds((current) => applyToggle(current, loop.id, on));
     void setFavorite(loop.id, on).catch(() => {
-      setFavoriteIds((current) => {
-        const next = new Set(current);
-        if (on) next.delete(loop.id);
-        else next.add(loop.id);
-        return next;
-      });
+      // The exact inverse flip, so a failed save leaves the set as it was.
+      setFavoriteIds((current) => applyToggle(current, loop.id, !on));
     });
   }
 

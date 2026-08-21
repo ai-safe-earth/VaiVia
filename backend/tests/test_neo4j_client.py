@@ -71,3 +71,37 @@ async def test_run_defaults_to_write_routing(client):
     """Ingestion writes through run(); it must NOT carry read routing."""
     await client.run("MATCH (n) RETURN n")
     assert "routing_" not in client._driver.calls[0]  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_run_named_uses_the_read_only_path(client, monkeypatch):
+    """The query service's every call goes through READ routing.
+
+    It did not until 2026-08-21: run_named delegated to run(), which is
+    WRITE-routed, so the API, the orchestrator and the catalogue all ran under
+    write mode while run_read sat unused and the docs described a read-only
+    query service. Every named template is non-mutating (the query-loader guard
+    fails the build otherwise), so the routing mode can enforce what the guard
+    asserts.
+    """
+    await client.run_named("healthcheck")
+    call = client._driver.calls[0]  # noqa: SLF001 — asserting the driver call
+    assert call["routing_"] == RoutingControl.READ
+
+
+@pytest.mark.asyncio
+async def test_run_named_can_carry_a_timeout(client):
+    await client.run_named("healthcheck", timeout_s=2.5)
+    call = client._driver.calls[0]  # noqa: SLF001
+    assert isinstance(call["query"], Query)
+    assert call["query"].timeout == 2.5
+    # ...and the timeout is not smuggled in as a Cypher parameter.
+    assert call["params"] == {}
+
+
+@pytest.mark.asyncio
+async def test_run_stays_the_write_path(client):
+    """Ingestion and the builders write, and they call run() directly."""
+    await client.run("MERGE (n:Thing {id: 1})")
+    call = client._driver.calls[0]  # noqa: SLF001
+    assert "routing_" not in call

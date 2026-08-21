@@ -313,9 +313,14 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
       * a search with no constraints and no theme and no routes is
         under-specified -> clarify with suggestions that drive a good search.
     """
+    # The clarify scan reads the WHOLE plan, before the cap. A clarify poisons
+    # the turn (CLAUDE.md), and truncating first meant a fifth subquery could
+    # carry the refusal while the four runnable ones in front of it went to the
+    # graph — the guarantee broken by an off-by-a-cap, on exactly the
+    # adversarial input the guarantee exists for.
+    clarifies = [s for s in subqueries if isinstance(s, ClarifyIntent)]
     subqueries = subqueries[:MAX_SUBQUERIES]
 
-    clarifies = [s for s in subqueries if isinstance(s, ClarifyIntent)]
     if clarifies:
         first = clarifies[0]
         suggestions: list[str] = []

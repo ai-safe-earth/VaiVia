@@ -8,6 +8,7 @@ import {
   fetchTrailGeoJson,
   sendChat,
 } from '@/lib/api';
+import { isStillSelected, mayDraw, planReveal } from '@/lib/mapTurn';
 import { isAuthConfigured } from '@/lib/supabaseClient';
 import type { ChatMessage, Loop, RouteDetail, Trail } from '@/lib/types';
 import { useRouteDetails } from '@/lib/useRouteDetails';
@@ -85,23 +86,47 @@ export function ChatPanel({
   // first expand or selection — asked once, null on failure, and only painted
   // if its card is still the selected one. Shared with the saved-routes view,
   // which is where those three rules were dropped when they were copied.
-  const routes = useRouteDetails(onDetail);
+  // Hidden means the Saved-routes view owns the column AND the map. A stream
+  // that finishes back here must not repaint under it, so every emission goes
+  // through these -- and through a REF, because a continuation that started
+  // while visible would otherwise close over the old value.
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
+  const emitGeometry: Props['onGeometry'] = (geometry) => {
+    if (!hiddenRef.current) onGeometry(geometry);
+  };
+  const emitDetail = (detail: RouteDetail | null) => {
+    if (!hiddenRef.current) onDetail?.(detail);
+  };
+
+  const routes = useRouteDetails(emitDetail);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    // Back in view: the map is this panel's again, so redraw what this answer
+    // had on it. Nothing was emitted while hidden, so without this the
+    // favorites view's last route would stay under the transcript.
+    if (!hidden && loopFeatures.current.size) drawLoops(routes.current());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidden]);
+
   async function selectTrail(trail: Trail) {
     setSelectedTrail(trail.id);
     routes.select(trail.id);
     // Trails carry no document detail; the elevation panel goes quiet rather
     // than showing the previous route's profile under a trail's name.
-    onDetail?.(null);
+    emitDetail(null);
     loopFeatures.current.clear();
     // A trail whose geometry will not come (gone, or the session expired) is
     // a blank map, not an unhandled rejection out of a void-ed handler.
-    onGeometry(await fetchTrailGeoJson(trail.id).catch(() => null));
+    const geometry = await fetchTrailGeoJson(trail.id).catch(() => null);
+    // A slow trail A must not repaint the map after trail B was picked.
+    if (!isStillSelected(routes.current(), trail.id)) return;
+    emitGeometry(geometry);
   }
 
   /** Every loop drawn at once, with `selected` marking the one to highlight.
@@ -112,8 +137,9 @@ export function ChatPanel({
       ...feature,
       properties: { ...(feature.properties ?? {}), id, selected: id === selectedId },
     }));
-    if (features.length === 0) return;
-    onGeometry({ type: 'FeatureCollection', features });
+    // An answer whose geometry all failed draws NOTHING rather than leaving
+    // the previous answer's routes on screen under it.
+    emitGeometry(features.length ? { type: 'FeatureCollection', features } : null);
   }
 
   function selectLoop(loop: Loop) {
@@ -123,9 +149,9 @@ export function ChatPanel({
     void routes.load(loop.id);
   }
 
-  async function loadLoopGeometry(loops: Loop[]) {
+  async function loadLoopGeometry(loops: Loop[], turn: number) {
     loopFeatures.current.clear();
-    await appendLoopGeometry(loops);
+    await appendLoopGeometry(loops, turn);
   }
 
   /** "Show more" under one answer's loops.
@@ -136,25 +162,31 @@ export function ChatPanel({
    *  never a mix of two.
    */
   async function revealLoops(turn: number, loops: Loop[], from: number, to: number) {
-    if (drawnTurn.current === turn) {
-      await appendLoopGeometry(loops.slice(from, to));
+    const plan = planReveal(drawnTurn.current, turn, from, to);
+    drawnTurn.current = plan.drawnTurn;
+    const [start, end] = plan.slice;
+    if (!plan.clear) {
+      await appendLoopGeometry(loops.slice(start, end), turn);
       return;
     }
-    drawnTurn.current = turn;
     routes.select(null);
     setSelectedTrail(null);
-    await loadLoopGeometry(loops.slice(0, to));
+    await loadLoopGeometry(loops.slice(start, end), turn);
   }
 
   /** Fetch geometry for these loops and merge it into the drawn set — used
    *  both for the visible fold of a fresh answer and for cards a "show more"
    *  just revealed. Settled, not all: one route missing its geometry must not
    *  stop the others being drawn. */
-  async function appendLoopGeometry(loops: Loop[]) {
+  async function appendLoopGeometry(loops: Loop[], turn: number) {
     const missing = loops.filter((loop) => !loopFeatures.current.has(loop.id));
     const results = await Promise.allSettled(
       missing.map((loop) => fetchRouteGeoJson(loop.id)),
     );
+    // The drawn set belongs to ONE answer, and this fetch was slow enough that
+    // another answer may own it now. Guarding only the dispatch left the
+    // continuation free to merge an older turn's routes into the new set.
+    if (!mayDraw(drawnTurn.current, turn)) return;
     results.forEach((result, index) => {
       if (result.status === 'fulfilled' && result.value) {
         loopFeatures.current.set(missing[index].id, result.value);
@@ -205,7 +237,7 @@ export function ChatPanel({
             if (event.results.loops?.length) {
               const fold = event.results.answered_count ?? DEFAULT_FOLD;
               drawnTurn.current = turnIndex;
-              void loadLoopGeometry(event.results.loops.slice(0, fold));
+              void loadLoopGeometry(event.results.loops.slice(0, fold), turnIndex);
               break;
             }
             // A composed plan can resolve several routes; draw them all.
@@ -213,7 +245,7 @@ export function ChatPanel({
               .map((block) => block.geometry)
               .filter((g): g is GeoJSON.LineString => Boolean(g));
             if (lines.length > 1) {
-              onGeometry({
+              emitGeometry({
                 type: 'FeatureCollection',
                 features: lines.map((geometry) => ({
                   type: 'Feature',
@@ -222,7 +254,7 @@ export function ChatPanel({
                 })),
               });
             } else if (event.results.geometry) {
-              onGeometry(event.results.geometry);
+              emitGeometry(event.results.geometry);
             }
             break;
           }
