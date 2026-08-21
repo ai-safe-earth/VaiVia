@@ -27,6 +27,7 @@ from typing import Any
 from chat.composer import ComposedPlan, TrailSearchIntent, catalogue_view, compose
 from chat.intents import RouteIntent
 from chat.llm import LLMClient, results_to_json
+from chat.readback import readback
 from chat.sanitize import strip_links_stream
 from chat.store import ConversationStore
 from core.config import get_settings
@@ -137,6 +138,12 @@ class ChatOrchestrator:
             {
                 "kind": self._result_kind(plan),
                 "answered_count": ANSWER_RESULT_LIMIT,
+                # What the plan actually did, in the walker's own words. Note
+                # it describes the EXECUTED plan, not the model's subqueries:
+                # the composer's own decisions (a widened distance band, a
+                # dropped duration, a capped difficulty) are the interesting
+                # half, and the only place they are visible.
+                **readback(plan),
                 **results,
             },
         )

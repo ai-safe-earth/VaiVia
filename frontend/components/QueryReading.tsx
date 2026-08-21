@@ -4,13 +4,17 @@
  * "How I read it" — what the system understood from the question.
  *
  * Load-bearing per the brand spec: it is what lets a user correct a constraint
- * instead of rewriting the whole question. It is INACTIVE until the backend
- * returns the composed plan: `/chat` streams results, not the constraints the
- * composer merged to get them, so there is nothing truthful to fill the grid
- * with yet.
+ * instead of rewriting the whole question. Wired 2026-08-21.
  *
- * The placeholder says which of the two it is — no data, rather than no
- * constraints — because a silent empty grid would read as "we understood
+ * The rows come from the backend (chat/readback.py) and describe the plan that
+ * was EXECUTED, not the model's subqueries — the composer's own decisions are
+ * the interesting half, and this is the only place they surface: a distance
+ * band widened from a single stated number, a duration dropped because our
+ * figures are not calibrated, a difficulty capped by "with my kids", features
+ * required together rather than any-of, and which store was searched.
+ *
+ * Empty means nothing was searched — a clarify turn — and says exactly that
+ * rather than showing an empty grid, which would read as "we understood
  * nothing about your question".
  */
 
@@ -20,17 +24,15 @@ export interface Constraint {
 }
 
 export function QueryReading({ reading }: { reading?: Constraint[] }) {
-  const pending = !reading || reading.length === 0;
+  const empty = !reading || reading.length === 0;
 
   return (
     <section className="reading" aria-label="How I read it">
       <span className="vv-label">How I read it</span>
 
-      {pending ? (
+      {empty ? (
         <p className="reading-pending vv-body-sm">
-          Not wired up yet — the plan behind this answer stays in the backend, so
-          there is nothing to show you here. Ask again in different words to change
-          it.
+          I did not search for this one — I asked for more detail instead.
         </p>
       ) : (
         <>
@@ -43,7 +45,7 @@ export function QueryReading({ reading }: { reading?: Constraint[] }) {
             ))}
           </div>
           <p className="reading-edit vv-body-sm">
-            Change one value instead of rewriting the question.
+            Not editable yet — ask again in different words to change it.
           </p>
         </>
       )}
