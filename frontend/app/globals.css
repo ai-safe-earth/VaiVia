@@ -117,6 +117,26 @@ body {
   white-space: nowrap;
 }
 
+/* The saved-routes mark: quiet chrome, lime when it is the open view. */
+.header-saved {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--vv-muted);
+  cursor: pointer;
+}
+
+.header-saved:hover {
+  color: var(--vv-text);
+}
+
+.header-saved[aria-pressed='true'] {
+  color: var(--vv-lime);
+}
+
 /* The account action is the one lime block in the chrome. */
 .header-action {
   flex: none;
@@ -298,14 +318,44 @@ body {
 }
 
 /* Which kind of outing the card is — "Loop", "Out & back", "Named trail" —
-   so a mixed answer stays legible without reading the numbers. */
+   so a mixed answer stays legible without reading the numbers. The row also
+   carries the bookmark, muted until saved. */
+.route-kind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--vv-s7) var(--vv-s7) 0;
+}
+
 .route-kind {
   display: block;
   padding: var(--vv-s7) var(--vv-s7) 0;
 }
 
+.route-kind-row .route-kind {
+  padding: 0;
+}
+
+.route-kind-row + .route-name,
 .route-kind + .route-name {
   padding-top: var(--vv-s1);
+}
+
+.save-toggle {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--vv-muted);
+  cursor: pointer;
+}
+
+.save-toggle:hover {
+  color: var(--vv-text);
+}
+
+.save-toggle[aria-pressed='true'] {
+  color: var(--vv-lime);
 }
 
 .route-name {

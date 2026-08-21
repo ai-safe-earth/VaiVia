@@ -7,7 +7,9 @@ import { AppHeader } from '@/components/AppHeader';
 import { AuthPanel } from '@/components/AuthPanel';
 import { ChatPanel } from '@/components/ChatPanel';
 import { ConversationList } from '@/components/ConversationList';
+import { FavoritesView } from '@/components/FavoritesView';
 import { ElevationPanel, MapLayerTabs } from '@/components/MapChrome';
+import { fetchFavorites, setFavorite } from '@/lib/api';
 import { onSession, signOut, type AuthUser } from '@/lib/auth';
 import {
   listConversations,
@@ -16,7 +18,7 @@ import {
 } from '@/lib/conversations';
 import { profileFromDetail } from '@/lib/profile';
 import { isAuthConfigured } from '@/lib/supabaseClient';
-import type { ChatMessage, RouteDetail } from '@/lib/types';
+import type { ChatMessage, Loop, RouteDetail } from '@/lib/types';
 
 // MapLibre touches window at import time, so it must not be server-rendered.
 const MapView = dynamic(() => import('@/components/MapView').then((m) => m.MapView), {
@@ -37,6 +39,10 @@ export default function Home() {
   // The selected route's document detail: the elevation panel draws its
   // profile. Null whenever nothing (or a trail) is selected.
   const [routeDetail, setRouteDetail] = useState<RouteDetail | null>(null);
+  // Saved routes: the id set drives every card's bookmark; the view shows
+  // the hydrated list. One state, however the toggle was reached.
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [showFavorites, setShowFavorites] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatMessage[]>([]);
@@ -59,9 +65,32 @@ export default function Home() {
     void listConversations()
       .then(setConversations)
       .catch(() => setConversations([]));
+    void fetchFavorites()
+      .then((list) => setFavoriteIds(new Set(list.routes.map((r) => r.id))))
+      .catch(() => {});
   }, [user]);
 
+  /** Optimistic: the bookmark flips at once, and flips back if the save
+   *  fails — a favorite that silently did not stick is worse than a flicker. */
+  function toggleFavorite(loop: Loop, on: boolean) {
+    setFavoriteIds((current) => {
+      const next = new Set(current);
+      if (on) next.add(loop.id);
+      else next.delete(loop.id);
+      return next;
+    });
+    void setFavorite(loop.id, on).catch(() => {
+      setFavoriteIds((current) => {
+        const next = new Set(current);
+        if (on) next.delete(loop.id);
+        else next.add(loop.id);
+        return next;
+      });
+    });
+  }
+
   async function selectConversation(id: string | null) {
+    setShowFavorites(false);
     setGeometry(null);
     setRouteDetail(null);
     if (id === null) {
@@ -103,6 +132,8 @@ export default function Home() {
           region={REGION}
           email={user?.email}
           onSignOut={user ? () => void signOut() : undefined}
+          onFavorites={user ? () => setShowFavorites((open) => !open) : undefined}
+          favoritesOpen={showFavorites}
         />
         {user && conversations.length > 0 && (
           <ConversationList
@@ -111,14 +142,25 @@ export default function Home() {
             onSelect={(id) => void selectConversation(id)}
           />
         )}
-        <ChatPanel
-          key={panelKey}
-          onGeometry={setGeometry}
-          onDetail={setRouteDetail}
-          initialConversationId={selected}
-          initialMessages={history}
-          onConversationCreated={conversationCreated}
-        />
+        {showFavorites ? (
+          <FavoritesView
+            onGeometry={setGeometry}
+            onDetail={setRouteDetail}
+            favorites={favoriteIds}
+            onToggleFavorite={toggleFavorite}
+          />
+        ) : (
+          <ChatPanel
+            key={panelKey}
+            onGeometry={setGeometry}
+            onDetail={setRouteDetail}
+            initialConversationId={selected}
+            initialMessages={history}
+            onConversationCreated={conversationCreated}
+            favorites={user ? favoriteIds : undefined}
+            onToggleFavorite={user ? toggleFavorite : undefined}
+          />
+        )}
         {/* Trail geometry, paths and POIs in every answer are OSM-derived, so
             the credit belongs in the app chrome and not only on the map — a
             user reading results never has to open the map to see it. */}

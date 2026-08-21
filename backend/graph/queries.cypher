@@ -511,3 +511,48 @@ MATCH ()-[c:CONNECTS_TO]->() WITH trails, segments, intersections, pois,
 MATCH ()-[co:COMPOSED_OF]->()
 RETURN trails, segments, intersections, pois, connects_to,
        count(co) AS composed_of
+
+// name: routes_by_ids
+// Hydrate favorite routes into the same rows search_loops returns, so a
+// favorites list renders with the same cards as a search answer. No ORDER BY:
+// the caller re-sorts to the favorites' own saved order (Postgres created_at),
+// which the graph does not know. An id no longer in the catalogue simply
+// yields no row — the API reports it as missing rather than dropping it
+// silently, because :Route nodes are replaced wholesale per export and only
+// the geometry-derived id persists.
+MATCH (r:Route)
+WHERE r.route_id IN $route_ids
+OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
+CALL (r) {
+  MATCH (r)-[e:PASSES]->(p:Place)
+  WITH DISTINCT p
+  RETURN collect({name: p.name, type: p.kind})[0..8] AS pois
+}
+RETURN r.route_id AS id,
+       r.activity AS activity,
+       r.kind AS kind,
+       r.shape AS shape,
+       r.name AS name,
+       r.ref AS ref,
+       r.destination_name AS destination_name,
+       r.distance_m AS distance_m,
+       r.ascent_m AS ascent_m,
+       r.descent_m AS descent_m,
+       r.lowest_m AS lowest_m,
+       r.highest_m AS highest_m,
+       r.surface_dominant AS surface_dominant,
+       r.pieces AS pieces,
+       r.continuous AS continuous,
+       r.sac_scale AS sac_scale,
+       r.sac_max AS sac_max,
+       r.graded_share AS graded_share,
+       r.mtb_rideable AS mtb_rideable,
+       r.mtb_scale AS mtb_scale,
+       r.off_road_share AS off_road_share,
+       r.score AS score,
+       s.vertex_id AS start_vertex_id,
+       s.names AS start_names,
+       s.car_free AS car_free,
+       s.location.latitude AS start_lat,
+       s.location.longitude AS start_lon,
+       pois AS pois

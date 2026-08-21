@@ -6,6 +6,7 @@ import { distance, distanceFigure, elevationFigure } from '@/lib/format';
 import { profileFromDetail } from '@/lib/profile';
 import type { Loop, RouteDetail } from '@/lib/types';
 
+import { Icon } from './brand';
 import { ElevationProfile } from './MapChrome';
 import { Sources } from './Sources';
 
@@ -19,6 +20,10 @@ interface Props {
   /** Fired when the card opens, so the parent can fetch the detail and focus
    *  the map on this route. */
   onExpand?: (loop: Loop) => void;
+  /** Saved state + toggle. Absent when signed out — favorites are account
+   *  data, so the mark only exists with an account. */
+  favorited?: boolean;
+  onToggleFavorite?: (loop: Loop, on: boolean) => void;
 }
 
 /** SAC grades in catalogue order — index+1 is the rank the squares fill to. */
@@ -55,7 +60,15 @@ function SacScale({ rank }: { rank: number }) {
   );
 }
 
-export function LoopCard({ loop, selected, onSelect, detail, onExpand }: Props) {
+export function LoopCard({
+  loop,
+  selected,
+  onSelect,
+  detail,
+  onExpand,
+  favorited = false,
+  onToggleFavorite,
+}: Props) {
   // Sources.tsx idiom: per-card state, stopPropagation on the toggle because
   // the card body is the selection click target.
   const [open, setOpen] = useState(false);
@@ -112,7 +125,24 @@ export function LoopCard({ loop, selected, onSelect, detail, onExpand }: Props) 
         }
       }}
     >
-      <span className="route-kind vv-label">{shapeLabel}</span>
+      <div className="route-kind-row">
+        <span className="route-kind vv-label">{shapeLabel}</span>
+        {onToggleFavorite && (
+          <button
+            type="button"
+            className="save-toggle"
+            aria-pressed={favorited}
+            aria-label={favorited ? 'Remove from saved routes' : 'Save this route'}
+            title={favorited ? 'Remove from saved routes' : 'Save this route'}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFavorite(loop, !favorited);
+            }}
+          >
+            <Icon name="saved" />
+          </button>
+        )}
+      </div>
       <h3 className="route-name vv-title">{heading}</h3>
 
       <div className="figures">

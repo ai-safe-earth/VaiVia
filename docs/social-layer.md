@@ -161,3 +161,18 @@ fields, that comments grow structure, that the next idea is not one of these thr
 turns out not to be true, this is three collections that would have been three tables.
 
 Worth revisiting when the feature is actually specified, not before.
+
+## Postscript: personal favorites landed in Supabase (2026-08-21)
+
+The first feature adjacent to this design arrived, and it took the Postgres road this
+document left open. **Saved routes** (`route_favorites`, migration `0003`) are account
+data, not social content: nobody else ever reads them, the shape is a bare
+`(user_id, route_id, created_at)`, and the ownership check belongs in the database. The
+owner chose Supabase for exactly the reasons the trade-off paragraph above names.
+
+This does not pre-empt the reaction collection: a public like — counted, displayed,
+composed with photos and comments — remains this document's design, still waiting to be
+specified. What favorites did inherit from here is the id discipline: they key on
+`route.id` alone, which is why a favorite survives the catalogue being replaced
+wholesale per export, and why the API reports a vanished route as `missing` instead of
+silently dropping the row.

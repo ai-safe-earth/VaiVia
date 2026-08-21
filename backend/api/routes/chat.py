@@ -9,11 +9,11 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.deps import DbDep
+from api.deps import DbDep, UserDep
 from chat.orchestrator import ChatEvent, ChatOrchestrator, QuotaExceeded
 
 logger = logging.getLogger(__name__)
@@ -63,13 +63,8 @@ async def chat(
     request: ChatRequest,
     http_request: Request,
     db: DbDep,
-    x_user_id: str = Header(default=""),
+    user_id: UserDep,
 ) -> StreamingResponse:
-    if not x_user_id:
-        raise HTTPException(
-            status_code=401, detail="missing user identity from gateway"
-        )
-
     state = http_request.app.state
     orchestrator = ChatOrchestrator(
         db=db,
@@ -81,7 +76,7 @@ async def chat(
     return StreamingResponse(
         _stream(
             orchestrator.run(
-                user_id=x_user_id,
+                user_id=user_id,
                 message=request.message,
                 conversation_id=request.conversation_id,
             )

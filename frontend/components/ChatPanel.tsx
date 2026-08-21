@@ -41,6 +41,10 @@ interface Props {
   initialMessages?: ChatMessage[];
   /** Fired when the backend assigns an id to a brand-new conversation. */
   onConversationCreated?: (id: string) => void;
+  /** Saved-route ids + toggle, owned by the page so a bookmark here and one
+   *  in the favorites view are the same state. Absent when signed out. */
+  favorites?: Set<string>;
+  onToggleFavorite?: (loop: Loop, on: boolean) => void;
 }
 
 export function ChatPanel({
@@ -49,6 +53,8 @@ export function ChatPanel({
   initialConversationId = null,
   initialMessages = [],
   onConversationCreated,
+  favorites,
+  onToggleFavorite,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
@@ -318,6 +324,8 @@ export function ChatPanel({
                     onSelect={selectLoop}
                     onExpand={selectLoop}
                     detail={routeDetails[loop.id]}
+                    favorited={favorites?.has(loop.id) ?? false}
+                    onToggleFavorite={onToggleFavorite}
                   />
                 ))}
               </FoldedCards>
