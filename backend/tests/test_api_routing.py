@@ -359,6 +359,34 @@ def test_a_profile_with_nothing_to_check_it_against_is_approximate(
     assert body["profile_quality"] == "approximate"
 
 
+def test_a_re_export_is_read_again_not_served_from_the_cache(
+    client, db, tmp_path, monkeypatch
+):
+    """The parse is cached, which is only safe if a rebuild invalidates it.
+
+    Route ids are geometry-derived and survive a rebuild on purpose, so the
+    path alone would name the OLD document for ever. The key carries mtime and
+    size, so a re-emitted file simply does not match the entry.
+    """
+    import json as _json
+
+    _documents_dir(tmp_path, monkeypatch, DETAIL_DOCUMENT)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    first = client.get(f"/routes/{ROUTE_ID}/detail").json()
+    assert first["measures"]["highest_m"] == 1450.0
+
+    rebuilt = dict(DETAIL_DOCUMENT)
+    rebuilt["measures"] = {**DETAIL_DOCUMENT["measures"], "highest_m": 1600.0}
+    path = tmp_path / f"{ROUTE_ID}.json"
+    path.write_text(_json.dumps(rebuilt), encoding="utf-8")
+    # Windows and Linux both keep sub-second mtimes, but the SIZE is part of
+    # the key too and this document differs in both.
+    assert (
+        client.get(f"/routes/{ROUTE_ID}/detail").json()["measures"]["highest_m"]
+        == 1600.0
+    )
+
+
 def test_route_detail_shares_the_honesty_ladder(client, db, tmp_path, monkeypatch):
     from core.config import get_settings
 

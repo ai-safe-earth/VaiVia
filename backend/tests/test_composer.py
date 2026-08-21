@@ -242,6 +242,18 @@ def test_catalogue_view_family_friendly_caps_the_ceiling_at_one():
     assert view is not None and view.max_difficulty_level == 1
 
 
+def test_the_family_cap_is_one_rule_both_paths_call():
+    """The trail search and the catalogue view both promise the same thing
+    about children, so they ask the same function rather than each spelling
+    the arithmetic out."""
+    from chat.composer import capped_difficulty
+
+    assert capped_difficulty(3, True) == 1
+    assert capped_difficulty(None, True) == 1  # unstated ceiling still caps
+    assert capped_difficulty(3, False) == 3  # no flag, no cap
+    assert capped_difficulty(None, False) is None
+
+
 def test_catalogue_view_mixed_reaches_the_catalogue_as_no_preference():
     view = catalogue_view(TrailSearchIntent(activity="mixed", max_distance_m=9000))
     assert view is not None and view.activity is None

@@ -24,7 +24,13 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
-from chat.composer import ComposedPlan, TrailSearchIntent, catalogue_view, compose
+from chat.composer import (
+    ComposedPlan,
+    TrailSearchIntent,
+    capped_difficulty,
+    catalogue_view,
+    compose,
+)
 from chat.intents import RouteIntent
 from chat.llm import LLMClient, results_to_json
 from chat.readback import readback
@@ -403,9 +409,9 @@ class ChatOrchestrator:
         self, intent: TrailSearchIntent, theme: str | None
     ) -> tuple[list[dict[str, Any]], bool]:
         """One structured or semantic+structured search; returns (rows, degraded)."""
-        max_level = intent.max_difficulty_level
-        if intent.family_friendly:
-            max_level = min(max_level or 1, 1)
+        max_level = capped_difficulty(
+            intent.max_difficulty_level, intent.family_friendly
+        )
 
         params: dict[str, Any] = dict(
             activity=intent.activity,

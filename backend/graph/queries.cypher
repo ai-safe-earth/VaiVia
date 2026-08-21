@@ -447,15 +447,14 @@ WHERE size($poi_types) = 0
    OR all(wanted IN $poi_types
           WHERE EXISTS { MATCH (r)-[:PASSES]->(p:Place) WHERE p.kind = wanted })
 
-// name: search_loops
-// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
-// from precomputed routes instead of computing one per request. The catalogue
-// is loaded by pipeline/export/neo4j_load.py from the route documents, which
-// stay canonical -- geometry and the profile are fetched by route_id, never
-// stored here.
-// include: loop_candidates
-// include: loop_poi_conjunction
-// The display POI list, capped -- the conjunction above already filtered.
+// fragment: route_card
+// The row a card is drawn from, shared by the search answer and the
+// favorites list so the two cannot show different routes differently.
+// It was copied rather than shared once, and had already drifted: the
+// copy grew a stray relationship variable, and a column would have gone
+// missing next. Expects r and s in scope (s may be null) and ends at the
+// RETURN, so each reader adds only its own ORDER BY / LIMIT.
+// The display POI list, capped -- any conjunction filter has already run.
 CALL (r) {
   MATCH (r)-[:PASSES]->(p:Place)
   WITH DISTINCT p
@@ -495,6 +494,16 @@ RETURN r.route_id AS id,
        s.location.latitude AS start_lat,
        s.location.longitude AS start_lon,
        pois AS pois
+
+// name: search_loops
+// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
+// from precomputed routes instead of computing one per request. The catalogue
+// is loaded by pipeline/export/neo4j_load.py from the route documents, which
+// stay canonical -- geometry and the profile are fetched by route_id, never
+// stored here.
+// include: loop_candidates
+// include: loop_poi_conjunction
+// include: route_card
 // OSM relations carry no score; 0.5 slots them between good and poor
 // generated routes rather than at the bottom, and climb breaks the tie.
 ORDER BY coalesce(r.score, 0.5) DESC, coalesce(r.ascent_m, 0) DESC
@@ -556,8 +565,9 @@ RETURN trails, segments, intersections, pois, connects_to,
        count(co) AS composed_of
 
 // name: routes_by_ids
-// Hydrate favorite routes into the same rows search_loops returns, so a
-// favorites list renders with the same cards as a search answer. No ORDER BY:
+// Hydrate favorite routes into the same rows search_loops returns -- literally
+// the same: both end in the route_card fragment, so a favorites card and a
+// search card cannot come to differ. No ORDER BY:
 // the caller re-sorts to the favorites' own saved order (Postgres created_at),
 // which the graph does not know. An id no longer in the catalogue simply
 // yields no row — the API reports it as missing rather than dropping it
@@ -569,36 +579,4 @@ RETURN trails, segments, intersections, pois, connects_to,
 MATCH (r:Route)
 WHERE r.route_id IN $route_ids AND r.warnings = 0
 OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
-CALL (r) {
-  MATCH (r)-[e:PASSES]->(p:Place)
-  WITH DISTINCT p
-  RETURN collect({name: p.name, type: p.kind})[0..8] AS pois
-}
-RETURN r.route_id AS id,
-       r.activity AS activity,
-       r.kind AS kind,
-       r.shape AS shape,
-       r.name AS name,
-       r.ref AS ref,
-       r.destination_name AS destination_name,
-       r.distance_m AS distance_m,
-       r.ascent_m AS ascent_m,
-       r.descent_m AS descent_m,
-       r.lowest_m AS lowest_m,
-       r.highest_m AS highest_m,
-       r.surface_dominant AS surface_dominant,
-       r.pieces AS pieces,
-       r.continuous AS continuous,
-       r.sac_scale AS sac_scale,
-       r.sac_max AS sac_max,
-       r.graded_share AS graded_share,
-       r.mtb_rideable AS mtb_rideable,
-       r.mtb_scale AS mtb_scale,
-       r.off_road_share AS off_road_share,
-       r.score AS score,
-       s.vertex_id AS start_vertex_id,
-       s.names AS start_names,
-       s.car_free AS car_free,
-       s.location.latitude AS start_lat,
-       s.location.longitude AS start_lon,
-       pois AS pois
+// include: route_card

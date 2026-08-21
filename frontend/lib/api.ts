@@ -19,27 +19,46 @@ export type ChatStreamEvent =
 
 export class AuthRequiredError extends Error {}
 
+/**
+ * Every call to the gateway goes through here.
+ *
+ * The bearer token was attached in six places and the 401 read differently in
+ * each: two threw AuthRequiredError, one returned null, three raised
+ * "route detail failed: 401" — so an expired session showed up as a card that
+ * would not load rather than as an invitation to sign in. A 401 means one
+ * thing, and it says it once here. Everything else is the caller's to judge:
+ * a 404 is "gone" on one endpoint and an error on another.
+ */
+async function gatewayFetch(
+  path: string,
+  init: RequestInit = {},
+  authMessage = 'Please sign in.',
+): Promise<Response> {
+  const token = await getAccessToken();
+  const headers = new Headers(init.headers);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${GATEWAY_URL}${path}`, { ...init, headers });
+  if (response.status === 401) throw new AuthRequiredError(authMessage);
+  return response;
+}
+
 /** Stream a chat turn. Yields typed events as the gateway forwards them. */
 export async function* sendChat(
   message: string,
   conversationId: string | null,
   signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
-  const token = await getAccessToken();
-
-  const response = await fetch(`${GATEWAY_URL}/chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  const response = await gatewayFetch(
+    '/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, conversation_id: conversationId }),
+      signal,
     },
-    body: JSON.stringify({ message, conversation_id: conversationId }),
-    signal,
-  });
+    'Please sign in to keep chatting.',
+  );
 
-  if (response.status === 401) {
-    throw new AuthRequiredError('Please sign in to keep chatting.');
-  }
   if (response.status === 429) {
     const body = await response.json().catch(() => ({}));
     yield {
@@ -98,10 +117,7 @@ function toEvent(name: string, raw: string): ChatStreamEvent | null {
 
 /** Trail geometry for the map, fetched lazily when a trail is selected. */
 export async function fetchTrailGeoJson(trailId: string): Promise<GeoJSON.Feature | null> {
-  const token = await getAccessToken();
-  const response = await fetch(`${GATEWAY_URL}/trails/${encodeURIComponent(trailId)}/geojson`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await gatewayFetch(`/trails/${encodeURIComponent(trailId)}/geojson`);
   if (!response.ok) return null;
   return (await response.json()) as GeoJSON.Feature;
 }
@@ -113,10 +129,7 @@ export async function fetchTrailGeoJson(trailId: string): Promise<GeoJSON.Featur
  * explanation, so anything else throws and the caller decides.
  */
 export async function fetchRouteGeoJson(routeId: string): Promise<GeoJSON.Feature | null> {
-  const token = await getAccessToken();
-  const response = await fetch(`${GATEWAY_URL}/routes/${encodeURIComponent(routeId)}/geojson`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await gatewayFetch(`/routes/${encodeURIComponent(routeId)}/geojson`);
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(`route geometry failed: ${response.status}`);
@@ -131,10 +144,7 @@ export async function fetchRouteGeoJson(routeId: string): Promise<GeoJSON.Featur
  * and silence would misreport it as "no detail".
  */
 export async function fetchRouteDetail(routeId: string): Promise<RouteDetail | null> {
-  const token = await getAccessToken();
-  const response = await fetch(`${GATEWAY_URL}/routes/${encodeURIComponent(routeId)}/detail`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await gatewayFetch(`/routes/${encodeURIComponent(routeId)}/detail`);
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(`route detail failed: ${response.status}`);
@@ -150,11 +160,7 @@ export interface FavoritesList {
 }
 
 export async function fetchFavorites(): Promise<FavoritesList> {
-  const token = await getAccessToken();
-  const response = await fetch(`${GATEWAY_URL}/routes/favorites`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (response.status === 401) throw new AuthRequiredError('Please sign in.');
+  const response = await gatewayFetch('/routes/favorites');
   if (!response.ok) throw new Error(`favorites failed: ${response.status}`);
   return (await response.json()) as FavoritesList;
 }
@@ -162,15 +168,11 @@ export async function fetchFavorites(): Promise<FavoritesList> {
 /** Idempotent toggle; unfavorite is a POST because the gateway forwards only
  *  GET and POST. */
 export async function setFavorite(routeId: string, on: boolean): Promise<void> {
-  const token = await getAccessToken();
-  const response = await fetch(
-    `${GATEWAY_URL}/routes/${encodeURIComponent(routeId)}/favorite`,
+  const response = await gatewayFetch(
+    `/routes/${encodeURIComponent(routeId)}/favorite`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ on }),
     },
   );

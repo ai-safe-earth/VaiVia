@@ -13,6 +13,11 @@ import type { Loop, RouteDetail } from '@/lib/types';
 import { LoopCard } from './LoopCard';
 
 interface Props {
+  /** What the page already fetched, so opening this view shows the list at
+   *  once instead of loading the identical rows a second time. */
+  initial?: FavoritesList | null;
+  /** A revalidated list, handed back so the page's id set follows it. */
+  onLoaded?: (list: FavoritesList) => void;
   onGeometry: (geometry: GeoJSON.Feature | null) => void;
   onDetail?: (detail: RouteDetail | null) => void;
   /** The page-level saved set, so a toggle here and a toggle on a chat card
@@ -29,9 +34,16 @@ interface Props {
  * never silently dropped: the catalogue is replaced wholesale per export and
  * only the geometry-derived id persists.
  */
-export function FavoritesView({ onGeometry, onDetail, favorites, onToggleFavorite }: Props) {
+export function FavoritesView({
+  initial,
+  onLoaded,
+  onGeometry,
+  onDetail,
+  favorites,
+  onToggleFavorite,
+}: Props) {
   // undefined = loading, null = failed.
-  const [list, setList] = useState<FavoritesList | null | undefined>(undefined);
+  const [list, setList] = useState<FavoritesList | null | undefined>(initial);
   const [selected, setSelected] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, RouteDetail | null>>({});
   // The same two guards the chat cards have: what is already being fetched,
@@ -42,12 +54,16 @@ export function FavoritesView({ onGeometry, onDetail, favorites, onToggleFavorit
 
   useEffect(() => {
     let cancelled = false;
+    // Still revalidated on open — the saved list can have changed elsewhere —
+    // but the rows above are already on screen while that happens.
     fetchFavorites()
       .then((fresh) => {
-        if (!cancelled) setList(fresh);
+        if (cancelled) return;
+        setList(fresh);
+        onLoaded?.(fresh);
       })
       .catch(() => {
-        if (!cancelled) setList(null);
+        if (!cancelled) setList((current) => current ?? null);
       });
     return () => {
       cancelled = true;

@@ -37,13 +37,6 @@ DIFFICULTY_WORDS = {1: "easy", 2: "intermediate", 3: "difficult", 4: "hardest"}
 
 ACTIVITY_WORDS = {"hike": "on foot", "mtb": "by mountain bike"}
 
-SEASON_WORDS = {
-    "spring": "spring",
-    "summer": "summer",
-    "autumn": "autumn",
-    "winter": "winter",
-}
-
 
 def _km(metres: float) -> str:
     """Metres as a walker says them. Whole kilometres above 10 km."""
@@ -136,7 +129,8 @@ def _search_rows(
         )
     _row(rows, "passes", _features(list(search.poi_types)))
     _row(rows, "near", search.region)
-    _row(rows, "season", SEASON_WORDS.get(search.season or ""))
+    # No mapping: a season is already the word a walker said.
+    _row(rows, "season", search.season)
     _row(
         rows, "avoiding", ", ".join(h.replace("_", " ") for h in search.exclude_hazards)
     )

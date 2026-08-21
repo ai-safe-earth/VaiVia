@@ -102,7 +102,9 @@ export function ChatPanel({
     // than showing the previous route's profile under a trail's name.
     onDetail?.(null);
     loopFeatures.current.clear();
-    onGeometry(await fetchTrailGeoJson(trail.id));
+    // A trail whose geometry will not come (gone, or the session expired) is
+    // a blank map, not an unhandled rejection out of a void-ed handler.
+    onGeometry(await fetchTrailGeoJson(trail.id).catch(() => null));
   }
 
   /** Fetch a route's document detail once and hand it to the elevation
@@ -346,7 +348,6 @@ export function ChatPanel({
                 them. */}
             {message.results?.loops && message.results.loops.length > 0 && (
               <FoldedCards
-                count={message.results.loops.length}
                 fold={message.results.answered_count ?? DEFAULT_FOLD}
                 onReveal={(from, to) =>
                   void revealLoops(index, message.results?.loops ?? [], from, to)
@@ -368,10 +369,7 @@ export function ChatPanel({
             )}
 
             {message.results?.trails && message.results.trails.length > 0 && (
-              <FoldedCards
-                count={message.results.trails.length}
-                fold={message.results.answered_count ?? DEFAULT_FOLD}
-              >
+              <FoldedCards fold={message.results.answered_count ?? DEFAULT_FOLD}>
                 {message.results.trails.map((trail) => (
                   <TrailCard
                     key={trail.id}

@@ -146,6 +146,19 @@ def only_activity(intent: TrailSearchIntent) -> bool:
     )
 
 
+def capped_difficulty(max_level: int | None, family_friendly: bool) -> int | None:
+    """The difficulty ceiling that actually runs.
+
+    "with the kids" caps at 1 whatever else was said. That is a promise about
+    children, and it was written out at both call sites that make it — the
+    trail search and the catalogue view — where one of them could be changed
+    alone.
+    """
+    if not family_friendly:
+        return max_level
+    return min(max_level or 1, 1)
+
+
 def catalogue_view(search: TrailSearchIntent) -> LoopSearchIntent | None:
     """The same ask, posed to the route catalogue — or None when it cannot be.
 
@@ -189,9 +202,9 @@ def catalogue_view(search: TrailSearchIntent) -> LoopSearchIntent | None:
         # resolution degrades to no geo filter rather than to zero results.
         near=search.region,
     )
-    if search.family_friendly:
-        # Same rule as the trail search: family caps the ceiling at 1.
-        view.max_difficulty_level = min(view.max_difficulty_level or 1, 1)
+    view.max_difficulty_level = capped_difficulty(
+        view.max_difficulty_level, search.family_friendly
+    )
     # The same widening merge_loops applies. "a 15 km hike" arrives as
     # min = max = 15000, which is an exact-equality filter over a catalogue
     # whose routes are 15,328 m long: without this the implicit block matches

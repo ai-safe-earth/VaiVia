@@ -152,3 +152,20 @@ def test_every_route_reading_template_quarantines_warned_routes():
     for name in ("search_loops", "estimate_loops", "route_exists", "routes_by_ids"):
         body = query_loader.get_query(name)
         assert "r.warnings = 0" in body, f"{name} does not quarantine warned routes"
+
+
+def test_the_favorites_row_is_the_search_row():
+    """Same fragment, so a saved card and a search card cannot come to differ.
+
+    They were hand-copies once and had already drifted — the copy carried a
+    stray relationship variable — which is what the fragment mechanism exists
+    to stop.
+    """
+    search = query_loader.get_query("search_loops")
+    favorites = query_loader.get_query("routes_by_ids")
+
+    def card(body: str) -> str:
+        return body[body.index("CALL (r) {") :].split("ORDER BY")[0].strip()
+
+    assert card(search) == card(favorites)
+    assert "[e:PASSES]" not in favorites  # the drift that proved the point
