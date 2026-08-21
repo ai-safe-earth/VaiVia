@@ -22,7 +22,8 @@ export type IconName =
   | 'time'
   | 'ascent'
   | 'hazard'
-  | 'exposure';
+  | 'exposure'
+  | 'saved';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   trail: <polyline points="3,17 7,9 11,13 17,3" strokeLinejoin="round" />,
@@ -79,6 +80,11 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <rect x="10" y="2.5" width="10.6" height="10.6" transform="rotate(45 10 2.5)" />
       <line x1="10" y1="7" x2="10" y2="10.5" />
     </>
+  ),
+  // A bookmark: the saved-routes mark. Added 2026-08-21 with its asset — the
+  // set stays closed, this is a deliberate eleventh member.
+  saved: (
+    <polygon points="5.5,3 14.5,3 14.5,17 10,13.2 5.5,17" strokeLinejoin="round" />
   ),
 };
 

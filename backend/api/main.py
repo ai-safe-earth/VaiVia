@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from api.middleware import GatewayTrustMiddleware, RequestContextMiddleware
 from api.models import HealthResponse
-from api.routes import chat, routing, trails
+from api.routes import chat, favorites, routing, trails
 from core.config import get_settings
 from core.logging import configure_logging
 from core.pg import asyncpg_ssl
@@ -69,6 +69,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.warning("DATABASE_URL unset — chat history and quotas are in-memory")
             app.state.store = InMemoryStore()
 
+    # Favorites follow the same split as the chat store: Postgres when it is
+    # there, a real-but-unpersisted double when it is not (dev only).
+    if getattr(app.state, "favorites", None) is None:
+        if getattr(app.state, "pg_pool", None) is not None:
+            app.state.favorites = favorites.PostgresFavorites(app.state.pg_pool)
+        else:
+            app.state.favorites = favorites.InMemoryFavorites()
+
     try:
         yield
     finally:
@@ -91,6 +99,8 @@ app.add_middleware(GatewayTrustMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
 app.include_router(trails.router)
+# favorites before routing: /routes/favorites must not be read as a route id.
+app.include_router(favorites.router)
 app.include_router(routing.router)
 app.include_router(chat.router)
 
