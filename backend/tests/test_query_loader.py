@@ -83,3 +83,58 @@ def test_variable_length_traversals_are_bounded():
     unbounded = re.compile(r"\*\s*\]")  # e.g. [:CONNECTS_TO*]
     for name in query_loader.query_names():
         assert not unbounded.search(query_loader.get_query(name)), f"{name} unbounded"
+
+
+# ── Fragment includes (2026-08-21): one filter block, no drift ──────────────
+
+
+def test_fragments_are_not_runnable_templates():
+    """A fragment is spliced into templates, never run on its own. It must not
+    appear in query_names() and must raise on a get."""
+    assert "loop_candidates" not in query_loader.query_names()
+    assert "loop_poi_conjunction" not in query_loader.query_names()
+    with pytest.raises(KeyError):
+        query_loader.get_query("loop_candidates")
+
+
+def test_search_and_estimate_share_the_identical_filter_block():
+    """The whole point of the fragment: a count cannot diverge from the search
+    it counts. Assert the shared block is byte-identical in both."""
+    search = query_loader.get_query("search_loops")
+    estimate = query_loader.get_query("estimate_loops")
+
+    def block(body: str) -> str:
+        start = body.index("MATCH (r:Route)")
+        end = body.index("p.kind = wanted })") + len("p.kind = wanted })")
+        return body[start:end]
+
+    assert block(search) == block(estimate)
+    assert "found_kinds" not in search  # the CALL rewrite dropped it
+
+
+def test_an_unknown_include_fails_loudly_at_parse():
+    with pytest.raises(ValueError, match="unknown fragment"):
+        query_loader.parse(
+            "// fragment: a\nMATCH (n) RETURN n\n"
+            "// name: q\n// include: b\nRETURN 1\n"
+        )
+
+
+def test_a_fragment_may_not_include_another():
+    with pytest.raises(ValueError, match="max depth 1"):
+        query_loader.parse(
+            "// fragment: a\nRETURN 1\n"
+            "// fragment: b\n// include: a\nRETURN 2\n"
+            "// name: q\n// include: b\nRETURN 3\n"
+        )
+
+
+def test_estimate_loops_is_read_only_and_bounded():
+    """It runs through run_read, but the guard suite already asserts no-write
+    and bounded-traversal over every template including this one — this pins
+    that estimate_loops is covered rather than special-cased."""
+    body = query_loader.get_query("estimate_loops")
+    assert not re.search(
+        r"\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP)\b", body, re.I
+    )
+    assert "count(r) AS total" in body

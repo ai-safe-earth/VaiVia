@@ -1432,6 +1432,48 @@ That last one incidentally makes the poi_types conjunction VISIBLE, which was
 the open question from the previous session. It is still an AND; a walker can
 now at least see that it is.
 
+## 2026-08-21 (seventh) - The count-driven query loop: foundations, and a GDS regression
+
+Design round with the owner on an agentic, count-driven query loop: guide the
+conversation until the ESTIMATED result count is small enough to answer well,
+then query; refine after results are on screen; build queries from templates,
+generating only as a flagged fallback. The plan is in
+.claude/plans/ (approved). Phase 0-1 landed on feat/query-loop-foundations
+(stacked on feat/plan-readback); Phases 2-5 remain.
+
+The measurements that shaped it, live on the 766-route clean catalogue: activity
+barely narrows (hike-ish = 646), distance is the strong cut (8-16 km -> 111),
+a feature cuts hard (+peak -> 42); mtb is already 129 and mtb+20km is 3, so the
+loop needs a RELAX branch as much as a narrow one. And the deep one: 515 of 646
+hike-ish routes have score IS NULL, so the current ORDER BY degenerates to "the
+20 hilliest" - narrowing mitigates that, scoring the OSM relations would fix it.
+
+Phase 0 (verification spike, docs/fragilities.md #15): driver RoutingControl.READ
+is a real read-only control on Community - it rejects a write AND the
+apoc.cypher.doIt string-executor bypass (both AccessMode, zero nodes land). But a
+client tx timeout does NOT bite while the server db.transaction.timeout is 0.
+
+Phase 1: hardened the container (procedure allowlist db.*,dbms.*,gds.* denying
+all apoc.*; db.transaction.timeout=10s), added a fragment/include mechanism to
+query_loader so search_loops and the new estimate_loops share ONE filter block
+(byte-identical, tested), and a run_read read-only client path. estimate_loops
+returns total + a bounded facet sample in one query. Verified live across 12
+funnel parameter sets: the rewritten search_loops is byte-identical in order to
+the base, and estimate.total == full count, all < 150 ms. Not yet wired into the
+orchestrator - no behavioural change to the product yet.
+
+**GDS regression I caused, needs owner attention.** Applying the allowlist
+recreated the Neo4j container, and on this machine graphdatascience.ninja (the
+GDS plugin manifest host) is unreachable (DNS fails; github/maven are fine), so
+the recreate dropped GDS - the known cold-start hazard, now persistent because
+that one host is down. Impact is contained: GDS feeds only point-to-point
+routing, which already falls back to shortestPath on Neo4jError; the whole
+catalogue/chat path uses no GDS, and all data survived (980 routes, 84k
+intersections). But it needs fixing: the plugins dir is not volume-mounted, so
+EVERY recreate re-fetches and can lose GDS. Durable fix (owner infra call):
+mount a plugins volume and seed GDS once from a reachable source, or pin a local
+jar. I did not change the plugin strategy unilaterally.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -2023,6 +2065,18 @@ now at least see that it is.
         {
           "date": "2026-08-21",
           "text": "How I read it shows the EXECUTED plan, not the model's subqueries: the widened distance band, the dropped duration and its reason, the poi conjunction spelled out, the family-friendly difficulty cap, and which store answered. chat/readback.py is pure; the vocabulary lives in the backend because a reader that re-derived it could drift from the truth"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Count-driven query loop APPROVED (design in .claude/plans): guide until the estimated result count is small (<=25, up to 2 questions) then query; relax on zero; refine after results via a persisted standing plan; templates first, generated Cypher only as a flagged, gated, logged fallback (shadow-mode 5a before executing 5b)"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Read-only Cypher on Neo4j Community is BUILT not granted (no RBAC): driver RoutingControl.READ rejects writes and the apoc.cypher.doIt bypass (verified), a procedure allowlist denies all apoc.*, and db.transaction.timeout (server-side, the client hint does not bite) is the availability cap. docs/fragilities.md #15"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "One filter block by construction: query_loader gains fragment/include so search_loops and estimate_loops cannot drift - a count can never disagree with the search it counts (byte-identical, tested)"
         }
       ]
     }
@@ -2054,6 +2108,27 @@ now at least see that it is.
     }
   ],
   "nextSteps": [
+    {
+      "title": "Reinstall GDS and stop the recreate hazard: mount the Neo4j plugins dir as a volume and seed GDS once from a reachable source (graphdatascience.ninja is down here; github/maven work), or pin a local jar. Until then routing runs on the shortestPath fallback",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Continue the query loop: Phase 2 (standing plan state - read back messages.intent/result_refs, apply_delta), Phase 3 (the _narrow loop + narrowing.py facet chooser with relevance weights), Phase 4 (post-answer refinement chips + ordinal reference), Phase 5 (generated Cypher, 5a shadow-mode first)",
+      "est": 4,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Score the 515 unscored OSM relations, or add a deterministic tiebreak that is not 'hilliest': narrowing gets the set to 25, ordering decides which 5 the walker reads and that half is still coalesce(score,0.5)",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Merge the PR stack in order: #22 (both kinds + guided) -> #23 (shape) -> #24 (cards) -> #25 (favorites), retargeting each to develop as its base merges",
       "est": 0.25,
@@ -2387,6 +2462,13 @@ now at least see that it is.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

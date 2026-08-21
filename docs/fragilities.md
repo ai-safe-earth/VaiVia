@@ -264,3 +264,43 @@ into one and releases it as soon as it cannot, so the answer still streams.
 **The lesson to keep:** this is the Cypher boundary's rule applied to prose. A
 constraint that matters is enforced in Python, not requested in a prompt — and
 a prompt that mentions a forbidden thing at all is a prompt that suggests it.
+
+## 15. Read-Only Cypher On Community: What Actually Enforces It (measured 2026-08-21)
+
+**Risk:** The query-loop plan (`docs/`, agentic count-driven loop) will, behind a
+flag, execute model-*generated* Cypher. `CLAUDE.md`'s standing guarantee — the LLM
+never writes Cypher — becomes behavioural rather than structural there, so the
+controls that replace it have to actually hold. Neo4j **5.26.29 Community** has no
+RBAC (`SHOW ROLES` → *"Unsupported administration command"*) and no per-procedure
+`GRANT EXECUTE`, so "read-only" cannot be granted. It must be built, and each layer
+was probed live rather than assumed.
+
+**What holds (verified):**
+
+- **Driver `RoutingControl.READ` is a real control.** A write under read routing is
+  rejected with `Neo.ClientError.Statement.AccessMode` ("Writing in read access mode
+  not allowed"). This is the load-bearing result.
+- **Read mode also stops the APOC write-bypass.** `apoc.cypher.doIt` and
+  `apoc.cypher.runWrite` are mode WRITE and execute an arbitrary Cypher *string*, which
+  defeats any static "no CREATE/DELETE" check on the outer query. Under READ routing,
+  `CALL apoc.cypher.doIt("CREATE (:X) RETURN 1", {})` is rejected with the same
+  AccessMode error and **zero nodes land**. So read mode + the generated-query rule
+  "ban `CALL` outright" are two independent layers over the same hole.
+
+**What does NOT hold, and the fix:**
+
+- **A client-supplied transaction timeout does not bite.** `execute_query(..., timeout=2.0)`
+  on a deliberately expensive cartesian read ran unbounded until an external kill.
+  The cause is server config: `SHOW SETTINGS` reports `db.transaction.timeout = 0s`
+  (disabled), and with the server default disabled the client hint is not enforced as
+  a hard cap. **The availability control is therefore the server setting, not the driver
+  argument.** Set `db.transaction.timeout` to a nonzero value in `infra/docker-compose.yml`
+  (`NEO4J_db_transaction_timeout`) and re-verify. This is not a confidentiality issue —
+  the graph holds only public OSM data — it is a denial-of-service guard for the day a
+  generated read is pathological, and it must be in place before the generated-Cypher
+  flag is ever switched on.
+
+**The lesson to keep:** on Community, every "read-only" layer is something you build and
+must test empirically — the write-rejection was real, the timeout was theatre until the
+server setting backed it. Probe, do not assume, and pin the probe's result where the next
+person will read it before flipping the flag.
