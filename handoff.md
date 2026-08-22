@@ -1654,13 +1654,51 @@ nothing against a race: inverting a guard in the component left every assertion
 green. lib/mapTurn.ts and lib/favorites.ts now hold the rules the components
 call, and the tests import those.
 
+## 2026-08-22 - smoke_routing, and the 63% of the network that never got GDS
+
+The re-run that yesterday's session left as a next step. It failed, and it was
+right to: **GDS routing only ever worked inside settings.default_bbox.**
+
+Every /routes request projected that one box -- 45.8-46.0 by 9.3-9.6, Lecco
+shaped -- which holds 31,514 of the graph's 84,137 intersections now that
+Bergamo is ingested. An endpoint outside it is absent from the in-memory graph,
+so gds.shortestPath.dijkstra.stream raises "sourceNode nodes do not exist in
+the in-memory graph", the except catches Neo4jError, and the request quietly
+falls back to hop-count shortestPath. Two of the three ways routing could
+silently degrade were live at once yesterday: the sandboxed gds.util.asNode
+(fixed then) and this. Anything measured about comfort-weighted routing outside
+the Lecco box was shortestPath wearing its name.
+
+The projection bbox is the QUERY's now: both endpoints grown by
+max_distance_m. That margin is exact rather than guessed -- a route inside the
+caller's cap cannot leave a box of that radius around its own endpoints, so
+nothing reachable is projected away. core.geo.expand_bounds_m converts the two
+axes separately, since a degree of longitude at 46 N is 77 km against
+latitude's 111 km.
+
+**The smoke also found its own bug, caused by the hardening.** It BFS'd over a
+scan of every CONNECTS_TO edge in the graph, which now exceeds the 10 s
+db.transaction.timeout Phase 1 added -- and a client timeout cannot raise a
+server ceiling, only lower it, so scripts that legitimately scan have to bound
+themselves. It samples a 6 km neighbourhood around a seed instead, which is
+also what the endpoint does with its own query.
+
+Result, and the first time this script has passed its GDS half: 7/7 live, a
+comfort-weighted path (cost 5117 against 1822 m of true distance), projection
+dropped, nothing left behind.
+
+Worth knowing for the routing figures: on this short sample the comfort route
+and the baseline were the same path at 2% off-road, so the 61-64% off-road
+improvement recorded earlier is not re-verified by this run -- it wants a
+longer route through terrain where the two can disagree.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-21",
+  "updated": "2026-08-22",
   "deadline": null,
   "people": [
     "oscar"
@@ -2289,15 +2327,29 @@ call, and the tests import those.
   ],
   "nextSteps": [
     {
-      "title": "Decide the wording of fragilities #15 against CLAUDE.md: the doc describes a flagged model-generated-Cypher capability while CLAUDE.md says the LLM never writes Cypher, flatly. One of the two should move",
+      "title": "Re-measure the comfort-weighted routing figures (off-road 17% -> 61-64%) now that GDS actually runs: they were taken when Dijkstra was falling back to shortestPath outside the Lecco bbox, and the smoke's short sample cannot confirm them",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Audit the other scripts that scan the whole graph (check_graph_connectivity, build_routes, build_trailheads) against the 10 s db.transaction.timeout - a client timeout cannot raise a server ceiling, so an unbounded scan now fails rather than running long",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide what settings.default_bbox is still FOR now that routing derives its own: ingestion bounds, or a stale global that should go",
       "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Re-run smoke_routing now that GDS works again - point-to-point routing has been silently falling back to hop-count shortestPath, so any routing figures measured since the allowlist landed are shortestPath's, not comfort-weighted",
-      "est": 0.5,
+      "title": "Decide the wording of fragilities #15 against CLAUDE.md: the doc describes a flagged model-generated-Cypher capability while CLAUDE.md says the LLM never writes Cypher, flatly. One of the two should move",
+      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2782,6 +2834,13 @@ call, and the tests import those.
     },
     {
       "date": "2026-08-21",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-22",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
