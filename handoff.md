@@ -1739,6 +1739,49 @@ scripts.build_trailheads computed components over that same box. Every caller
 that uses the component guard is therefore Lecco-only, silently, including loop
 seeding. Bergamo has no component_id at all.
 
+## 2026-08-22 (third) - Trailheads over the whole graph, and Bergamo can seed a loop
+
+Re-ran scripts.build_trailheads over the full coverage, which was yesterday's
+find: it projected settings.bbox, so gds.wcc.write only labelled what was
+inside that box.
+
+| | before | after |
+|---|---|---|
+| intersections with component_id | 30,125 | **82,482** (348 components) |
+| largest component | 31,514-ish, Lecco only | **81,327**, Lecco and Bergamo share it |
+| trailheads | 257 | **283**, 22 of them east of 9.6 |
+| catalogue routes | 980 | 980, untouched |
+
+The 22 eastern trailheads are the point: no previous run could reach them.
+Nothing was lost on the way -- no (:Route) carries a trailhead_id at all,
+because the catalogue comes from the pipeline documents and anchors on
+(:Start), so the stale-trailhead delete had nothing to cascade into.
+
+**Verified where it was impossible before.** Seeding a loop from Bergamo
+(45.6983, 9.6773): 8/8 candidate loops route, mean off-road 78.5%, and the
+start sits in component 0 -- the same component as Lecco, so the two regions
+are one connected network rather than two islands.
+
+Two more instances of the pattern this week keeps producing, both in the
+script, both the same lesson: **a script with genuinely large work has to bound
+itself, because a client timeout can only lower a server ceiling, never raise
+it.**
+
+  * the anchor snap took all 1,547 parkings and stations in one transaction and
+    ran past the 10 s db.transaction.timeout. It batches now, at 25 -- not the
+    50 the warm measurement suggested (0.1 s per anchor), because 50 was killed
+    once on a cold page cache. An intermittent failure here is the worst
+    outcome available: it leaves component_id written and the trailheads not
+    rebuilt.
+  * --dry-run is not entirely dry, and now says so in its help. gds.wcc.write
+    is how the components are computed at all, so they are written whatever the
+    flag says.
+
+Still open from this: nothing consumes (:Trailhead) for the live catalogue --
+all 283 have no routes, because build_routes' backend-side generation was
+superseded by the pipeline's documents. The trailheads earn their keep through
+the component guard and loop seeding, not through the catalogue.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -2374,8 +2417,8 @@ seeding. Bergamo has no component_id at all.
   ],
   "nextSteps": [
     {
-      "title": "Re-run scripts.build_trailheads over the full coverage: component_id exists for 30,125 of 84,137 intersections (the old default-bbox extent), so every caller using the component guard - loop seeding included - is silently Lecco-only and Bergamo has none",
-      "est": 1,
+      "title": "Decide what (:Trailhead) is for now that the catalogue comes from the pipeline: all 283 have no routes, and their value is the component guard and loop seeding rather than route generation",
+      "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2881,6 +2924,13 @@ seeding. Bergamo has no component_id at all.
     },
     {
       "date": "2026-08-21",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-22",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
