@@ -1692,6 +1692,53 @@ and the baseline were the same path at 2% off-road, so the 61-64% off-road
 improvement recorded earlier is not re-verified by this run -- it wants a
 longer route through terrain where the two can disagree.
 
+**Corrected 2026-08-22 (next section): re-measured, and the recorded figures
+were right. My claim that they had been taken while Dijkstra was falling back
+was wrong** -- the spike starts inside the Lecco bbox, where the projection was
+always valid, and the figures predate the allowlist that broke GDS.
+
+## 2026-08-22 (later) - The comfort figures re-measured, and a claim of mine retracted
+
+Ran the loop spike to re-verify comfort-weighted routing. It took three fixes
+to get an answer, and the answer is that **the recorded figures were right all
+along**:
+
+| target | recorded 2026-08-17 | measured 2026-08-22 |
+|---|---|---|
+| 15 km | 61.0% off-road | 61.1% |
+| 20 km | 64.1% off-road | 64.3% |
+
+...and routing got better on the way: 10/10 candidate loops route at both
+targets now, against 8/10 at 15 km before, because two of the fixes below were
+throwing away candidates.
+
+**Retracting yesterday's claim.** I wrote that these numbers had been measured
+while Dijkstra was silently falling back to shortestPath. They had not. The
+spike starts at the Lecco waterfront (45.856, 9.393), which is inside
+settings.default_bbox, so its projection was always valid; and the figures date
+from 2026-08-17, before the allowlist broke GDS entirely. What was actually
+broken was routing OUTSIDE that box (fixed yesterday) and all GDS since
+2026-08-21 (also fixed yesterday). Neither touched this measurement.
+
+Two more instances of yesterday's bug surfaced, in the spike:
+
+  * it projected settings.bbox while drawing ring candidates from the whole
+    graph, so a 20 km target reached past the box and Dijkstra was handed a
+    target its in-memory graph had never heard of. It projects around the
+    START now, margin max(target)/2 -- exact, since no point of a closed loop
+    of length T is further than T/2 from its start.
+  * it passed component_id=None to intersections_in_ring, switching off the
+    guard that template's own comment exists to explain. That let an ISOLATED
+    intersection -- 0 edges in or out, absent from every projection by
+    construction -- be offered as a waypoint. It passes the start's component
+    now, which intersection_locations returns beside the coordinates.
+
+**And a finding worth acting on: component_id covers 30,125 of the graph's
+84,137 intersections** -- exactly the default-bbox count, because
+scripts.build_trailheads computed components over that same box. Every caller
+that uses the component guard is therefore Lecco-only, silently, including loop
+seeding. Bergamo has no component_id at all.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -2327,8 +2374,8 @@ longer route through terrain where the two can disagree.
   ],
   "nextSteps": [
     {
-      "title": "Re-measure the comfort-weighted routing figures (off-road 17% -> 61-64%) now that GDS actually runs: they were taken when Dijkstra was falling back to shortestPath outside the Lecco bbox, and the smoke's short sample cannot confirm them",
-      "est": 0.5,
+      "title": "Re-run scripts.build_trailheads over the full coverage: component_id exists for 30,125 of 84,137 intersections (the old default-bbox extent), so every caller using the component guard - loop seeding included - is silently Lecco-only and Bergamo has none",
+      "est": 1,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2834,6 +2881,13 @@ longer route through terrain where the two can disagree.
     },
     {
       "date": "2026-08-21",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-22",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
