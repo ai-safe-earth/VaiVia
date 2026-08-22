@@ -1782,6 +1782,51 @@ all 283 have no routes, because build_routes' backend-side generation was
 superseded by the pipeline's documents. The trailheads earn their keep through
 the component guard and loop seeding, not through the catalogue.
 
+## 2026-08-22 (fourth) - Urban exits begin a walk, and the start/end contract is written down as work
+
+Owner set out the route model: a route needs a reachable start (within ~1 km of
+a town, a parking formal or informal, or a bus stop), an end that is either the
+start again (circular, out and back by a different line) or a POI worth the
+effort (linear), possibly mixed; continuous, with descriptive categories. Two
+outcomes: the contract is queued as a task, and the one concrete gap is closed.
+
+**Trailheads are STARTS, in both layers, and the pipeline already separates the
+two ideas** — `curate/anchors.py` rejects 405 peaks with "a summit is a
+destination, not a trailhead". Ends are not modelled anywhere: a route carries
+`shape` plus `destination_name` and nothing else. That asymmetry is the heart
+of the queued contract.
+
+**Urban exits, implemented.** "A residential area is a polygon, not a point a
+walk begins at" was right about the polygon and wrong about the walk. An urban
+exit is a vertex inside a residential polygon with a foot-routable edge whose
+far end is outside EVERY such polygon (not just its own, or the boundary
+between two neighbourhoods would count). One row per vertex, carrying its best
+way out.
+
+  path 905, footway 535, track 461, cycleway 254, steps 76 -> begins a walk
+  unclassified 1,202, residential 735, service 544, ...     -> town continuing
+
+5,221 exits, **2,231 of them starts**; start vertices 6,112 -> **8,110**. No
+motorway or trunk appears at all. The lane exits are recorded rather than
+dropped, so flipping that product call is a one-word change with the evidence
+already on screen: `qa.v_urban_exit`, coloured by `exit_class`, is in the
+bundle. Store refreshed (migration 0016, curate.places re-run, bundle rebuilt).
+
+**What the owner's model is missing, now queued as the contract task.** The end
+of a linear route needs a reachability test too, not only a "worth it" test:
+out-and-back to a POI (one reachable point) and a traverse A-to-B (two) are
+different shapes, and the document already separates them as `destination` and
+`linear` — the rule does not. Reachability is not timeless (17 GTFS stops, a
+winter timetable, a gated forest road) and wants the season-scoping hazards
+already have. "Within 1 km" needs a measure: straight-line crosses rivers and
+cliffs, and 1 km along a trunk road is not an approach. Climb belongs in the
+categories beside distance, and duration deliberately does not until DIN 33466
+is calibrated. A circular route is two routes, since difficulty differs by
+direction. And the shared-approach case the owner raised has a second half:
+five routes sharing 3 km of approach are nearly one answer, so results need
+diversity on the shared prefix and the catalogue should record where they
+split.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -2417,6 +2462,27 @@ the component guard and loop seeding, not through the catalogue.
   ],
   "nextSteps": [
     {
+      "title": "Write the start/end contract for a route (docs/route-document.md). Decisions it must settle: (1) an END needs a reachability test, not only a 'worth it' test - out-and-back to a POI has one reachable point, a traverse A-B has two, and shape already separates them as destination vs linear while the rule does not; (2) reachable WHEN - 17 GTFS stops, winter timetables and gated forest roads want the season-scoping hazards already have; (3) what 'within 1 km' measures - network walking distance, not straight line across a river, and the connecting way has to be legal and walkable; (4) climb belongs in the descriptive categories beside distance, duration stays out until DIN 33466 is calibrated; (5) a circular route is two routes, because difficulty differs by direction and directional tags invert; (6) routes sharing an approach corridor are nearly one answer, so record the divergence point and give results diversity on the shared prefix; (7) 'continuous' as a hard filter would cut the 131 multi-piece routes that are really a coverage-clipping artefact",
+      "est": 1.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether a lane exit out of a settlement is a start after all: 2,990 of them are recorded with 'the town continuing' and reviewable in qa.v_urban_exit, so it is a one-word change either way",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Review the 2,231 new urban-exit starts in QGIS (qa.v_urban_exit, colour by exit_class) before generating any catalogue from them - 15 are on islands and most are unnamed",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
       "title": "Decide what (:Trailhead) is for now that the catalogue comes from the pipeline: all 283 have no routes, and their value is the component guard and loop seeding rather than route generation",
       "est": 0.5,
       "owner": "oscar",
@@ -2924,6 +2990,13 @@ the component guard and loop seeding, not through the catalogue.
     },
     {
       "date": "2026-08-21",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-22",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
