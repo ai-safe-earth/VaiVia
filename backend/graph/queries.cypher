@@ -291,6 +291,15 @@ RETURN totalCost AS total_cost,
           gds.util.asNode(nodeId).location.latitude]] AS coordinates,
        [nodeId IN nodeIds | gds.util.asNode(nodeId).osm_node_id] AS node_ids
 
+// name: intersection_locations
+// Where these intersections are, so a caller can project the bbox its QUERY
+// needs. Two ids in practice (a route's endpoints).
+MATCH (i:Intersection)
+WHERE i.osm_node_id IN $osm_node_ids
+RETURN i.osm_node_id AS osm_node_id,
+       i.location.latitude AS lat,
+       i.location.longitude AS lon
+
 // name: graph_project_routing
 // Bounded projection: only intersections inside the query bbox are projected,
 // so Dijkstra never sees the whole country.

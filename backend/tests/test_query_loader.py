@@ -28,6 +28,7 @@ EXPECTED = {
     "estimate_loops",
     "route_exists",
     "routes_by_ids",
+    "intersection_locations",
 }
 
 

@@ -32,6 +32,7 @@ from api.models import (
     RouteResponse,
 )
 from core.config import get_settings
+from core.geo import bounds_of, expand_bounds_m
 from core.text import lucene_escape
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,25 @@ async def _snap(db: DbDep, poi: dict, radius_m: float) -> str:
     return rows[0]["osm_node_id"]
 
 
+async def _endpoint_bounds(
+    db: DbDep, start_node: str, end_node: str, margin_m: float
+) -> tuple[float, float, float, float] | None:
+    """The bbox to project for this route: both endpoints, grown by margin_m.
+
+    None when either endpoint has no location -- there is nothing to project
+    around, and the caller falls back rather than routing over a box built
+    from half the query.
+    """
+    rows = await db.run_named(
+        "intersection_locations", osm_node_ids=[start_node, end_node]
+    )
+    found = {row["osm_node_id"]: (row["lat"], row["lon"]) for row in rows}
+    points = [found.get(start_node), found.get(end_node)]
+    if any(point is None for point in points):
+        return None
+    return expand_bounds_m(bounds_of([p for p in points if p]), margin_m)
+
+
 async def _route_via_gds(
     db: DbDep, start_node: str, end_node: str, max_distance_m: float
 ) -> dict | None:
@@ -84,8 +104,20 @@ async def _route_via_gds(
     shorter — if roadier — route can exist inside the cap, and a walker who
     asked for at most 5 km would rather have it than nothing.
     """
-    settings = get_settings()
-    min_lat, min_lon, max_lat, max_lon = settings.bbox
+    # The projection bbox is the QUERY's, not the app's. It used to be
+    # settings.default_bbox -- one Lecco-shaped box, holding 31,514 of the
+    # graph's 84,137 intersections once Bergamo was ingested. Endpoints outside
+    # it are simply absent from the in-memory graph, so Dijkstra raises
+    # ("sourceNode nodes do not exist in the in-memory graph"), the except below
+    # catches it, and 63% of the network silently got hop-count routing while
+    # the comfort weighting it was measured against never ran.
+    #
+    # max_distance_m makes the right box exact rather than guessed: a route
+    # under that cap cannot leave a margin of it around its own endpoints.
+    bounds = await _endpoint_bounds(db, start_node, end_node, max_distance_m)
+    if bounds is None:
+        return None
+    min_lat, min_lon, max_lat, max_lon = bounds
     graph_name = f"routing_{uuid4().hex[:12]}"  # per-request: concurrency-safe
     try:
         projected = await db.run_named(
