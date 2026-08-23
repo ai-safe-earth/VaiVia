@@ -1827,7 +1827,7 @@ five routes sharing 3 km of approach are nearly one answer, so results need
 diversity on the shared prefix and the catalogue should record where they
 split.
 
-## 2026-08-23 - The branch is split: eleven stacked branches, thirty-two commits
+## 2026-08-23 - The branch is split: three stacked PRs
 
 `feat/query-loop-foundations` had grown to carry the query-loop foundations plus
 ten review fixes across four tiers plus two pipeline features. It is now its
@@ -1853,9 +1853,27 @@ Nothing was rewritten except the tip of branch 6, which was force-pushed back to
 0ef74c6 after every commit beyond it had been pushed on branches 7-11 — checked
 before the force, not after.
 
-**There are no open PRs on any of the eleven.** The stack is pushed and ready;
-opening it is one `gh pr create` per branch with `--base` set to the branch
-below.
+**Collapsed to three PRs and the intermediates deleted (same day).** Eleven
+branches was more review surface than the work needs, so the stack is now three
+PRs grouped by what a reviewer has to hold in their head at once, and the eight
+branches between them are gone -- every commit still reachable from the tip,
+checked before deleting rather than after:
+
+| PR | head -> base | commits | what it is |
+|---|---|---|---|
+| #28 | `feat/plan-readback` -> `develop` | 11 | the catalogue meets the user: no links, both kinds, shape, cards, favorites, readback |
+| #29 | `fix/read-only-query-service` -> `feat/plan-readback` | 10 | the query loop's foundations, and the review that followed |
+| #30 | `feat/pipeline-state-notebook` -> `fix/read-only-query-service` | 10 | routing over the whole graph, urban exits, the state page |
+
+Merge #28 first; GitHub retargets #29 to `develop` as it lands, then #30.
+
+**Two PRs had already merged and nobody here knew**, because the local
+remote-tracking refs were stale for the whole session: #22 put
+`feat/chat-guided-both-kinds` into `develop`, and #27 merged
+`feat/query-loop-foundations` into `feat/plan-readback`. Both of those branches
+were among the eight deleted, which is the right thing to do with a merged
+branch -- but it was luck rather than judgement, and the lesson is to fetch
+before reasoning about what a remote branch contains.
 
 <!-- pmctl:handoff v1 -->
 ```json
@@ -2492,8 +2510,8 @@ below.
   ],
   "nextSteps": [
     {
-      "title": "Open and merge the eleven-branch stack bottom-up: chat-guided-both-kinds -> route-shape -> route-cards -> favorites -> plan-readback -> query-loop-foundations -> chat-review-findings -> read-only-query-service -> routing-over-the-whole-graph -> pipeline-urban-exits -> pipeline-state-notebook. Each PR takes the branch below as its base and is retargeted to develop as that one merges",
-      "est": 1,
+      "title": "Merge the three-PR stack in order: #28 (catalogue meets the user) -> #29 (query-loop foundations and the review) -> #30 (routing over the whole graph, urban exits, state notebook). GitHub retargets each to develop as its base lands",
+      "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
