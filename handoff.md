@@ -1654,13 +1654,234 @@ nothing against a race: inverting a guard in the component left every assertion
 green. lib/mapTurn.ts and lib/favorites.ts now hold the rules the components
 call, and the tests import those.
 
+## 2026-08-22 - smoke_routing, and the 63% of the network that never got GDS
+
+The re-run that yesterday's session left as a next step. It failed, and it was
+right to: **GDS routing only ever worked inside settings.default_bbox.**
+
+Every /routes request projected that one box -- 45.8-46.0 by 9.3-9.6, Lecco
+shaped -- which holds 31,514 of the graph's 84,137 intersections now that
+Bergamo is ingested. An endpoint outside it is absent from the in-memory graph,
+so gds.shortestPath.dijkstra.stream raises "sourceNode nodes do not exist in
+the in-memory graph", the except catches Neo4jError, and the request quietly
+falls back to hop-count shortestPath. Two of the three ways routing could
+silently degrade were live at once yesterday: the sandboxed gds.util.asNode
+(fixed then) and this. Anything measured about comfort-weighted routing outside
+the Lecco box was shortestPath wearing its name.
+
+The projection bbox is the QUERY's now: both endpoints grown by
+max_distance_m. That margin is exact rather than guessed -- a route inside the
+caller's cap cannot leave a box of that radius around its own endpoints, so
+nothing reachable is projected away. core.geo.expand_bounds_m converts the two
+axes separately, since a degree of longitude at 46 N is 77 km against
+latitude's 111 km.
+
+**The smoke also found its own bug, caused by the hardening.** It BFS'd over a
+scan of every CONNECTS_TO edge in the graph, which now exceeds the 10 s
+db.transaction.timeout Phase 1 added -- and a client timeout cannot raise a
+server ceiling, only lower it, so scripts that legitimately scan have to bound
+themselves. It samples a 6 km neighbourhood around a seed instead, which is
+also what the endpoint does with its own query.
+
+Result, and the first time this script has passed its GDS half: 7/7 live, a
+comfort-weighted path (cost 5117 against 1822 m of true distance), projection
+dropped, nothing left behind.
+
+Worth knowing for the routing figures: on this short sample the comfort route
+and the baseline were the same path at 2% off-road, so the 61-64% off-road
+improvement recorded earlier is not re-verified by this run -- it wants a
+longer route through terrain where the two can disagree.
+
+**Corrected 2026-08-22 (next section): re-measured, and the recorded figures
+were right. My claim that they had been taken while Dijkstra was falling back
+was wrong** -- the spike starts inside the Lecco bbox, where the projection was
+always valid, and the figures predate the allowlist that broke GDS.
+
+## 2026-08-22 (later) - The comfort figures re-measured, and a claim of mine retracted
+
+Ran the loop spike to re-verify comfort-weighted routing. It took three fixes
+to get an answer, and the answer is that **the recorded figures were right all
+along**:
+
+| target | recorded 2026-08-17 | measured 2026-08-22 |
+|---|---|---|
+| 15 km | 61.0% off-road | 61.1% |
+| 20 km | 64.1% off-road | 64.3% |
+
+...and routing got better on the way: 10/10 candidate loops route at both
+targets now, against 8/10 at 15 km before, because two of the fixes below were
+throwing away candidates.
+
+**Retracting yesterday's claim.** I wrote that these numbers had been measured
+while Dijkstra was silently falling back to shortestPath. They had not. The
+spike starts at the Lecco waterfront (45.856, 9.393), which is inside
+settings.default_bbox, so its projection was always valid; and the figures date
+from 2026-08-17, before the allowlist broke GDS entirely. What was actually
+broken was routing OUTSIDE that box (fixed yesterday) and all GDS since
+2026-08-21 (also fixed yesterday). Neither touched this measurement.
+
+Two more instances of yesterday's bug surfaced, in the spike:
+
+  * it projected settings.bbox while drawing ring candidates from the whole
+    graph, so a 20 km target reached past the box and Dijkstra was handed a
+    target its in-memory graph had never heard of. It projects around the
+    START now, margin max(target)/2 -- exact, since no point of a closed loop
+    of length T is further than T/2 from its start.
+  * it passed component_id=None to intersections_in_ring, switching off the
+    guard that template's own comment exists to explain. That let an ISOLATED
+    intersection -- 0 edges in or out, absent from every projection by
+    construction -- be offered as a waypoint. It passes the start's component
+    now, which intersection_locations returns beside the coordinates.
+
+**And a finding worth acting on: component_id covers 30,125 of the graph's
+84,137 intersections** -- exactly the default-bbox count, because
+scripts.build_trailheads computed components over that same box. Every caller
+that uses the component guard is therefore Lecco-only, silently, including loop
+seeding. Bergamo has no component_id at all.
+
+## 2026-08-22 (third) - Trailheads over the whole graph, and Bergamo can seed a loop
+
+Re-ran scripts.build_trailheads over the full coverage, which was yesterday's
+find: it projected settings.bbox, so gds.wcc.write only labelled what was
+inside that box.
+
+| | before | after |
+|---|---|---|
+| intersections with component_id | 30,125 | **82,482** (348 components) |
+| largest component | 31,514-ish, Lecco only | **81,327**, Lecco and Bergamo share it |
+| trailheads | 257 | **283**, 22 of them east of 9.6 |
+| catalogue routes | 980 | 980, untouched |
+
+The 22 eastern trailheads are the point: no previous run could reach them.
+Nothing was lost on the way -- no (:Route) carries a trailhead_id at all,
+because the catalogue comes from the pipeline documents and anchors on
+(:Start), so the stale-trailhead delete had nothing to cascade into.
+
+**Verified where it was impossible before.** Seeding a loop from Bergamo
+(45.6983, 9.6773): 8/8 candidate loops route, mean off-road 78.5%, and the
+start sits in component 0 -- the same component as Lecco, so the two regions
+are one connected network rather than two islands.
+
+Two more instances of the pattern this week keeps producing, both in the
+script, both the same lesson: **a script with genuinely large work has to bound
+itself, because a client timeout can only lower a server ceiling, never raise
+it.**
+
+  * the anchor snap took all 1,547 parkings and stations in one transaction and
+    ran past the 10 s db.transaction.timeout. It batches now, at 25 -- not the
+    50 the warm measurement suggested (0.1 s per anchor), because 50 was killed
+    once on a cold page cache. An intermittent failure here is the worst
+    outcome available: it leaves component_id written and the trailheads not
+    rebuilt.
+  * --dry-run is not entirely dry, and now says so in its help. gds.wcc.write
+    is how the components are computed at all, so they are written whatever the
+    flag says.
+
+Still open from this: nothing consumes (:Trailhead) for the live catalogue --
+all 283 have no routes, because build_routes' backend-side generation was
+superseded by the pipeline's documents. The trailheads earn their keep through
+the component guard and loop seeding, not through the catalogue.
+
+## 2026-08-22 (fourth) - Urban exits begin a walk, and the start/end contract is written down as work
+
+Owner set out the route model: a route needs a reachable start (within ~1 km of
+a town, a parking formal or informal, or a bus stop), an end that is either the
+start again (circular, out and back by a different line) or a POI worth the
+effort (linear), possibly mixed; continuous, with descriptive categories. Two
+outcomes: the contract is queued as a task, and the one concrete gap is closed.
+
+**Trailheads are STARTS, in both layers, and the pipeline already separates the
+two ideas** — `curate/anchors.py` rejects 405 peaks with "a summit is a
+destination, not a trailhead". Ends are not modelled anywhere: a route carries
+`shape` plus `destination_name` and nothing else. That asymmetry is the heart
+of the queued contract.
+
+**Urban exits, implemented.** "A residential area is a polygon, not a point a
+walk begins at" was right about the polygon and wrong about the walk. An urban
+exit is a vertex inside a residential polygon with a foot-routable edge whose
+far end is outside EVERY such polygon (not just its own, or the boundary
+between two neighbourhoods would count). One row per vertex, carrying its best
+way out.
+
+  path 905, footway 535, track 461, cycleway 254, steps 76 -> begins a walk
+  unclassified 1,202, residential 735, service 544, ...     -> town continuing
+
+5,221 exits, **2,231 of them starts**; start vertices 6,112 -> **8,110**. No
+motorway or trunk appears at all. The lane exits are recorded rather than
+dropped, so flipping that product call is a one-word change with the evidence
+already on screen: `qa.v_urban_exit`, coloured by `exit_class`, is in the
+bundle. Store refreshed (migration 0016, curate.places re-run, bundle rebuilt).
+
+**What the owner's model is missing, now queued as the contract task.** The end
+of a linear route needs a reachability test too, not only a "worth it" test:
+out-and-back to a POI (one reachable point) and a traverse A-to-B (two) are
+different shapes, and the document already separates them as `destination` and
+`linear` — the rule does not. Reachability is not timeless (17 GTFS stops, a
+winter timetable, a gated forest road) and wants the season-scoping hazards
+already have. "Within 1 km" needs a measure: straight-line crosses rivers and
+cliffs, and 1 km along a trunk road is not an approach. Climb belongs in the
+categories beside distance, and duration deliberately does not until DIN 33466
+is calibrated. A circular route is two routes, since difficulty differs by
+direction. And the shared-approach case the owner raised has a second half:
+five routes sharing 3 km of approach are nearly one answer, so results need
+diversity on the shared prefix and the catalogue should record where they
+split.
+
+## 2026-08-23 - The branch is split: three stacked PRs
+
+`feat/query-loop-foundations` had grown to carry the query-loop foundations plus
+ten review fixes across four tiers plus two pipeline features. It is now its
+namesake again, and the rest is a stack. Each branch is a strict superset of the
+one before, so **each PR is opened against the branch below it, and retargeted
+to `develop` as its base merges**.
+
+| # | branch | commits | what it is |
+|---|---|---|---|
+| 1 | `feat/chat-guided-both-kinds` | 3 | the answer carries no links; a trail ask answers with both kinds |
+| 2 | `feat/route-shape` | +1 | routes know their shape, measured |
+| 3 | `feat/route-cards` | +1 | expandable cards, the fold, the elevation panel |
+| 4 | `feat/favorites` | +3 | saved routes, and the live smoke over a whole card |
+| 5 | `feat/plan-readback` | +3 | "How I read it" wired; the invented link retired |
+| 6 | `feat/query-loop-foundations` | +2 | count/facet estimate, one shared filter block, a read-only path |
+| 7 | `fix/chat-review-findings` | +8 | the review's ten confirmed findings, the eight the cap cut, the reuse and perf passes |
+| 8 | `fix/read-only-query-service` | +2 | run_named onto READ routing, the clarify cap, the hidden panel, GDS unsandboxed |
+| 9 | `fix/routing-over-the-whole-graph` | +6 | the query's bbox instead of the configured one, the loop spike, trailheads over the whole graph |
+| 10 | `feat/pipeline-urban-exits` | +2 | urban exits begin a walk |
+| 11 | `feat/pipeline-state-notebook` | +1 | the state notebook and its HTML |
+
+Nothing was rewritten except the tip of branch 6, which was force-pushed back to
+0ef74c6 after every commit beyond it had been pushed on branches 7-11 — checked
+before the force, not after.
+
+**Collapsed to three PRs and the intermediates deleted (same day).** Eleven
+branches was more review surface than the work needs, so the stack is now three
+PRs grouped by what a reviewer has to hold in their head at once, and the eight
+branches between them are gone -- every commit still reachable from the tip,
+checked before deleting rather than after:
+
+| PR | head -> base | commits | what it is |
+|---|---|---|---|
+| #28 | `feat/plan-readback` -> `develop` | 11 | the catalogue meets the user: no links, both kinds, shape, cards, favorites, readback |
+| #29 | `fix/read-only-query-service` -> `feat/plan-readback` | 10 | the query loop's foundations, and the review that followed |
+| #30 | `feat/pipeline-state-notebook` -> `fix/read-only-query-service` | 10 | routing over the whole graph, urban exits, the state page |
+
+Merge #28 first; GitHub retargets #29 to `develop` as it lands, then #30.
+
+**Two PRs had already merged and nobody here knew**, because the local
+remote-tracking refs were stale for the whole session: #22 put
+`feat/chat-guided-both-kinds` into `develop`, and #27 merged
+`feat/query-loop-foundations` into `feat/plan-readback`. Both of those branches
+were among the eight deleted, which is the right thing to do with a merged
+branch -- but it was luck rather than judgement, and the lesson is to fetch
+before reasoning about what a remote branch contains.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-21",
+  "updated": "2026-08-23",
   "deadline": null,
   "people": [
     "oscar"
@@ -2289,15 +2510,57 @@ call, and the tests import those.
   ],
   "nextSteps": [
     {
-      "title": "Decide the wording of fragilities #15 against CLAUDE.md: the doc describes a flagged model-generated-Cypher capability while CLAUDE.md says the LLM never writes Cypher, flatly. One of the two should move",
+      "title": "Merge the three-PR stack in order: #28 (catalogue meets the user) -> #29 (query-loop foundations and the review) -> #30 (routing over the whole graph, urban exits, state notebook). GitHub retargets each to develop as its base lands",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Write the start/end contract for a route (docs/route-document.md). Decisions it must settle: (1) an END needs a reachability test, not only a 'worth it' test - out-and-back to a POI has one reachable point, a traverse A-B has two, and shape already separates them as destination vs linear while the rule does not; (2) reachable WHEN - 17 GTFS stops, winter timetables and gated forest roads want the season-scoping hazards already have; (3) what 'within 1 km' measures - network walking distance, not straight line across a river, and the connecting way has to be legal and walkable; (4) climb belongs in the descriptive categories beside distance, duration stays out until DIN 33466 is calibrated; (5) a circular route is two routes, because difficulty differs by direction and directional tags invert; (6) routes sharing an approach corridor are nearly one answer, so record the divergence point and give results diversity on the shared prefix; (7) 'continuous' as a hard filter would cut the 131 multi-piece routes that are really a coverage-clipping artefact",
+      "est": 1.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether a lane exit out of a settlement is a start after all: 2,990 of them are recorded with 'the town continuing' and reviewable in qa.v_urban_exit, so it is a one-word change either way",
       "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Re-run smoke_routing now that GDS works again - point-to-point routing has been silently falling back to hop-count shortestPath, so any routing figures measured since the allowlist landed are shortestPath's, not comfort-weighted",
+      "title": "Review the 2,231 new urban-exit starts in QGIS (qa.v_urban_exit, colour by exit_class) before generating any catalogue from them - 15 are on islands and most are unnamed",
       "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide what (:Trailhead) is for now that the catalogue comes from the pipeline: all 283 have no routes, and their value is the component guard and loop seeding rather than route generation",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Audit the other scripts that scan the whole graph (check_graph_connectivity, build_routes, build_trailheads) against the 10 s db.transaction.timeout - a client timeout cannot raise a server ceiling, so an unbounded scan now fails rather than running long",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide what settings.default_bbox is still FOR now that routing derives its own: ingestion bounds, or a stale global that should go",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide the wording of fragilities #15 against CLAUDE.md: the doc describes a flagged model-generated-Cypher capability while CLAUDE.md says the LLM never writes Cypher, flatly. One of the two should move",
+      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2312,13 +2575,6 @@ call, and the tests import those.
     {
       "title": "Decide whether the frontend gets a component-test setup (jsdom + testing-library): the pure-helper split covers the race guards, but nothing tests a component end to end",
       "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Split or re-scope this branch before merging: feat/query-loop-foundations now carries the query-loop foundations plus ten review fixes across four tiers",
-      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2389,13 +2645,6 @@ call, and the tests import those.
     {
       "title": "Score the 515 unscored OSM relations, or add a deterministic tiebreak that is not 'hilliest': narrowing gets the set to 25, ordering decides which 5 the walker reads and that half is still coalesce(score,0.5)",
       "est": 2,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Merge the PR stack in order: #22 (both kinds + guided) -> #23 (shape) -> #24 (cards) -> #25 (favorites), retargeting each to develop as its base merges",
-      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2782,6 +3031,41 @@ call, and the tests import those.
     },
     {
       "date": "2026-08-21",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-22",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-22",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-22",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-22",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-23",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

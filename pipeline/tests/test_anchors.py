@@ -6,10 +6,12 @@ import pytest
 
 from curate.anchors import (
     DESTINATION_NOT_START,
+    EXIT_ONTO_TRAIL,
     STARTING_POI,
     poi_verdict,
     settlement_verdict,
     stop_verdict,
+    urban_exit_verdict,
 )
 
 
@@ -80,3 +82,38 @@ def test_a_negative_trip_count_is_treated_as_no_service():
     # Nothing should produce one, but a verdict that says "start" on nonsense
     # is worse than one that says "no service".
     assert not stop_verdict(-1).is_start
+
+
+@pytest.mark.parametrize("highway", sorted(EXIT_ONTO_TRAIL))
+def test_the_network_leaving_town_onto_a_trail_starts_a_walk(highway):
+    """The 999 residential rejections are right about the polygon and wrong
+    about the walk: people do start from where they live. The polygon has no
+    sensible single point; the places the network leaves it do."""
+    verdict = urban_exit_verdict(highway)
+
+    assert verdict.is_start
+    assert verdict.note is None
+
+
+@pytest.mark.parametrize(
+    "highway", ["unclassified", "residential", "service", "tertiary", "secondary"]
+)
+def test_a_lane_out_of_town_is_the_town_continuing(highway):
+    verdict = urban_exit_verdict(highway)
+
+    assert not verdict.is_start
+    assert highway in verdict.note
+
+
+def test_a_vertex_with_no_way_out_is_not_a_start():
+    verdict = urban_exit_verdict(None)
+
+    assert not verdict.is_start
+    assert verdict.note == "no way leads out of the urban area here"
+
+
+def test_an_exit_is_judged_on_the_way_out_not_on_the_settlement():
+    """The settlement rule and the exit rule answer different questions, and
+    the polygon still is not a start in its own right."""
+    assert not settlement_verdict("residential").is_start
+    assert urban_exit_verdict("path").is_start

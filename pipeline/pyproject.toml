@@ -30,6 +30,11 @@ dependencies = [
 ]
 
 [dependency-groups]
+# The state notebook (notebooks/state.ipynb). Not in `dev` because a normal
+# `uv sync` should not pull a Jupyter stack to run the tests: this group is for
+# whoever refreshes the review page. Everything the notebook DRAWS with --
+# geopandas, matplotlib, shapely, pandas -- is already a runtime dependency.
+notebook = ["ipykernel>=6", "nbconvert>=7", "jupyter-client>=8"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -40,6 +45,10 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+# The notebook is a rendered artefact: its cells are one-liners calling
+# notebooks/review_data.py, which IS linted. Ruff checks .ipynb by default, and
+# there is nothing in there worth a lint rule.
+extend-exclude = ["notebooks/*.ipynb"]
 
 [tool.black]
 line-length = 88
