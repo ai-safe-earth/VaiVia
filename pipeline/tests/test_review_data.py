@@ -148,6 +148,8 @@ def test_the_crossing_routes_are_their_own_area():
     """61 of 752 run through both regions, and forcing them into whichever holds
     more of them would draw them twice or drop them once."""
     assert rd.AREA_ORDER == ["Lecco", "Bergamo", "Lecco + Bergamo"]
+
+
 def _edge(coords, profile, length_m):
     return {"geom": LineString(coords), "profile_m": profile, "length_m": length_m}
 

@@ -87,9 +87,7 @@ def _basemap(ax, source=REFERENCE_TILES, zoom="auto") -> None:
         if span and span < 400:  # metres: deeper than any provider serves
             zoom = MAX_TILE_ZOOM
     try:
-        cx.add_basemap(
-            ax, source=source, crs=CRS_TILES, zoom=zoom, attribution_size=5
-        )
+        cx.add_basemap(ax, source=source, crs=CRS_TILES, zoom=zoom, attribution_size=5)
     except Exception as error:  # noqa: BLE001 - a map without tiles still reads
         ax.set_facecolor("#f7f7f7")
         print(f"  no basemap ({type(error).__name__}: {error})")
@@ -293,9 +291,7 @@ def _rendered(fig: plt.Figure, photographic: bool = False):
 def _finish(ax, title: str | None = None, width: int = 46) -> None:
     ax.set_axis_off()
     if title:
-        ax.set_title(
-            textwrap.fill(title, width), fontsize=9, color=INK, loc="left"
-        )
+        ax.set_title(textwrap.fill(title, width), fontsize=9, color=INK, loc="left")
 
 
 def stat_tiles(state: pd.DataFrame, columns: int = 5) -> plt.Figure:
@@ -477,9 +473,7 @@ def findings_map(
     for (name, layer), colour in zip(layers.items(), [RED, SAND, BLUE]):
         if not len(layer):
             continue
-        _tiles(layer).plot(
-            ax=ax, color=colour, markersize=6, linewidth=1.4, alpha=0.8
-        )
+        _tiles(layer).plot(ax=ax, color=colour, markersize=6, linewidth=1.4, alpha=0.8)
         ax.plot([], [], color=colour, linewidth=2, label=f"{len(layer):,} {name}")
     ax.legend(loc="lower left", fontsize=8, frameon=False)
     ax.set_aspect("equal")
@@ -650,9 +644,7 @@ def repaired_example(pad_m: float = 120.0) -> tuple:
     should have moved more than the 2 m tolerance, which is what makes this
     panel a check rather than an illustration.
     """
-    pick = (
-        "FROM qa.v_fix WHERE rule = ANY(%(rules)s) ORDER BY end_moved_m DESC LIMIT 1"
-    )
+    pick = "FROM qa.v_fix WHERE rule = ANY(%(rules)s) ORDER BY end_moved_m DESC LIMIT 1"
     after = geoframe(
         f"SELECT fix_id, rule, start_moved_m, end_moved_m, geom {pick}",
         rules=SNAPPING_RULES,
@@ -690,7 +682,9 @@ def urban_exit_example(pad_m: float = 700.0) -> tuple:
     context = context_edges(busiest.geometry.iloc[0], pad_m)
     trail = around[around["exit_class"].str.startswith("0")]
     lane = around[around["exit_class"].str.startswith("1")]
-    caption = f"one settlement's ways out: {len(trail)} onto trail, {len(lane)} onto lane"
+    caption = (
+        f"one settlement's ways out: {len(trail)} onto trail, {len(lane)} onto lane"
+    )
     return trail, lane, context, caption
 
 
@@ -836,9 +830,7 @@ def mapped_routes_map(routes: gpd.GeoDataFrame, label_top: int = 6) -> plt.Figur
 
 def routes_by_kind(routes: gpd.GeoDataFrame) -> plt.Figure:
     """What kind of route was mapped, and how much of it, per area."""
-    counts = (
-        routes.groupby(["area", "route_kind"])["km"].sum().unstack(fill_value=0.0)
-    )
+    counts = routes.groupby(["area", "route_kind"])["km"].sum().unstack(fill_value=0.0)
     counts = counts.reindex([a for a in AREA_ORDER if a in counts.index])
     fig, ax = plt.subplots(figsize=(9, 3.2))
     bottom = None
@@ -850,6 +842,8 @@ def routes_by_kind(routes: gpd.GeoDataFrame) -> plt.Figure:
     ax.grid(alpha=0.3, axis="x")
     ax.tick_params(labelsize=8)
     return _rendered(fig)
+
+
 # --------------------------------------------------------------------------
 # one route, in full
 # --------------------------------------------------------------------------

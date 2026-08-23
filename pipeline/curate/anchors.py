@@ -92,9 +92,7 @@ def urban_exit_verdict(outward_highway: str | None) -> Verdict:
         return Verdict(False, "no way leads out of the urban area here")
     if outward_highway in EXIT_ONTO_TRAIL:
         return Verdict(True, None)
-    return Verdict(
-        False, f"leaving on a {outward_highway} is the town continuing"
-    )
+    return Verdict(False, f"leaving on a {outward_highway} is the town continuing")
 
 
 def poi_verdict(poi_type: str) -> Verdict:
