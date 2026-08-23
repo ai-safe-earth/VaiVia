@@ -29,6 +29,11 @@ EXPECTED = {
     "route_exists",
     "routes_by_ids",
     "intersection_locations",
+    # The graph's own extent, shared by every script that projects it into
+    # GDS. It lives here rather than as a string in three scripts because
+    # settings.default_bbox kept being used for it instead
+    # (docs/fragilities.md #16).
+    "graph_extent",
 }
 
 

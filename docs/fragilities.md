@@ -327,3 +327,54 @@ was probed live rather than assumed.
 must test empirically — the write-rejection was real, the timeout was theatre until the
 server setting backed it. Probe, do not assume, and pin the probe's result where the next
 person will read it before flipping the flag.
+
+## 16. A GDS Projection Built From The App's Configured Bbox Analyses A Third Of The Graph
+
+**Risk:** every GDS algorithm runs over an **in-memory projection**, and a
+projection is built from a bbox. Take that bbox from `settings.default_bbox` and
+the algorithm answers correctly about a graph nobody asked about. Nothing errors:
+the projection succeeds, the query succeeds, the numbers are internally
+consistent. They are simply numbers about 37% of the network.
+
+`DEFAULT_BBOX` is one **Lecco-shaped** rectangle, `45.8,9.3,46.0,9.6`. Once
+Bergamo was ingested the graph held **84,137 intersections** and that box covered
+**31,514** of them.
+
+**Four places had it, found one at a time over three days:**
+
+| where | what it silently did |
+|---|---|
+| `api/routes/routing.py` | endpoints outside the box were absent from the projection, so Dijkstra raised "sourceNode nodes do not exist in the in-memory graph", the `except Neo4jError` caught it, and **63% of the network got hop-count `shortestPath`** while the comfort weighting it was measured against never ran |
+| `scripts/build_trailheads.py` | `gds.wcc.write` labelled only what was inside, writing `component_id` to 30,125 nodes and leaving **Bergamo with none** — so every caller reading the component guard as "can a route exist from here", loop seeding included, was confined to Lecco, and 22 eastern trailheads could not be found at all |
+| `scripts/check_graph_connectivity.py` | the script whose whole job is *"is the network fragmented?"* judged fragmentation over a third of the network |
+| `scripts/build_routes.py` | a trailhead outside the box generated nothing and was reported as **barren**, which reads as a coverage fact about the terrain rather than an artefact of a rectangle |
+
+The last two are fixed in the same change as this entry; the first two were fixed
+on 2026-08-22.
+
+**The rule:** a projection bbox is the **query's** or the **graph's**, never the
+app's configured one.
+
+- The query's: `api/routes/routing.py` derives a box from the two endpoints plus
+  `max_distance_m`, which makes it exact — a route under that cap cannot leave a
+  margin of it around its own endpoints.
+- The graph's: `graph/extent.py::projection_bbox` returns the whole ingested
+  extent via the `graph_extent` template, or an explicit `--bbox` when an
+  operator deliberately narrows it. Analysis scripts take this branch.
+
+`settings.default_bbox` is the **ingestion** default and nothing else — what
+`ingestion.osm_ingest` fetches with neither `--bbox` nor `--region`, what
+`scripts.export_osm_extract` cuts the GraphHopper extract to, and what
+`scripts.smoke_graph` re-ingests. `backend/core/config.py` says so at the field.
+
+**What stops the fifth copy:** `tests/test_projection_bbox.py` discovers every
+source that mentions `graph_project_routing` and asserts, **by parsing the AST**,
+that none of them reads `settings.bbox` or `settings.default_bbox`. It parses
+rather than greps on purpose — each of these files explains *in prose* why it no
+longer uses that box, and a text search would force the explanation to be deleted
+to make the test pass.
+
+**The lesson to keep:** a bound that is *configuration* and a bound that is a
+*fact about the data* look identical at the call site — both are four floats. The
+difference only shows up as an answer that is quietly about less than you think.
+When a value bounds an analysis, it has to come from the thing being analysed.

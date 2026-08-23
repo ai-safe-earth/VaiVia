@@ -41,25 +41,10 @@ from uuid import uuid4
 
 from neo4j.exceptions import Neo4jError
 
+from graph.extent import BBOX_HELP, describe, projection_bbox
 from graph.neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
-
-#: The ingested graph's own extent, which is what "full coverage" means.
-#:
-#: This used to project settings.bbox: one Lecco-shaped box that wrote
-#: component_id to 30,125 of the graph's 84,137 intersections and left Bergamo
-#: with none. Every caller that uses the component guard as "can a route exist
-#: from here" -- loop seeding included -- was therefore silently limited to
-#: that box, and a trailhead could only ever be found inside it.
-GRAPH_EXTENT = """
-MATCH (i:Intersection)
-WHERE i.location IS NOT NULL
-RETURN min(i.location.latitude) AS min_lat,
-       min(i.location.longitude) AS min_lon,
-       max(i.location.latitude) AS max_lat,
-       max(i.location.longitude) AS max_lon
-"""
 
 ANCHOR_TYPES = ["parking", "station"]
 OFF_ROAD = ["path", "track", "bridleway", "footway", "steps", "cycleway"]
@@ -241,28 +226,20 @@ async def main() -> None:
         "components are computed at all, and every caller's 'can a route "
         "exist from here' check reads it",
     )
-    parser.add_argument(
-        "--bbox",
-        help="'min_lat,min_lon,max_lat,max_lon' to derive over; "
-        "default is the whole ingested graph",
-    )
+    parser.add_argument("--bbox", help=BBOX_HELP)
     args = parser.parse_args()
 
     graph_name = f"trailheads_{uuid4().hex[:12]}"
 
     async with Neo4jClient() as db:
-        if args.bbox:
-            min_lat, min_lon, max_lat, max_lon = (
-                float(part) for part in args.bbox.split(",")
-            )
-        else:
-            extent = (await db.run_read(GRAPH_EXTENT))[0]
-            min_lat, min_lon = extent["min_lat"], extent["min_lon"]
-            max_lat, max_lon = extent["max_lat"], extent["max_lon"]
-        print(
-            f"deriving over {min_lat:.4f},{min_lon:.4f} to "
-            f"{max_lat:.4f},{max_lon:.4f}"
-        )
+        # The whole ingested graph, not settings.bbox. That box wrote
+        # component_id to 30,125 of the graph's 84,137 intersections and left
+        # Bergamo with none, so every caller reading the component guard as "can
+        # a route exist from here" -- loop seeding included -- was limited to it
+        # (docs/fragilities.md #16).
+        bbox = await projection_bbox(db, args.bbox)
+        min_lat, min_lon, max_lat, max_lon = bbox
+        print(describe(bbox, args.bbox))
         try:
             projected = await db.run_named(
                 "graph_project_routing",
