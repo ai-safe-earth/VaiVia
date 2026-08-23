@@ -200,8 +200,8 @@ uv run --group notebook jupyter nbconvert --to html \
 `notebooks/state.html` is the page to open when the question is **where is this build**:
 the ten state numbers, the whole network on one map, the repair history as it actually
 happened, what is still open and where it clusters, six zoomed examples of what those
-numbers look like on the ground, and the generated catalogue. It reads the live store
-through `notebooks/review_data.py`.
+numbers look like on the ground, the 752 mapped route relations grouped by area, and
+the generated catalogue. It reads the live store through `notebooks/review_data.py`.
 
 Two steps, in that order: the first executes and keeps the outputs, the second renders
 those same outputs. Executing twice would leave the notebook and the page reporting two
