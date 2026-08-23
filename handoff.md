@@ -1827,13 +1827,43 @@ five routes sharing 3 km of approach are nearly one answer, so results need
 diversity on the shared prefix and the catalogue should record where they
 split.
 
+## 2026-08-23 - The branch is split: eleven stacked branches, thirty-two commits
+
+`feat/query-loop-foundations` had grown to carry the query-loop foundations plus
+ten review fixes across four tiers plus two pipeline features. It is now its
+namesake again, and the rest is a stack. Each branch is a strict superset of the
+one before, so **each PR is opened against the branch below it, and retargeted
+to `develop` as its base merges**.
+
+| # | branch | commits | what it is |
+|---|---|---|---|
+| 1 | `feat/chat-guided-both-kinds` | 3 | the answer carries no links; a trail ask answers with both kinds |
+| 2 | `feat/route-shape` | +1 | routes know their shape, measured |
+| 3 | `feat/route-cards` | +1 | expandable cards, the fold, the elevation panel |
+| 4 | `feat/favorites` | +3 | saved routes, and the live smoke over a whole card |
+| 5 | `feat/plan-readback` | +3 | "How I read it" wired; the invented link retired |
+| 6 | `feat/query-loop-foundations` | +2 | count/facet estimate, one shared filter block, a read-only path |
+| 7 | `fix/chat-review-findings` | +8 | the review's ten confirmed findings, the eight the cap cut, the reuse and perf passes |
+| 8 | `fix/read-only-query-service` | +2 | run_named onto READ routing, the clarify cap, the hidden panel, GDS unsandboxed |
+| 9 | `fix/routing-over-the-whole-graph` | +6 | the query's bbox instead of the configured one, the loop spike, trailheads over the whole graph |
+| 10 | `feat/pipeline-urban-exits` | +2 | urban exits begin a walk |
+| 11 | `feat/pipeline-state-notebook` | +1 | the state notebook and its HTML |
+
+Nothing was rewritten except the tip of branch 6, which was force-pushed back to
+0ef74c6 after every commit beyond it had been pushed on branches 7-11 — checked
+before the force, not after.
+
+**There are no open PRs on any of the eleven.** The stack is pushed and ready;
+opening it is one `gh pr create` per branch with `--base` set to the branch
+below.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-22",
+  "updated": "2026-08-23",
   "deadline": null,
   "people": [
     "oscar"
@@ -2462,6 +2492,13 @@ split.
   ],
   "nextSteps": [
     {
+      "title": "Open and merge the eleven-branch stack bottom-up: chat-guided-both-kinds -> route-shape -> route-cards -> favorites -> plan-readback -> query-loop-foundations -> chat-review-findings -> read-only-query-service -> routing-over-the-whole-graph -> pipeline-urban-exits -> pipeline-state-notebook. Each PR takes the branch below as its base and is retargeted to develop as that one merges",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
       "title": "Write the start/end contract for a route (docs/route-document.md). Decisions it must settle: (1) an END needs a reachability test, not only a 'worth it' test - out-and-back to a POI has one reachable point, a traverse A-B has two, and shape already separates them as destination vs linear while the rule does not; (2) reachable WHEN - 17 GTFS stops, winter timetables and gated forest roads want the season-scoping hazards already have; (3) what 'within 1 km' measures - network walking distance, not straight line across a river, and the connecting way has to be legal and walkable; (4) climb belongs in the descriptive categories beside distance, duration stays out until DIN 33466 is calibrated; (5) a circular route is two routes, because difficulty differs by direction and directional tags invert; (6) routes sharing an approach corridor are nearly one answer, so record the divergence point and give results diversity on the shared prefix; (7) 'continuous' as a hard filter would cut the 131 multi-piece routes that are really a coverage-clipping artefact",
       "est": 1.5,
       "owner": "oscar",
@@ -2520,13 +2557,6 @@ split.
     {
       "title": "Decide whether the frontend gets a component-test setup (jsdom + testing-library): the pure-helper split covers the race guards, but nothing tests a component end to end",
       "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Split or re-scope this branch before merging: feat/query-loop-foundations now carries the query-loop foundations plus ten review fixes across four tiers",
-      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2597,13 +2627,6 @@ split.
     {
       "title": "Score the 515 unscored OSM relations, or add a deterministic tiebreak that is not 'hilliest': narrowing gets the set to 25, ordering decides which 5 the walker reads and that half is still coalesce(score,0.5)",
       "est": 2,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Merge the PR stack in order: #22 (both kinds + guided) -> #23 (shape) -> #24 (cards) -> #25 (favorites), retargeting each to develop as its base merges",
-      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -3018,6 +3041,13 @@ split.
     },
     {
       "date": "2026-08-22",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-23",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",
