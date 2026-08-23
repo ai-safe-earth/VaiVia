@@ -53,6 +53,23 @@ services:
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
+      # GDS is a DOWNLOAD, and without this volume a container recreate loses
+      # it. The image bundles APOC at /var/lib/neo4j/labs and installs it from
+      # disk, but it ships no GDS jar (/var/lib/neo4j/products holds only
+      # fleet-management and genai), so NEO4J_PLUGINS fetches GDS from
+      # graphdatascience.ninja on every start and drops it in the image layer,
+      # which `up -d --force-recreate` throws away. graphdatascience.ninja is
+      # not reliably reachable here, so that was one unlucky recreate away from
+      # routing silently falling back to hop-count shortestPath.
+      #
+      # Mounting anything at /plugins makes the entrypoint point
+      # server.directories.plugins at it, so the jar persists. Keeping
+      # graph-data-science in NEO4J_PLUGINS is still right: with a reachable
+      # network an empty volume self-heals, and with an unreachable one nothing
+      # is damaged -- load_plugin_from_url fetches versions.json FIRST and
+      # returns before the wget that would truncate the destination. Seeding a
+      # fresh volume by hand is in CONTRIBUTING.md.
+      - neo4j_plugins:/plugins
     networks:
       - internal
     healthcheck:
@@ -130,5 +147,6 @@ volumes:
   postgis_data:
   neo4j_data:
   neo4j_logs:
+  neo4j_plugins:
   graphhopper_cache:
   graphhopper_srtm:

@@ -75,3 +75,8 @@ pipeline/data/
 
 # Personal working note, not part of the repo.
 Oscar_continua_desde_aqui.md
+
+# A local pin of the Neo4j GDS jar (64 MB), kept so a container recreate can
+# seed the neo4j_plugins volume without reaching graphdatascience.ninja.
+# See CONTRIBUTING "Neo4j plugins" and docs/fragilities.md #16.
+infra/neo4j/plugins/
