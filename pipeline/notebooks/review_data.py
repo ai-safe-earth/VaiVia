@@ -194,10 +194,17 @@ def number(value) -> str:
 
 
 def as_text(value) -> str:
-    """A Postgres array arrives as a list; a legend needs a string."""
+    """A Postgres array arrives as a list; a legend needs a string.
+
+    A missing text column arrives as NaN rather than None once pandas has it,
+    and str(nan) is "nan" -- which is how a route with no ref ends up labelled
+    "nan - Via Mercatorum" in a legend.
+    """
     if isinstance(value, (list, tuple)):
         return ", ".join(str(v) for v in value if v is not None)
-    return "" if value is None else str(value)
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value)
 
 
 # --------------------------------------------------------------------------
@@ -640,4 +647,116 @@ def examples_figure() -> plt.Figure:
     subject, context, caption = example("draw")
     example_panel(axes[5], subject, context, f"route — {caption}", colour=GREEN)
 
+    return _rendered(fig)
+
+
+#: How a route is attributed to an area: the regions its member edges carry.
+#: 61 of 752 run through both, and they are their own group rather than being
+#: forced into whichever one happens to hold more of them.
+MAPPED_ROUTES = """
+WITH area AS (
+    SELECT er.rel_id,
+           CASE WHEN count(DISTINCT reg) > 1 THEN 'Lecco + Bergamo'
+                ELSE min(reg) END AS area
+    FROM curated.edge_route er
+    JOIN curated.edge e USING (edge_id),
+         unnest(e.regions) AS reg
+    GROUP BY er.rel_id
+)
+SELECT v.rel_id, v.ref, v.name, v.km, v.route_kind,
+       v.continuity_class, a.area, v.geom
+FROM qa.v_route v
+JOIN area a USING (rel_id)
+ORDER BY a.area, v.km DESC
+"""
+
+#: Panels left to right. The crossing routes last, because they are the
+#: smallest group and the one that explains the other two.
+AREA_ORDER = ["Lecco", "Bergamo", "Lecco + Bergamo"]
+
+
+def mapped_routes() -> gpd.GeoDataFrame:
+    """The 752 route relations OSM contributors have mapped, by area."""
+    return geoframe(MAPPED_ROUTES)
+
+
+def route_label(row) -> str:
+    """What to call a route: its ref, its name, or plainly neither.
+
+    650 of 752 carry a ref and 273 a name, so most have something; inventing
+    one for the rest is the same decision nobody has made for the trailheads.
+    """
+    ref = as_text(row.get("ref"))
+    name = as_text(row.get("name"))
+    if ref and name:
+        return f"{ref} — {name}"
+    return ref or name or f"relation {row['rel_id']}"
+
+
+def mapped_routes_map(routes: gpd.GeoDataFrame, label_top: int = 6) -> plt.Figure:
+    """Every mapped route, grouped by area and coloured to be told apart.
+
+    The colours identify a route AGAINST ITS NEIGHBOURS -- 449 of these share
+    one panel, so no palette can name them all, and the job a colour does here
+    is to let the eye follow one line where several cross. They cycle through
+    twenty, assigned down the length order, so two routes that touch are
+    almost never the same colour.
+
+    The longest few in each area are named, because those are the ones a
+    walker recognises: DOL, the Via Mercatorum, the Ciclovia Valle Brembana.
+    """
+    areas = [a for a in AREA_ORDER if a in set(routes["area"])]
+    # Tall enough that the legends sit BELOW the maps: 449 routes fill their
+    # panel corner to corner, so a legend inside the axes covers the thing it
+    # is labelling.
+    fig, axes = plt.subplots(1, len(areas), figsize=(14, 7.4))
+    palette = plt.get_cmap("tab20").colors
+
+    for ax, area in zip(axes, areas):
+        here = routes[routes["area"] == area]
+        for position, (_, row) in enumerate(here.iterrows()):
+            gpd.GeoSeries([row["geom"]], crs=CRS_STORAGE).plot(
+                ax=ax, color=palette[position % len(palette)], linewidth=1.1
+            )
+        handles = [
+            Line2D(
+                [],
+                [],
+                color=palette[position % len(palette)],
+                linewidth=2,
+                label=f"{route_label(row)} · {row['km']:.0f} km",
+            )
+            for position, (_, row) in enumerate(here.head(label_top).iterrows())
+        ]
+        ax.legend(
+            handles=handles,
+            loc="upper left",
+            bbox_to_anchor=(0.0, -0.01),
+            fontsize=6.5,
+            frameon=False,
+        )
+        ax.set_aspect("equal")
+        _finish(
+            ax,
+            f"{area} — {len(here)} routes, {here['km'].sum():,.0f} km",
+            width=38,
+        )
+    return _rendered(fig)
+
+
+def routes_by_kind(routes: gpd.GeoDataFrame) -> plt.Figure:
+    """What kind of route was mapped, and how much of it, per area."""
+    counts = (
+        routes.groupby(["area", "route_kind"])["km"].sum().unstack(fill_value=0.0)
+    )
+    counts = counts.reindex([a for a in AREA_ORDER if a in counts.index])
+    fig, ax = plt.subplots(figsize=(9, 3.2))
+    bottom = None
+    for column, colour in zip(counts.columns, [BLUE, GREEN, SAND, RED]):
+        ax.barh(counts.index, counts[column], left=bottom, color=colour, label=column)
+        bottom = counts[column] if bottom is None else bottom + counts[column]
+    ax.set_xlabel("km mapped", fontsize=8)
+    ax.legend(fontsize=8, frameon=False, ncol=4)
+    ax.grid(alpha=0.3, axis="x")
+    ax.tick_params(labelsize=8)
     return _rendered(fig)

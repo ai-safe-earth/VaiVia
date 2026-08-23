@@ -117,3 +117,33 @@ def test_the_metrics_are_the_bundle_s_metrics():
     assert rd._METRICS["state"] is review_bundle.STATE
     assert rd._METRICS["issues"] is review_bundle.ISSUES
     assert rd._METRICS["settled"] is review_bundle.SETTLED
+
+
+def test_a_route_with_no_ref_is_not_labelled_nan():
+    """A missing text column arrives as NaN once pandas has it, and str(nan) is
+    "nan" — which is how the Via Mercatorum ended up in a legend as
+    "nan — Via Mercatorum"."""
+    assert rd.as_text(float("nan")) == ""
+    assert rd.route_label(
+        {"ref": float("nan"), "name": "Via Mercatorum", "rel_id": 1}
+    ) == ("Via Mercatorum")
+
+
+def test_a_route_is_called_by_its_ref_and_name_together():
+    row = {"ref": "DOL", "name": "Dorsale Orobica Lecchese", "rel_id": 9}
+
+    assert rd.route_label(row) == "DOL — Dorsale Orobica Lecchese"
+
+
+def test_a_route_with_neither_is_named_by_its_relation():
+    """650 of 752 carry a ref and 273 a name; inventing one for the rest is the
+    decision nobody has made for the trailheads either."""
+    row = {"ref": None, "name": None, "rel_id": 4271}
+
+    assert rd.route_label(row) == "relation 4271"
+
+
+def test_the_crossing_routes_are_their_own_area():
+    """61 of 752 run through both regions, and forcing them into whichever holds
+    more of them would draw them twice or drop them once."""
+    assert rd.AREA_ORDER == ["Lecco", "Bergamo", "Lecco + Bergamo"]
