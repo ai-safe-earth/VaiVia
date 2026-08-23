@@ -15,6 +15,7 @@ observed on cold Docker starts. A routing outage should not follow from that.
 import json
 import logging
 from contextlib import suppress
+from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 
@@ -31,6 +32,7 @@ from api.models import (
     RouteResponse,
 )
 from core.config import get_settings
+from core.geo import bounds_of, expand_bounds_m
 from core.text import lucene_escape
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,25 @@ async def _snap(db: DbDep, poi: dict, radius_m: float) -> str:
     return rows[0]["osm_node_id"]
 
 
+async def _endpoint_bounds(
+    db: DbDep, start_node: str, end_node: str, margin_m: float
+) -> tuple[float, float, float, float] | None:
+    """The bbox to project for this route: both endpoints, grown by margin_m.
+
+    None when either endpoint has no location -- there is nothing to project
+    around, and the caller falls back rather than routing over a box built
+    from half the query.
+    """
+    rows = await db.run_named(
+        "intersection_locations", osm_node_ids=[start_node, end_node]
+    )
+    found = {row["osm_node_id"]: (row["lat"], row["lon"]) for row in rows}
+    points = [found.get(start_node), found.get(end_node)]
+    if any(point is None for point in points):
+        return None
+    return expand_bounds_m(bounds_of([p for p in points if p]), margin_m)
+
+
 async def _route_via_gds(
     db: DbDep, start_node: str, end_node: str, max_distance_m: float
 ) -> dict | None:
@@ -83,8 +104,20 @@ async def _route_via_gds(
     shorter — if roadier — route can exist inside the cap, and a walker who
     asked for at most 5 km would rather have it than nothing.
     """
-    settings = get_settings()
-    min_lat, min_lon, max_lat, max_lon = settings.bbox
+    # The projection bbox is the QUERY's, not the app's. It used to be
+    # settings.default_bbox -- one Lecco-shaped box, holding 31,514 of the
+    # graph's 84,137 intersections once Bergamo was ingested. Endpoints outside
+    # it are simply absent from the in-memory graph, so Dijkstra raises
+    # ("sourceNode nodes do not exist in the in-memory graph"), the except below
+    # catches it, and 63% of the network silently got hop-count routing while
+    # the comfort weighting it was measured against never ran.
+    #
+    # max_distance_m makes the right box exact rather than guessed: a route
+    # under that cap cannot leave a margin of it around its own endpoints.
+    bounds = await _endpoint_bounds(db, start_node, end_node, max_distance_m)
+    if bounds is None:
+        return None
+    min_lat, min_lon, max_lat, max_lon = bounds
     graph_name = f"routing_{uuid4().hex[:12]}"  # per-request: concurrency-safe
     try:
         projected = await db.run_named(
@@ -154,13 +187,34 @@ async def _load_route_document(route_id: str, db: DbDep) -> dict:
             "geometry is unavailable until they are",
         )
     document_path = Path(settings.route_documents_dir) / f"{route_id}.json"
-    if not document_path.is_file():
+    try:
+        stat = document_path.stat()
+    except OSError:
         raise HTTPException(
             status_code=503,
             detail=f"route {route_id!r} is in the catalogue but its document is "
             "missing from the store — re-emit the documents",
-        )
-    return json.loads(document_path.read_text(encoding="utf-8"))
+        ) from None
+    return _read_document(str(document_path), stat.st_mtime_ns, stat.st_size)
+
+
+#: How many parsed route documents to hold. Selecting one card asks for its
+#: geometry AND its detail, which was the same file read and json.loads'd
+#: twice; a fold of cards multiplies that by ten. Documents are static between
+#: exports, so the parse is worth keeping.
+DOCUMENT_CACHE_SIZE = 32
+
+
+@lru_cache(maxsize=DOCUMENT_CACHE_SIZE)
+def _read_document(path: str, mtime_ns: int, size: int) -> dict:
+    """One parsed route document. Callers READ it; nobody may mutate it.
+
+    Keyed by mtime and size as well as path, so a re-export invalidates the
+    entry by not matching it rather than by anyone remembering to clear a
+    cache — route ids are geometry-derived and survive a rebuild, which is
+    exactly why the path alone would not be enough.
+    """
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def _attribution(document: dict) -> str:
@@ -228,8 +282,16 @@ async def get_route_detail(route_id: str, db: DbDep) -> RouteDetail:
     if profile and profile.get("distance_m"):
         route_m = document["measures"]["distance_m"]
         profile_end = profile["distance_m"][-1]
-        off_by = abs(profile_end - route_m) / route_m if route_m else 0.0
-        profile_quality = "ok" if off_by <= PROFILE_TOLERANCE else "approximate"
+        if not route_m:
+            # Nothing to compare the profile against — a clipped fragment with
+            # a 0 or absent measured length. `off_by = 0.0` here read as a
+            # PERFECT agreement and shipped 'ok', which is the quiet lie
+            # PROFILE_TOLERANCE exists to stop: no basis means no claim of
+            # accuracy, so the chart carries its caveat.
+            profile_quality = "approximate"
+        else:
+            off_by = abs(profile_end - route_m) / route_m
+            profile_quality = "ok" if off_by <= PROFILE_TOLERANCE else "approximate"
 
     return RouteDetail(
         route_id=route_id,

@@ -14,10 +14,17 @@ the build step would hide it") and the same argument holds here: what counts as
 a place a walk begins is a product decision, and a build step that silently
 discards 999 residential areas has made that decision where nobody can see it.
 
-The anchors docs/route-pipeline.md ratified are parking and stations. Two more
+The anchors docs/route-pipeline.md ratified are parking and stations. Three more
 are classified because the data holds them and the start rule needs them:
-settlements (you can begin a walk from a village) and GTFS stops with evidence
-of service, which is what "reachable without a car" means.
+settlements (you can begin a walk from a village), GTFS stops with evidence of
+service, which is what "reachable without a car" means, and URBAN EXITS -- the
+vertices where a way crosses out of a residential area onto open ground.
+
+The exit rule exists because of the 999 rejections. "A residential area is a
+polygon, not a point a walk begins at" is right about the polygon and wrong
+about the walk: people do start from where they live. The polygon has no
+sensible single point, but the places the network leaves it are points, they
+are few, and they are exactly the ones a walker uses.
 """
 
 from __future__ import annotations
@@ -62,6 +69,30 @@ STARTING_POI = {
 # corner the polygon happens to reach first -- a real coordinate standing for
 # nothing in particular.
 STARTING_SETTLEMENT = frozenset({"city", "town", "village", "hamlet"})
+
+
+# Where the network leaves an urban area on foot. A residential polygon is not
+# a point a walk begins at -- that rule stands, and it is why 999 of them are
+# rejected above -- but its EXITS are: the handful of vertices where a way
+# crosses out of it onto open ground. A town of 3,000 has a few of those, and
+# they are what "start from the village" actually means on the map.
+#
+# What comes out of town decides. A path, a track or a footway leaving a
+# village is where a walk begins; a lane is the village continuing, and
+# somebody driving to its far end is choosing a different start anyway. Both
+# get a row, as everything here does -- the lane keeps its reason.
+EXIT_ONTO_TRAIL = frozenset(
+    {"path", "track", "bridleway", "footway", "steps", "cycleway"}
+)
+
+
+def urban_exit_verdict(outward_highway: str | None) -> Verdict:
+    """Can a walk begin where the network leaves an urban area here?"""
+    if outward_highway is None:
+        return Verdict(False, "no way leads out of the urban area here")
+    if outward_highway in EXIT_ONTO_TRAIL:
+        return Verdict(True, None)
+    return Verdict(False, f"leaving on a {outward_highway} is the town continuing")
 
 
 def poi_verdict(poi_type: str) -> Verdict:

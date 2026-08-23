@@ -122,3 +122,69 @@ def test_every_value_is_a_string_a_walker_could_have_said():
         assert row["key"].islower()
         assert "_" not in row["value"], row
         assert row["value"] == row["value"].strip()
+
+
+def test_a_duration_says_which_half_of_the_answer_it_filtered():
+    """Trails are duration-filtered; the catalogue beside them is not.
+
+    A bare "time: under 2 h" over an answer holding both kinds asserts a
+    filter that ran on half the results — the silent drop this block exists
+    to prevent, and the one _loop_rows already names on the explicit path.
+    """
+    rows = rows_for(TrailSearchIntent(activity="hike", max_duration_min=120))
+    assert rows["looked in"] == "named trails and our route catalogue"
+    assert rows["time"].startswith("under 2 h — named trails only")
+    assert "not calibrated" in rows["time"]
+
+
+def test_a_duration_is_stated_plainly_when_only_trails_answered():
+    # A season the catalogue cannot express keeps the ask trails-only, and
+    # there the duration filter really did apply to everything shown.
+    rows = rows_for(
+        TrailSearchIntent(activity="hike", max_duration_min=120, season="winter")
+    )
+    assert rows["looked in"].startswith("named trails only")
+    assert rows["time"] == "under 2 h"
+
+
+def test_a_difficulty_floor_and_ceiling_are_both_shown():
+    """Rendering only the ceiling hid a floor the query applied."""
+    rows = rows_for(TrailSearchIntent(min_difficulty_level=2, max_difficulty_level=3))
+    assert rows["difficulty"] == "intermediate to difficult"
+
+
+def test_a_single_difficulty_still_reads_as_one_word():
+    rows = rows_for(TrailSearchIntent(min_difficulty_level=3, max_difficulty_level=3))
+    assert rows["difficulty"] == "difficult"
+
+
+def test_the_reading_shows_both_bands_when_they_differ():
+    """A single stated distance runs EXACT for trails and WIDENED for the
+    catalogue, and one heading cannot claim both. The reading names each.
+
+    Without this, "a 15 km hike" read as "distance: exactly 15 km" while
+    the catalogue beside it had searched 12-18 km — a filter reported over
+    results it did not run, which is the thing this block exists to stop.
+    """
+    rows = rows_for(TrailSearchIntent(min_distance_m=15000, max_distance_m=15000))
+    assert rows["looked in"] == "named trails and our route catalogue"
+    assert (
+        rows["distance"]
+        == "exactly 15 km for trails, 12 km to 18 km in our route catalogue"
+    )
+
+
+def test_one_band_is_shown_when_both_searches_ran_it():
+    """A genuine range reaches the catalogue untouched, so there is nothing to
+    disambiguate and the row stays plain."""
+    rows = rows_for(TrailSearchIntent(min_distance_m=10000, max_distance_m=20000))
+    assert rows["distance"] == "10 km to 20 km"
+
+
+def test_the_trails_only_reading_shows_the_stated_band_alone():
+    # A season the catalogue cannot express keeps the ask trails-only.
+    rows = rows_for(
+        TrailSearchIntent(min_distance_m=15000, max_distance_m=15000, season="winter")
+    )
+    assert rows["looked in"].startswith("named trails only")
+    assert rows["distance"] == "exactly 15 km"

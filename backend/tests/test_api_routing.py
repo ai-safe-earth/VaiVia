@@ -117,6 +117,12 @@ EDGE_DETAILS = [
 def _gds_available(db):
     db.when("poi_by_name", [STATION])
     db.when("nearest_intersection", [{"osm_node_id": "n1", "distance_m": 12.0}])
+    # Where the endpoints ARE, which is what decides the bbox to project. The
+    # fake resolves every POI to n1, so one row answers both lookups.
+    db.when(
+        "intersection_locations",
+        [{"osm_node_id": "n1", "lat": 45.86, "lon": 9.39}],
+    )
     db.when("graph_project_routing", [{"graph_name": "g", "nodes": 100, "rels": 200}])
     db.when("route_gds_dijkstra", [GDS_ROW])
     db.when("route_edge_details", EDGE_DETAILS)
@@ -341,6 +347,52 @@ def test_route_detail_with_no_profile_says_so(client, db, tmp_path, monkeypatch)
     assert body["profile_quality"] is None
 
 
+def test_a_profile_with_nothing_to_check_it_against_is_approximate(
+    client, db, tmp_path, monkeypatch
+):
+    """No measured length means no basis for calling the profile accurate.
+
+    The guard read `off_by = ... if route_m else 0.0`, and a zero disagreement
+    is a PERFECT one: a clipped fragment measuring 0 m shipped 'ok' and the
+    client drew the chart as a trusted along-route measure. No basis is a
+    caveat, not a clean bill of health.
+    """
+    document = dict(DETAIL_DOCUMENT)
+    document["measures"] = {**DETAIL_DOCUMENT["measures"], "distance_m": 0.0}
+    _documents_dir(tmp_path, monkeypatch, document)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    body = client.get(f"/routes/{ROUTE_ID}/detail").json()
+    assert body["profile_quality"] == "approximate"
+
+
+def test_a_re_export_is_read_again_not_served_from_the_cache(
+    client, db, tmp_path, monkeypatch
+):
+    """The parse is cached, which is only safe if a rebuild invalidates it.
+
+    Route ids are geometry-derived and survive a rebuild on purpose, so the
+    path alone would name the OLD document for ever. The key carries mtime and
+    size, so a re-emitted file simply does not match the entry.
+    """
+    import json as _json
+
+    _documents_dir(tmp_path, monkeypatch, DETAIL_DOCUMENT)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    first = client.get(f"/routes/{ROUTE_ID}/detail").json()
+    assert first["measures"]["highest_m"] == 1450.0
+
+    rebuilt = dict(DETAIL_DOCUMENT)
+    rebuilt["measures"] = {**DETAIL_DOCUMENT["measures"], "highest_m": 1600.0}
+    path = tmp_path / f"{ROUTE_ID}.json"
+    path.write_text(_json.dumps(rebuilt), encoding="utf-8")
+    # Windows and Linux both keep sub-second mtimes, but the SIZE is part of
+    # the key too and this document differs in both.
+    assert (
+        client.get(f"/routes/{ROUTE_ID}/detail").json()["measures"]["highest_m"]
+        == 1600.0
+    )
+
+
 def test_route_detail_shares_the_honesty_ladder(client, db, tmp_path, monkeypatch):
     from core.config import get_settings
 
@@ -350,3 +402,65 @@ def test_route_detail_shares_the_honesty_ladder(client, db, tmp_path, monkeypatc
     db.when("route_exists", [{"id": ROUTE_ID}])
     monkeypatch.setattr(get_settings(), "route_documents_dir", None)
     assert client.get(f"/routes/{ROUTE_ID}/detail").status_code == 503
+
+
+def test_the_projection_follows_the_query_not_the_configured_bbox(client, db):
+    """A route in Bergamo must be projected around Bergamo.
+
+    The bbox was settings.default_bbox — one Lecco-shaped box that held 31,514
+    of the graph's 84,137 intersections once Bergamo was ingested. Endpoints
+    outside it are absent from the in-memory graph, so Dijkstra raises, the
+    fallback catches it, and 63% of the network quietly got hop-count routing
+    while the comfort weighting never ran.
+    """
+    _gds_available(db)
+    db.when(
+        "intersection_locations",
+        [{"osm_node_id": "n1", "lat": 45.7319, "lon": 9.7404}],  # Bergamo
+    )
+    response = client.post("/routes", json={"start": "Station A", "end": "Hut B"})
+    assert response.status_code == 200
+
+    params = db.params_for("graph_project_routing")
+    assert params["min_lat"] < 45.7319 < params["max_lat"]
+    assert params["min_lon"] < 9.7404 < params["max_lon"]
+    # ...and nowhere near the configured default, which is what used to run.
+    from core.config import get_settings
+
+    default_min_lat, default_min_lon, _, _ = get_settings().bbox
+    assert params["min_lat"] != default_min_lat
+    assert params["min_lon"] != default_min_lon
+    # GDS answered, so the hop-count fallback was never needed.
+    assert all(name != "route_between_intersections" for name, _ in db.calls)
+
+
+def test_the_projected_box_covers_the_distance_the_caller_allowed(client, db):
+    """The margin is the caller's cap, so a route inside the cap cannot leave
+    the box: no reachable route is projected away."""
+    _gds_available(db)
+    db.when(
+        "intersection_locations",
+        [{"osm_node_id": "n1", "lat": 45.86, "lon": 9.39}],
+    )
+    client.post(
+        "/routes",
+        json={"start": "Station A", "end": "Hut B", "max_distance_m": 20000},
+    )
+    params = db.params_for("graph_project_routing")
+    # 20 km north-south is about 0.18 degrees of latitude.
+    assert params["max_lat"] - 45.86 > 0.17
+    assert 45.86 - params["min_lat"] > 0.17
+    # Longitude degrees are shorter this far north, so its margin is WIDER.
+    assert params["max_lon"] - 9.39 > params["max_lat"] - 45.86
+
+
+def test_an_endpoint_with_no_location_falls_back_instead_of_guessing(client, db):
+    _gds_available(db)
+    db.when("intersection_locations", [])  # neither endpoint located
+    db.when("route_between_intersections", [ROUTE_ROW])
+    response = client.post("/routes", json={"start": "Station A", "end": "Hut B"})
+    assert response.status_code == 200
+    # No box to project around, so nothing was projected...
+    assert all(name != "graph_project_routing" for name, _ in db.calls)
+    # ...and the answer came from shortestPath.
+    assert any(name == "route_between_intersections" for name, _ in db.calls)

@@ -22,6 +22,13 @@ EXPECTED = {
     "graph_drop_routing",
     "healthcheck",
     "graph_counts",
+    # The catalogue templates. Absent until 2026-08-21, which meant deleting
+    # the whole loop-search surface would not have failed this test.
+    "search_loops",
+    "estimate_loops",
+    "route_exists",
+    "routes_by_ids",
+    "intersection_locations",
 }
 
 
@@ -138,3 +145,34 @@ def test_estimate_loops_is_read_only_and_bounded():
         r"\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP)\b", body, re.I
     )
     assert "count(r) AS total" in body
+
+
+def test_every_route_reading_template_quarantines_warned_routes():
+    """warnings = 0 is the catalogue's quarantine, and it has to hold on every
+    surface — not only on search.
+
+    Favorites was the hole: route_exists let any route_id be saved and
+    routes_by_ids hydrated it into a full card, so the 0.0 km OSM fragments
+    wearing famous names that loop_candidates exists to hide reached the
+    screen by a different door.
+    """
+    for name in ("search_loops", "estimate_loops", "route_exists", "routes_by_ids"):
+        body = query_loader.get_query(name)
+        assert "r.warnings = 0" in body, f"{name} does not quarantine warned routes"
+
+
+def test_the_favorites_row_is_the_search_row():
+    """Same fragment, so a saved card and a search card cannot come to differ.
+
+    They were hand-copies once and had already drifted — the copy carried a
+    stray relationship variable — which is what the fragment mechanism exists
+    to stop.
+    """
+    search = query_loader.get_query("search_loops")
+    favorites = query_loader.get_query("routes_by_ids")
+
+    def card(body: str) -> str:
+        return body[body.index("CALL (r) {") :].split("ORDER BY")[0].strip()
+
+    assert card(search) == card(favorites)
+    assert "[e:PASSES]" not in favorites  # the drift that proved the point

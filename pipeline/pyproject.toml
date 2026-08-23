@@ -7,18 +7,18 @@ dependencies = [
     # Division of labour (docs/metadata-rules.md): PostGIS does set-based work
     # over whole tables; Python does procedural logic, per-feature judgement,
     # and anything that needs a unit test or a plot.
-    "geopandas>=1.0",       # dataframe transforms, QA analysis, testable geometry logic
-    "shapely>=2.0",         # vectorised geometry, no DB in the test loop
-    "pyproj>=3.6",          # real CRS handling: 4326 <-> 32632
-    "osmium>=4.0",          # streaming the Geofabrik PBF, tag-complete
-    "rasterio>=1.3",        # DEM sampling in tests; the Phase 0 DEM comparison
+    "geopandas>=1.0", # dataframe transforms, QA analysis, testable geometry logic
+    "shapely>=2.0", # vectorised geometry, no DB in the test loop
+    "pyproj>=3.6", # real CRS handling: 4326 <-> 32632
+    "osmium>=4.0", # streaming the Geofabrik PBF, tag-complete
+    "rasterio>=1.3", # DEM sampling in tests; the Phase 0 DEM comparison
     "psycopg[binary]>=3.2", # the PostGIS boundary
-    "geoalchemy2>=0.15",    # geometry types over SQLAlchemy
+    "geoalchemy2>=0.15", # geometry types over SQLAlchemy
     "sqlalchemy>=2.0",
-    "gtfs-kit>=6.0",        # transit reachability for the start rule
-    "networkx>=3.0",        # component diagnostics; routing stays in pgRouting/GraphHopper
-    "matplotlib>=3.8",      # near-miss histograms, profile renders
-    "httpx>=0.27",          # source downloads
+    "gtfs-kit>=6.0", # transit reachability for the start rule
+    "networkx>=3.0", # component diagnostics; routing stays in pgRouting/GraphHopper
+    "matplotlib>=3.8", # near-miss histograms, profile renders
+    "httpx>=0.27", # source downloads
     "pydantic-settings>=2.0",
     # The route document is the product (docs/route-document.md), and its schema
     # is a contract other tiers read. Validating the emitter against it in the
@@ -27,9 +27,15 @@ dependencies = [
     # The Neo4j export: the catalogue's reader-side load (docs/route-document.md
     # — Neo4j is a READER of the route documents, and this is the reading).
     "neo4j>=5.0",
+    "contextily>=1.7.1",
 ]
 
 [dependency-groups]
+# The state notebook (notebooks/state.ipynb). Not in `dev` because a normal
+# `uv sync` should not pull a Jupyter stack to run the tests: this group is for
+# whoever refreshes the review page. Everything the notebook DRAWS with --
+# geopandas, matplotlib, shapely, pandas -- is already a runtime dependency.
+notebook = ["ipykernel>=6", "nbconvert>=7", "jupyter-client>=8"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -40,6 +46,10 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+# The notebook is a rendered artefact: its cells are one-liners calling
+# notebooks/review_data.py, which IS linted. Ruff checks .ipynb by default, and
+# there is nothing in there worth a lint rule.
+extend-exclude = ["notebooks/*.ipynb"]
 
 [tool.black]
 line-length = 88

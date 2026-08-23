@@ -225,6 +225,7 @@ would fall outside a C-shaped car park.
 | hut | 74 | 6.3 m | 22.7 m | 88 m | no |
 | stop (GTFS) | 17 | 11.5 m | 20.6 m | 31 m | yes |
 | village | 157 | 24.1 m | 52.5 m | 250 m | yes |
+| urban exit | 5,221 | 0 m | 0 m | 0 m | 2,231 of them (see below) |
 | chapel | 1,179 | 12.0 m | 70.5 m | 423 m | no |
 | **peak** | 405 | **55.0 m** | **319.6 m** | **1,124 m** | no |
 
@@ -242,6 +243,70 @@ begin a walk, on 6,112 distinct vertices — several car parks routinely snap to
 end, and that vertex is one trailhead, not four. The rest carry their reason: 1,179 "a
 chapel is passed, not started from", 999 "a residential area is a polygon, not a point a
 walk begins at", 405 "a summit is a destination, not a trailhead".
+
+### The repair history is in the store, not in a note (2026-08-23)
+
+`qa.finding` keeps every run's findings, so what the repair passes did is a query rather
+than something somebody wrote down afterwards:
+
+| rule | first run | now |
+|---|---|---|
+| degenerate | 488 | 0 |
+| gap_dangle_edge | 92 | 0 |
+| gap_dangle_junction | 15 | 0 |
+| gap_dangle_pair | 9 | 0 |
+| island | 389 | 370 |
+| overlap | 128 | **164** |
+
+Overlap is the one that moved the wrong way, and it is the queue that stays open because
+no rule can close it. `notebooks/state.ipynb` draws this.
+
+**The 2 m tolerance binds two of the four repair rules, not all four.**
+`gap_dangle_pair` and `gap_dangle_junction` MOVE an endpoint, and neither exceeds it
+(max 1.96 m and 1.98 m). `gap_dangle_edge` splits an edge at a point and `degenerate`
+collapses a sub-metre one; neither moves anything, so their `start_moved_m` /
+`end_moved_m` measure the piece that resulted — up to 989 m and 267 m. Read across all
+four, `qa.v_fix` appears to say a repair moved ground 555 m, which never happened. The
+review bundle's blanket "nothing should have moved more than the 2 m tolerance" is true
+of the snaps and misleading over the other two.
+
+### Urban exits: the 999 rejections, answered (2026-08-22)
+
+"A residential area is a polygon, not a point a walk begins at" is right about the polygon
+and wrong about the walk — people start from where they live. The polygon has no sensible
+single point, but the places the **network leaves it** are points, they are few, and they
+are what "start from the village" means on the ground.
+
+An urban exit is a vertex inside a residential polygon with a foot-routable edge whose far
+end is outside **every** such polygon. "Outside this one" would also catch the boundary
+between two adjoining neighbourhoods, which is a street corner rather than a way out of
+town. One row per vertex, carrying its best way out: a vertex with both a path and a lane
+leaving it is a trail start, not a road start.
+
+What leaves decides, and both verdicts are recorded as everything here is:
+
+| way out | exits | verdict |
+|---|---|---|
+| path | 905 | starts a walk |
+| footway | 535 | starts a walk |
+| track | 461 | starts a walk |
+| cycleway | 254 | starts a walk |
+| steps | 76 | starts a walk |
+| unclassified | 1,202 | "leaving on a unclassified is the town continuing" |
+| residential | 735 | the town continuing |
+| service | 544 | the town continuing |
+| tertiary / secondary / other | ~750 | the town continuing |
+
+5,221 exits, of which **2,231 begin a walk** — 2,216 of those on the main network, 15 on
+islands. Start vertices went from 6,112 to **8,110**. No motorway or trunk appears at all,
+so "you cannot walk out onto an SS" needed no rule.
+
+`qa.v_urban_exit` is the review surface: colour by `exit_class` and the question "is this
+really where a walk starts" is one look. The lane exits are kept, not dropped, so flipping
+that product decision is a one-word change with the evidence already on screen.
+
+Naming is the same unsolved problem as the car parks: 21 of 999 residential areas carry a
+name, so most exits are unnamed rather than invented.
 
 **86 start vertices are not on the main component.** A trailhead on an island is a place
 you can begin and get nowhere, which is worth seeing before any route is generated from it.

@@ -39,6 +39,7 @@ from uuid import uuid4
 from neo4j.exceptions import Neo4jError
 
 from core.config import get_settings
+from core.geo import expand_bounds_m
 from graph.neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
@@ -167,9 +168,31 @@ async def main() -> tuple[str | None, list[dict[str, Any]]]:
             print(f"No intersection within {settings.snap_radius_m} m of the start.")
             return args.out, features
         start_node = snapped[0]["osm_node_id"]
-        print(f"start intersection: {start_node} ({START_LAT}, {START_LON})\n")
+        # The start's component, which the ring query needs. Without it
+        # (component_id=None) the ring happily returns waypoints that are
+        # isolated or outside the projection, and Dijkstra dies on
+        # "targetNode nodes do not exist in the in-memory graph" -- the
+        # exact failure that template's comment warns about.
+        located = await db.run_named(
+            "intersection_locations", osm_node_ids=[start_node]
+        )
+        component_id = located[0]["component_id"] if located else None
+        print(
+            f"start intersection: {start_node} ({START_LAT}, {START_LON}) "
+            f"component {component_id}"
+        )
+        print()
 
-        min_lat, min_lon, max_lat, max_lon = settings.bbox
+        # Project around the START and the loops being asked for, not
+        # settings.bbox. The ring candidates come from the whole graph, so a
+        # 20 km target reaches past that one Lecco-shaped box and Dijkstra is
+        # handed a target its in-memory graph has never heard of
+        # ("targetNode nodes do not exist in the in-memory graph"). The margin
+        # is exact rather than guessed: on a closed loop of length T, no point
+        # is further than T/2 from the start.
+        min_lat, min_lon, max_lat, max_lon = expand_bounds_m(
+            (START_LAT, START_LON, START_LAT, START_LON), max(targets) / 2
+        )
         projected = await db.run_named(
             "graph_project_routing",
             graph_name=graph_name,
@@ -198,7 +221,7 @@ async def main() -> tuple[str | None, list[dict[str, Any]]]:
                 lon=START_LON,
                 min_m=radius * (1 - RING_TOLERANCE),
                 max_m=radius * (1 + RING_TOLERANCE),
-                component_id=None,
+                component_id=component_id,
                 limit=4000,
             )
             if not ring:

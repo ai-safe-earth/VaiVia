@@ -186,8 +186,14 @@ export function LoopCard({
                 {loop.pois
                   .filter((poi) => poi.name)
                   .slice(0, 3)
-                  .map((poi) => (
-                    <span className="poi vv-body-sm" key={`${poi.name}-${poi.type}`}>
+                  // The index is in the key because a route can pass the same
+                  // place twice — an out-and-back does it by definition, and
+                  // two peaks can share a name. Name+type alone collides.
+                  .map((poi, index) => (
+                    <span
+                      className="poi vv-body-sm"
+                      key={`${poi.name}-${poi.type}-${index}`}
+                    >
                       {poi.name}
                     </span>
                   ))}
@@ -271,8 +277,11 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
         <div className="detail-pois">
           <span className="vv-label">Everything it passes</span>
           <div className="poi-list">
-            {namedPois.map((poi) => (
-              <span className="poi vv-body-sm" key={`${poi.name}-${poi.type}`}>
+            {namedPois.map((poi, index) => (
+              <span
+                className="poi vv-body-sm"
+                key={`${poi.name}-${poi.type}-${index}`}
+              >
                 {poi.name}
               </span>
             ))}

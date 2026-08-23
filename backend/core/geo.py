@@ -95,6 +95,24 @@ def bounds_of(points: list[LatLon]) -> tuple[float, float, float, float]:
     return (min(lats), min(lons), max(lats), max(lons))
 
 
+def expand_bounds_m(
+    bounds: tuple[float, float, float, float], margin_m: float
+) -> tuple[float, float, float, float]:
+    """Grow (min_lat, min_lon, max_lat, max_lon) by a margin in metres.
+
+    Longitude degrees shrink with latitude, so the two axes are converted
+    separately; at 46 N a degree of longitude is about 77 km against 111 km of
+    latitude, and using one factor for both would under-pad east-west by a
+    third. cos is taken at the latitude furthest from the equator, which is
+    the one whose degrees are shortest, so the margin is never short.
+    """
+    min_lat, min_lon, max_lat, max_lon = bounds
+    d_lat = margin_m / 111_320.0
+    widest = max(abs(min_lat), abs(max_lat))
+    d_lon = margin_m / max(111_320.0 * math.cos(math.radians(widest)), 1.0)
+    return (min_lat - d_lat, min_lon - d_lon, max_lat + d_lat, max_lon + d_lon)
+
+
 def distance_to_bounds_m(
     point: LatLon, bounds: tuple[float, float, float, float]
 ) -> float:

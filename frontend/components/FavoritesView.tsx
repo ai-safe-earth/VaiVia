@@ -1,18 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import {
-  fetchFavorites,
-  fetchRouteDetail,
-  fetchRouteGeoJson,
-  type FavoritesList,
-} from '@/lib/api';
+import { fetchFavorites, fetchRouteGeoJson, type FavoritesList } from '@/lib/api';
 import type { Loop, RouteDetail } from '@/lib/types';
+import { useRouteDetails } from '@/lib/useRouteDetails';
 
 import { LoopCard } from './LoopCard';
 
 interface Props {
+  /** What the page already fetched, so opening this view shows the list at
+   *  once instead of loading the identical rows a second time. */
+  initial?: FavoritesList | null;
+  /** A revalidated list, handed back so the page's id set follows it. */
+  onLoaded?: (list: FavoritesList) => void;
   onGeometry: (geometry: GeoJSON.Feature | null) => void;
   onDetail?: (detail: RouteDetail | null) => void;
   /** The page-level saved set, so a toggle here and a toggle on a chat card
@@ -29,40 +30,62 @@ interface Props {
  * never silently dropped: the catalogue is replaced wholesale per export and
  * only the geometry-derived id persists.
  */
-export function FavoritesView({ onGeometry, onDetail, favorites, onToggleFavorite }: Props) {
+export function FavoritesView({
+  initial,
+  onLoaded,
+  onGeometry,
+  onDetail,
+  favorites,
+  onToggleFavorite,
+}: Props) {
   // undefined = loading, null = failed.
-  const [list, setList] = useState<FavoritesList | null | undefined>(undefined);
+  const [list, setList] = useState<FavoritesList | null | undefined>(initial);
   const [selected, setSelected] = useState<string | null>(null);
-  const [details, setDetails] = useState<Record<string, RouteDetail | null>>({});
+  // The same detail loading the chat cards use, guards included.
+  const routeDetails = useRouteDetails(onDetail);
+  // Geometry, kept per route: clicking between saved cards re-drew the map by
+  // re-fetching the same GeoJSON every time.
+  const geometries = useRef<Map<string, GeoJSON.Feature | null>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
+    // Still revalidated on open — the saved list can have changed elsewhere —
+    // but the rows above are already on screen while that happens.
     fetchFavorites()
       .then((fresh) => {
-        if (!cancelled) setList(fresh);
+        if (cancelled) return;
+        setList(fresh);
+        onLoaded?.(fresh);
       })
       .catch(() => {
-        if (!cancelled) setList(null);
+        if (!cancelled) setList((current) => current ?? null);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  /** Draw the route and load its profile.
+   *
+   *  Everything that can fail is awaited defensively: the geometry fetch sat
+   *  outside the try once, so a 503 from the documents store threw past an
+   *  un-caught `void select(...)` and left the expanded card saying
+   *  "Fetching the altitude profile…" for ever.
+   */
   async function select(loop: Loop) {
     setSelected(loop.id);
-    onGeometry(await fetchRouteGeoJson(loop.id));
-    if (loop.id in details) {
-      onDetail?.(details[loop.id] ?? null);
-      return;
+    routeDetails.select(loop.id);
+    if (!geometries.current.has(loop.id)) {
+      geometries.current.set(
+        loop.id,
+        await fetchRouteGeoJson(loop.id).catch(() => null),
+      );
     }
-    try {
-      const detail = await fetchRouteDetail(loop.id);
-      setDetails((current) => ({ ...current, [loop.id]: detail }));
-      onDetail?.(detail);
-    } catch {
-      setDetails((current) => ({ ...current, [loop.id]: null }));
-    }
+    // Late geometry for a card the user has already moved off must not
+    // repaint the map under the one they are looking at now.
+    if (routeDetails.current() !== loop.id) return;
+    onGeometry(geometries.current.get(loop.id) ?? null);
+    await routeDetails.load(loop.id);
   }
 
   // Unsaving from this view keeps the card until the list is reopened — an
@@ -92,7 +115,7 @@ export function FavoritesView({ onGeometry, onDetail, favorites, onToggleFavorit
             selected={selected === loop.id}
             onSelect={(picked) => void select(picked)}
             onExpand={(picked) => void select(picked)}
-            detail={details[loop.id]}
+            detail={routeDetails.details[loop.id]}
             favorited={favorites.has(loop.id)}
             onToggleFavorite={onToggleFavorite}
           />

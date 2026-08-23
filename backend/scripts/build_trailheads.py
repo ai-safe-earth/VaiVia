@@ -41,10 +41,25 @@ from uuid import uuid4
 
 from neo4j.exceptions import Neo4jError
 
-from core.config import get_settings
 from graph.neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
+
+#: The ingested graph's own extent, which is what "full coverage" means.
+#:
+#: This used to project settings.bbox: one Lecco-shaped box that wrote
+#: component_id to 30,125 of the graph's 84,137 intersections and left Bergamo
+#: with none. Every caller that uses the component guard as "can a route exist
+#: from here" -- loop seeding included -- was therefore silently limited to
+#: that box, and a trailhead could only ever be found inside it.
+GRAPH_EXTENT = """
+MATCH (i:Intersection)
+WHERE i.location IS NOT NULL
+RETURN min(i.location.latitude) AS min_lat,
+       min(i.location.longitude) AS min_lon,
+       max(i.location.latitude) AS max_lat,
+       max(i.location.longitude) AS max_lon
+"""
 
 ANCHOR_TYPES = ["parking", "station"]
 OFF_ROAD = ["path", "track", "bridleway", "footway", "steps", "cycleway"]
@@ -65,9 +80,34 @@ ORDER BY size DESC LIMIT 1
 
 # One statement rather than a query per POI: the point index makes the inner
 # nearest-neighbour cheap, and 1,500 round trips would not be.
-SNAP_ANCHORS = """
+#: The anchors to snap, listed before they are snapped so the work can be cut
+#: into transactions that finish.
+ANCHOR_IDS = """
 MATCH (p:POI)
 WHERE p.type IN $anchor_types
+RETURN p.osm_id AS poi_id
+"""
+
+#: How many anchors per transaction.
+#:
+#: This query used to take every parking and station in one go. Over one
+#: region that finished; over the whole ingested graph it runs past the
+#: server's db.transaction.timeout (10 s) and is killed -- and a client
+#: timeout can only lower a server ceiling, never raise it, so a script with
+#: genuinely large work to do has to cut it up rather than ask for longer.
+#:
+#: Measured 2026-08-22 on the two-region graph: a single anchor's snap costs
+#: ~0.1 s (1 -> 0.16 s, 5 -> 0.50 s, 20 -> 1.97 s, so it is linear in
+#: anchors, not in graph size). 50 would be ~5 s warm -- and it was killed
+#: once on a cold page cache, where each snap costs several times that. 25 is
+#: the size that survived a cold run: an intermittent failure here is worse
+#: than a slower derivation, because it leaves component_id written and the
+#: trailheads not rebuilt.
+ANCHOR_BATCH = 25
+
+SNAP_ANCHORS = """
+MATCH (p:POI)
+WHERE p.osm_id IN $poi_ids
 CALL (p) {
   MATCH (i:Intersection)
   WHERE point.distance(p.location, i.location) <= $snap_m
@@ -193,14 +233,36 @@ async def main() -> None:
     parser.add_argument("--snap-m", type=float, default=200.0)
     parser.add_argument("--cluster-m", type=float, default=400.0)
     parser.add_argument("--access-radius-m", type=float, default=750.0)
-    parser.add_argument("--dry-run", action="store_true", help="report, write nothing")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report the derivation without writing trailheads. NOTE: the "
+        "component pass still writes component_id — gds.wcc.write is how the "
+        "components are computed at all, and every caller's 'can a route "
+        "exist from here' check reads it",
+    )
+    parser.add_argument(
+        "--bbox",
+        help="'min_lat,min_lon,max_lat,max_lon' to derive over; "
+        "default is the whole ingested graph",
+    )
     args = parser.parse_args()
 
-    settings = get_settings()
     graph_name = f"trailheads_{uuid4().hex[:12]}"
 
     async with Neo4jClient() as db:
-        min_lat, min_lon, max_lat, max_lon = settings.bbox
+        if args.bbox:
+            min_lat, min_lon, max_lat, max_lon = (
+                float(part) for part in args.bbox.split(",")
+            )
+        else:
+            extent = (await db.run_read(GRAPH_EXTENT))[0]
+            min_lat, min_lon = extent["min_lat"], extent["min_lon"]
+            max_lat, max_lon = extent["max_lat"], extent["max_lon"]
+        print(
+            f"deriving over {min_lat:.4f},{min_lon:.4f} to "
+            f"{max_lat:.4f},{max_lon:.4f}"
+        )
         try:
             projected = await db.run_named(
                 "graph_project_routing",
@@ -226,12 +288,21 @@ async def main() -> None:
         component_id = largest[0]["component_id"]
         print(f"largest component: {largest[0]['size']} intersections\n")
 
-        anchors = await db.run(
-            SNAP_ANCHORS,
-            anchor_types=ANCHOR_TYPES,
-            snap_m=args.snap_m,
-            component_id=component_id,
-        )
+        anchor_ids = [
+            row["poi_id"]
+            for row in await db.run_read(ANCHOR_IDS, anchor_types=ANCHOR_TYPES)
+        ]
+        anchors: list[dict[str, Any]] = []
+        for start in range(0, len(anchor_ids), ANCHOR_BATCH):
+            anchors.extend(
+                await db.run_read(
+                    SNAP_ANCHORS,
+                    poi_ids=anchor_ids[start : start + ANCHOR_BATCH],
+                    snap_m=args.snap_m,
+                    component_id=component_id,
+                )
+            )
+        print(f"snapped {len(anchors)} of {len(anchor_ids)} anchors")
         print(f"anchors snapped to the network: {len(anchors)}")
 
         clusters = cluster(anchors, args.cluster_m)

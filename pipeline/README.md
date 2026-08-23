@@ -188,6 +188,45 @@ band passing a peak — and it filters on `warnings = 0`, because its first run 
 that filter surfaced 0.0 km fragments wearing famous names: the quality block is not
 decoration.
 
+## The state notebook
+
+```bash
+uv run --group notebook jupyter nbconvert --to notebook --execute \
+    --inplace notebooks/state.ipynb
+uv run --group notebook jupyter nbconvert --to html \
+    notebooks/state.ipynb --output state.html
+```
+
+`notebooks/state.html` is the page to open when the question is **where is this build**:
+the ten state numbers, the whole network on one map, the repair history as it actually
+happened, what is still open and where it clusters, six zoomed examples of what those
+numbers look like on the ground, the 752 mapped route relations by area and by
+category, a few of them close up over aerial imagery, one in full with its profile and
+card, and the generated catalogue. It reads the live store through
+`notebooks/review_data.py`.
+
+The maps sit on tiles — CartoDB Positron to place things, Esri World Imagery where the
+ground itself is the point. They are fetched while the notebook **executes** and
+rasterised into the pictures, so the page still opens with no network; only a refresh
+needs one, and it takes about eight minutes for that reason. Tile attribution stays on
+each map. Tiled maps are stored as JPEG and everything else as PNG: imagery is
+photographic, and PNG holds it at five times the size.
+
+Two steps, in that order: the first executes and keeps the outputs, the second renders
+those same outputs. Executing twice would leave the notebook and the page reporting two
+different runs. Both are committed **with** their outputs, so the state of the build reads
+on GitHub without a database — which is also why they are the one exception to the root
+`.gitignore`'s blanket `*.ipynb`.
+
+It does not replace QGIS, and is not trying to. **This page answers where the build is;
+QGIS answers whether a particular line is right.** Judging 164 overlaps one at a time is
+the GeoPackage's job — the notebook can only tell you there are 164 and show you the worst.
+
+Every number it prints that also appears in the generated `review/README.md` is *the same
+query*: the metric definitions are imported from `export.review_bundle` rather than
+retyped, so the two cannot drift. Colours come from the same `*_class` columns QGIS
+colours by, for the same reason.
+
 ## The review bundle
 
 ```bash

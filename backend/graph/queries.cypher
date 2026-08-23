@@ -291,6 +291,19 @@ RETURN totalCost AS total_cost,
           gds.util.asNode(nodeId).location.latitude]] AS coordinates,
        [nodeId IN nodeIds | gds.util.asNode(nodeId).osm_node_id] AS node_ids
 
+// name: intersection_locations
+// Where these intersections are, so a caller can project the bbox its QUERY
+// needs. Two ids in practice (a route's endpoints). component_id comes along
+// because a caller picking waypoints needs the start's component to ask for
+// reachable ones (see intersections_in_ring); it is null outside the region
+// scripts.build_trailheads was run over.
+MATCH (i:Intersection)
+WHERE i.osm_node_id IN $osm_node_ids
+RETURN i.osm_node_id AS osm_node_id,
+       i.location.latitude AS lat,
+       i.location.longitude AS lon,
+       i.component_id AS component_id
+
 // name: graph_project_routing
 // Bounded projection: only intersections inside the query bbox are projected,
 // so Dijkstra never sees the whole country.
@@ -447,15 +460,14 @@ WHERE size($poi_types) = 0
    OR all(wanted IN $poi_types
           WHERE EXISTS { MATCH (r)-[:PASSES]->(p:Place) WHERE p.kind = wanted })
 
-// name: search_loops
-// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
-// from precomputed routes instead of computing one per request. The catalogue
-// is loaded by pipeline/export/neo4j_load.py from the route documents, which
-// stay canonical -- geometry and the profile are fetched by route_id, never
-// stored here.
-// include: loop_candidates
-// include: loop_poi_conjunction
-// The display POI list, capped -- the conjunction above already filtered.
+// fragment: route_card
+// The row a card is drawn from, shared by the search answer and the
+// favorites list so the two cannot show different routes differently.
+// It was copied rather than shared once, and had already drifted: the
+// copy grew a stray relationship variable, and a column would have gone
+// missing next. Expects r and s in scope (s may be null) and ends at the
+// RETURN, so each reader adds only its own ORDER BY / LIMIT.
+// The display POI list, capped -- any conjunction filter has already run.
 CALL (r) {
   MATCH (r)-[:PASSES]->(p:Place)
   WITH DISTINCT p
@@ -495,6 +507,16 @@ RETURN r.route_id AS id,
        s.location.latitude AS start_lat,
        s.location.longitude AS start_lon,
        pois AS pois
+
+// name: search_loops
+// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
+// from precomputed routes instead of computing one per request. The catalogue
+// is loaded by pipeline/export/neo4j_load.py from the route documents, which
+// stay canonical -- geometry and the profile are fetched by route_id, never
+// stored here.
+// include: loop_candidates
+// include: loop_poi_conjunction
+// include: route_card
 // OSM relations carry no score; 0.5 slots them between good and poor
 // generated routes rather than at the bottom, and climb breaks the tie.
 ORDER BY coalesce(r.score, 0.5) DESC, coalesce(r.ascent_m, 0) DESC
@@ -507,6 +529,15 @@ LIMIT $limit
 // the count is exactly the population search_loops would page through -- they
 // cannot drift. total is exact even though rows is capped: both aggregate the
 // same stream, and the cap slices only the collected list.
+//
+// Which is also the honest limit of the word 'bounded' here: the OUTPUT is
+// capped, the intermediate collect is not. Every matching route is held in
+// memory before the slice, so peak memory tracks the catalogue rather than
+// $facet_cap. That is fine at the catalogue's size (~1k routes, bounded by
+// the export, and this template has no caller yet) and it is the price of
+// one pass over one stream -- an exact count and its sample cannot be taken
+// separately without two queries that can disagree. Revisit if the catalogue
+// grows by an order of magnitude.
 // include: loop_candidates
 // include: loop_poi_conjunction
 OPTIONAL MATCH (r)-[:PASSES]->(pl:Place)
@@ -531,7 +562,13 @@ RETURN total, rows
 // where a second home for it is how two truths start. This template only
 // answers "is this a catalogue route", so the endpoint can 404 honestly
 // before touching the filesystem.
+//
+// warnings = 0 for the same reason loop_candidates carries it: a quarantined
+// row is qa's business, not an answer. Without it, POSTing any route_id makes
+// favorites the one surface where a 0.0 km OSM fragment wearing a famous name
+// reaches the screen as a full card, past the filter every search applies.
 MATCH (r:Route {route_id: $route_id})
+WHERE r.warnings = 0
 RETURN r.route_id AS id
 
 // name: healthcheck
@@ -550,46 +587,18 @@ RETURN trails, segments, intersections, pois, connects_to,
        count(co) AS composed_of
 
 // name: routes_by_ids
-// Hydrate favorite routes into the same rows search_loops returns, so a
-// favorites list renders with the same cards as a search answer. No ORDER BY:
+// Hydrate favorite routes into the same rows search_loops returns -- literally
+// the same: both end in the route_card fragment, so a favorites card and a
+// search card cannot come to differ. No ORDER BY:
 // the caller re-sorts to the favorites' own saved order (Postgres created_at),
 // which the graph does not know. An id no longer in the catalogue simply
 // yields no row — the API reports it as missing rather than dropping it
 // silently, because :Route nodes are replaced wholesale per export and only
 // the geometry-derived id persists.
+// A quarantined route yields no row here either (loop_candidates' rule), so a
+// favorite that grew warnings on a later export reads as missing rather than
+// rendering as a card search would never show.
 MATCH (r:Route)
-WHERE r.route_id IN $route_ids
+WHERE r.route_id IN $route_ids AND r.warnings = 0
 OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
-CALL (r) {
-  MATCH (r)-[e:PASSES]->(p:Place)
-  WITH DISTINCT p
-  RETURN collect({name: p.name, type: p.kind})[0..8] AS pois
-}
-RETURN r.route_id AS id,
-       r.activity AS activity,
-       r.kind AS kind,
-       r.shape AS shape,
-       r.name AS name,
-       r.ref AS ref,
-       r.destination_name AS destination_name,
-       r.distance_m AS distance_m,
-       r.ascent_m AS ascent_m,
-       r.descent_m AS descent_m,
-       r.lowest_m AS lowest_m,
-       r.highest_m AS highest_m,
-       r.surface_dominant AS surface_dominant,
-       r.pieces AS pieces,
-       r.continuous AS continuous,
-       r.sac_scale AS sac_scale,
-       r.sac_max AS sac_max,
-       r.graded_share AS graded_share,
-       r.mtb_rideable AS mtb_rideable,
-       r.mtb_scale AS mtb_scale,
-       r.off_road_share AS off_road_share,
-       r.score AS score,
-       s.vertex_id AS start_vertex_id,
-       s.names AS start_names,
-       s.car_free AS car_free,
-       s.location.latitude AS start_lat,
-       s.location.longitude AS start_lon,
-       pois AS pois
+// include: route_card

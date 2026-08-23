@@ -29,7 +29,13 @@ import json
 import uuid
 
 from core import connect
-from curate.anchors import poi_verdict, settlement_verdict, stop_verdict
+from curate.anchors import (
+    EXIT_ONTO_TRAIL,
+    poi_verdict,
+    settlement_verdict,
+    stop_verdict,
+    urban_exit_verdict,
+)
 
 # One template, three sources. `key` is the source's own identity spelled as
 # text, so curated.place has a single primary key across all three rather than
@@ -68,7 +74,65 @@ SOURCES = {
                NULL::double precision AS ele_m, n_trips, regions, geom
         FROM staging.gtfs_stop
     """,
+    # Not a staged source and not snapped -- see URBAN_EXITS below. It is in
+    # this dict so the summary, the write and the REPLACE cover it like the
+    # rest; the loop reads its own query.
+    "urban_exit": None,
 }
+
+# Urban exits are not snapped: they ARE vertices, so distance_m is 0 and the
+# KNN search above has nothing to do. The work is finding them.
+#
+#   inside   vertices that lie in a residential polygon
+#   leaving  ...with a foot-routable edge whose far end is outside EVERY such
+#            polygon. "Outside this one" would also catch the boundary between
+#            two adjoining neighbourhoods, which is a street corner, not a way
+#            out of town.
+#   one row  per vertex, taking its best way out: a vertex with both a path and
+#            a lane leaving it is a trail start, not a road start, so the
+#            trail-first ordering decides which highway the row carries.
+#
+# The name comes from the polygon, and 21 of 999 have one -- the same naming
+# gap qa.v_start.names already records for car parks.
+URBAN_EXITS = """
+WITH urban AS (
+    SELECT osm_type, osm_id, name, regions, geom
+    FROM staging.settlement
+    WHERE kind = 'residential'
+), urban_all AS (
+    SELECT ST_Union(geom) AS geom FROM urban
+), inside AS (
+    SELECT v.vertex_id, v.geom, u.name, u.regions
+    FROM curated.vertex v
+    JOIN urban u ON ST_Intersects(v.geom, u.geom)
+), leaving AS (
+    SELECT i.vertex_id, i.geom, i.name, i.regions,
+           e.tags ->> 'highway' AS highway
+    FROM inside i
+    JOIN curated.edge e
+      ON (e.source = i.vertex_id OR e.target = i.vertex_id)
+     AND e.routable_foot
+    JOIN curated.vertex far
+      ON far.vertex_id = CASE WHEN e.source = i.vertex_id
+                              THEN e.target ELSE e.source END
+    CROSS JOIN urban_all ua
+    WHERE NOT ST_Intersects(far.geom, ua.geom)
+)
+SELECT DISTINCT ON (vertex_id)
+       'v' || vertex_id                     AS key,
+       highway                              AS kind,
+       name,
+       NULL::double precision               AS ele_m,
+       NULL::integer                        AS n_trips,
+       regions,
+       geom,
+       vertex_id,
+       0.0::double precision                AS distance_m
+FROM leaving
+ORDER BY vertex_id,
+         (highway = ANY(%(onto_trail)s)) DESC,
+         highway
+"""
 
 NETWORK_RUNS = "SELECT DISTINCT run_id FROM curated.edge"
 
@@ -90,6 +154,8 @@ def verdict_for(source: str, kind: str, n_trips: int | None):
         return poi_verdict(kind)
     if source == "settlement":
         return settlement_verdict(kind)
+    if source == "urban_exit":
+        return urban_exit_verdict(kind)
     return stop_verdict(n_trips)
 
 
@@ -152,7 +218,12 @@ def main() -> None:
         rows = []
         rejected: dict[str, int] = {}
         for source, select in SOURCES.items():
-            snapped = conn.execute(SNAP.format(source=select)).fetchall()
+            if source == "urban_exit":
+                snapped = conn.execute(
+                    URBAN_EXITS, {"onto_trail": sorted(EXIT_ONTO_TRAIL)}
+                ).fetchall()
+            else:
+                snapped = conn.execute(SNAP.format(source=select)).fetchall()
             starts = 0
             for (
                 key,

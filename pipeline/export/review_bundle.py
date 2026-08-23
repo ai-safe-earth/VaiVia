@@ -130,6 +130,19 @@ LAYERS: list[Layer] = [
         sort_by="anchors desc",
     ),
     Layer(
+        "urban_exit",
+        """SELECT vertex_id, name, way_out, is_start, start_note, component_id,
+                  degree, exit_class, reachability_class, naming_class,
+                  degree_class, geom
+           FROM qa.v_urban_exit""",
+        "Where the network leaves a residential area. A residential polygon is "
+        "not a point a walk begins at -- its exits are, and this is the layer "
+        "that says which of them earn it: colour by exit_class and the "
+        "question 'is this really where a walk starts' is one look.",
+        style_by="exit_class",
+        sort_by="is_start desc, way_out",
+    ),
+    Layer(
         "draw",
         """SELECT route_id, start_vertex, target_km, km, ascent_m, sac_scale,
                   mtb_rideable, off_road_share, retrace_share, score,

@@ -192,7 +192,8 @@
     "question": "an easy mountain bike loop near Bergamo",
     "expect": {
       "loop.activity": "mtb",
-      "loop.max_difficulty_level": 1
+      "loop.max_difficulty_level": 1,
+      "loop.near": "Bergamo"
     }
   },
   {

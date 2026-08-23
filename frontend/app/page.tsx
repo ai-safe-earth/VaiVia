@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { AppHeader } from '@/components/AppHeader';
 import { AuthPanel } from '@/components/AuthPanel';
@@ -9,7 +9,8 @@ import { ChatPanel } from '@/components/ChatPanel';
 import { ConversationList } from '@/components/ConversationList';
 import { FavoritesView } from '@/components/FavoritesView';
 import { ElevationPanel, MapLayerTabs } from '@/components/MapChrome';
-import { fetchFavorites, setFavorite } from '@/lib/api';
+import { fetchFavorites, setFavorite, type FavoritesList } from '@/lib/api';
+import { applyToggle, belongsToCurrentUser, savedIds } from '@/lib/favorites';
 import { onSession, signOut, type AuthUser } from '@/lib/auth';
 import {
   listConversations,
@@ -42,6 +43,12 @@ export default function Home() {
   // Saved routes: the id set drives every card's bookmark; the view shows
   // the hydrated list. One state, however the toggle was reached.
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  // The hydrated list itself, kept rather than thrown away: the page fetched
+  // it for the ids alone and the Saved-routes view fetched the identical list
+  // again on every open. undefined = not loaded yet, null = the load failed.
+  const [favoritesList, setFavoritesList] = useState<
+    FavoritesList | null | undefined
+  >(undefined);
   const [showFavorites, setShowFavorites] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -53,39 +60,56 @@ export default function Home() {
   // destroy the answer as it arrives.
   const [panelKey, setPanelKey] = useState('new-0');
 
+  // Who is signed in NOW, readable from a continuation that started under
+  // whoever was signed in THEN.
+  const userRef = useRef(user);
+  userRef.current = user;
+
   useEffect(() => onSession(setUser), []);
 
   useEffect(() => {
-    if (!user) {
-      setConversations([]);
-      setSelected(null);
-      setHistory([]);
-      return;
-    }
+    // Everything below belongs to ONE account. Clearing it up front, rather
+    // than letting the next account's fetch overwrite it, is what stops a
+    // second sign-in seeing the first one's saved routes -- for a moment if
+    // the fetch succeeds, and indefinitely if it fails.
+    setConversations([]);
+    setSelected(null);
+    setHistory([]);
+    setFavoriteIds(new Set());
+    setFavoritesList(undefined);
+    if (!user) return;
+
+    // ...and a response that arrives after the account changed again is not
+    // this account's, so it is dropped rather than rendered.
+    const forUser = user.id;
+    const stillCurrent = () => belongsToCurrentUser(forUser, userRef.current?.id);
     void listConversations()
-      .then(setConversations)
-      .catch(() => setConversations([]));
+      .then((list) => stillCurrent() && setConversations(list))
+      .catch(() => stillCurrent() && setConversations([]));
     void fetchFavorites()
-      .then((list) => setFavoriteIds(new Set(list.routes.map((r) => r.id))))
-      .catch(() => {});
+      .then((list) => stillCurrent() && receiveFavorites(list))
+      .catch(() => stillCurrent() && setFavoritesList(null));
   }, [user]);
+
+  /** One saved list, one id set, whoever loaded it.
+   *
+   *  `missing` counts as saved. Those ids ARE in the ledger — their route is
+   *  just out of the catalogue until the next export restores it — and
+   *  dropping them showed the bookmark unfilled on a route saved long ago:
+   *  one tap "saved" it (a no-op) and the next tap deleted it.
+   */
+  function receiveFavorites(list: FavoritesList) {
+    setFavoritesList(list);
+    setFavoriteIds(savedIds(list));
+  }
 
   /** Optimistic: the bookmark flips at once, and flips back if the save
    *  fails — a favorite that silently did not stick is worse than a flicker. */
   function toggleFavorite(loop: Loop, on: boolean) {
-    setFavoriteIds((current) => {
-      const next = new Set(current);
-      if (on) next.add(loop.id);
-      else next.delete(loop.id);
-      return next;
-    });
+    setFavoriteIds((current) => applyToggle(current, loop.id, on));
     void setFavorite(loop.id, on).catch(() => {
-      setFavoriteIds((current) => {
-        const next = new Set(current);
-        if (on) next.delete(loop.id);
-        else next.add(loop.id);
-        return next;
-      });
+      // The exact inverse flip, so a failed save leaves the set as it was.
+      setFavoriteIds((current) => applyToggle(current, loop.id, !on));
     });
   }
 
@@ -142,25 +166,32 @@ export default function Home() {
             onSelect={(id) => void selectConversation(id)}
           />
         )}
-        {showFavorites ? (
+        {showFavorites && (
           <FavoritesView
+            initial={favoritesList}
+            onLoaded={receiveFavorites}
             onGeometry={setGeometry}
             onDetail={setRouteDetail}
             favorites={favoriteIds}
             onToggleFavorite={toggleFavorite}
           />
-        ) : (
-          <ChatPanel
-            key={panelKey}
-            onGeometry={setGeometry}
-            onDetail={setRouteDetail}
-            initialConversationId={selected}
-            initialMessages={history}
-            onConversationCreated={conversationCreated}
-            favorites={user ? favoriteIds : undefined}
-            onToggleFavorite={user ? toggleFavorite : undefined}
-          />
         )}
+        {/* The chat panel is HIDDEN behind the favorites view, never replaced.
+            Rendering one or the other unmounted the panel and remounted it
+            seeded from `history`, which only selectConversation writes — so a
+            look at Saved routes wiped the transcript of the conversation you
+            were having. */}
+        <ChatPanel
+          key={panelKey}
+          hidden={showFavorites}
+          onGeometry={setGeometry}
+          onDetail={setRouteDetail}
+          initialConversationId={selected}
+          initialMessages={history}
+          onConversationCreated={conversationCreated}
+          favorites={user ? favoriteIds : undefined}
+          onToggleFavorite={user ? toggleFavorite : undefined}
+        />
         {/* Trail geometry, paths and POIs in every answer are OSM-derived, so
             the credit belongs in the app chrome and not only on the map — a
             user reading results never has to open the map to see it. */}
