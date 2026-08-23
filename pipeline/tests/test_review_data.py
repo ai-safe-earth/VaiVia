@@ -11,9 +11,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import geopandas as gpd
 import pandas as pd
 import pytest
-from shapely.geometry import Point
+from shapely.geometry import LineString, Point
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "notebooks"))
 
@@ -147,3 +148,76 @@ def test_the_crossing_routes_are_their_own_area():
     """61 of 752 run through both regions, and forcing them into whichever holds
     more of them would draw them twice or drop them once."""
     assert rd.AREA_ORDER == ["Lecco", "Bergamo", "Lecco + Bergamo"]
+def _edge(coords, profile, length_m):
+    return {"geom": LineString(coords), "profile_m": profile, "length_m": length_m}
+
+
+def _edges(*rows):
+    return gpd.GeoDataFrame(list(rows), geometry="geom", crs=4326)
+
+
+def test_a_profile_runs_the_length_of_the_route():
+    edges = _edges(
+        _edge([(0, 0), (0, 1)], [100.0, 200.0], 1000.0),
+        _edge([(0, 1), (0, 2)], [200.0, 300.0], 1000.0),
+    )
+
+    distances, heights = rd.assemble_profile(edges)
+
+    assert distances[0] == 0.0
+    assert distances[-1] == pytest.approx(2.0)  # km
+    assert heights == [100.0, 200.0, 200.0, 300.0]
+
+
+def test_an_edge_drawn_backwards_is_turned_round():
+    """A relation lists its ways in walking order, but each way keeps the
+    direction it was drawn in. Concatenating the samples as stored puts a cliff
+    in the profile that is not on the hill."""
+    edges = _edges(
+        _edge([(0, 0), (0, 1)], [100.0, 200.0], 1000.0),
+        # same ground, drawn the other way: its samples start at the far end
+        _edge([(0, 2), (0, 1)], [300.0, 200.0], 1000.0),
+    )
+
+    _, heights = rd.assemble_profile(edges)
+
+    assert heights == [100.0, 200.0, 200.0, 300.0]
+
+
+def test_the_first_edge_is_taken_as_it_comes():
+    """Nothing precedes it, so there is nothing to orient it against — the
+    walking direction of a route is the mapper's business, not this
+    function's."""
+    edges = _edges(_edge([(0, 1), (0, 0)], [200.0, 100.0], 1000.0))
+
+    _, heights = rd.assemble_profile(edges)
+
+    assert heights == [200.0, 100.0]
+
+
+def test_an_edge_with_nothing_sampled_is_skipped_not_guessed():
+    edges = _edges(
+        _edge([(0, 0), (0, 1)], [100.0, 200.0], 1000.0),
+        _edge([(0, 1), (0, 2)], None, 1000.0),
+        _edge([(0, 2), (0, 3)], [300.0, 400.0], 1000.0),
+    )
+
+    distances, heights = rd.assemble_profile(edges)
+
+    assert heights == [100.0, 200.0, 300.0, 400.0]
+    # the skipped edge's ground is not invented, and the walk still passed it
+    assert distances[-1] == pytest.approx(3.0)
+
+
+def test_a_gap_between_pieces_is_not_bridged():
+    """Distance keeps running because the walk does; the profile stays honest
+    about not knowing what is in between."""
+    edges = _edges(
+        _edge([(0, 0), (0, 1)], [100.0, 200.0], 1000.0),
+        _edge([(5, 5), (5, 6)], [900.0, 950.0], 1000.0),
+    )
+
+    distances, heights = rd.assemble_profile(edges)
+
+    assert heights == [100.0, 200.0, 900.0, 950.0]
+    assert distances[2] == pytest.approx(1.0)

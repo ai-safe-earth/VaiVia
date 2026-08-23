@@ -23,8 +23,10 @@ Run from `pipeline/`: this is a non-packaged uv project with flat modules, so
 
 from __future__ import annotations
 
+import io
 import textwrap
 
+import contextily as cx
 import geopandas as gpd
 import matplotlib
 import pandas as pd
@@ -32,6 +34,7 @@ import pandas as pd
 matplotlib.use("Agg")  # no display in this environment
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from shapely.geometry import LineString
 
 from core import CRS_METRIC, CRS_STORAGE, REGIONS, connect, sqlalchemy_url
 from export.review_bundle import ISSUES, SETTLED, STATE
@@ -51,6 +54,50 @@ SAND = "#c8a45c"
 SEQUENCE = ["#3f6fb0", "#6f9fd0", "#9fc4e0", "#e8c35a", "#d98b45", "#b5453f"]
 
 DPI = 130
+
+#: Tiles are in Web Mercator, so anything drawn over them has to be too. The
+#: store is 4326 (core.CRS_STORAGE) and measurement happens in UTM
+#: (core.CRS_METRIC); this is a third CRS that exists only for drawing.
+CRS_TILES = 3857
+
+#: A reference map to place things, and an earth image to see the ground they
+#: are on. Positron is deliberately pale: the data is the subject, and a
+#: basemap that competes with it is worse than none.
+#:
+#: Tiles are fetched when the notebook EXECUTES and rasterised into the PNGs,
+#: so the exported page still opens with no network. Only a refresh needs one.
+REFERENCE_TILES = cx.providers.CartoDB.Positron
+IMAGERY_TILES = cx.providers.Esri.WorldImagery
+
+
+#: No tile provider goes deeper than this, and asking for more returns a
+#: blurred upscale plus a warning in the middle of the page.
+MAX_TILE_ZOOM = 19
+
+
+def _basemap(ax, source=REFERENCE_TILES, zoom="auto") -> None:
+    """Put tiles under the axes, keeping their attribution on the picture.
+
+    The attribution is not decoration: these tiles are somebody's work under a
+    licence, and this project already carries OSM's credit into the app chrome
+    for the same reason.
+    """
+    if zoom == "auto":
+        span = abs(ax.get_xlim()[1] - ax.get_xlim()[0])
+        if span and span < 400:  # metres: deeper than any provider serves
+            zoom = MAX_TILE_ZOOM
+    try:
+        cx.add_basemap(
+            ax, source=source, crs=CRS_TILES, zoom=zoom, attribution_size=5
+        )
+    except Exception as error:  # noqa: BLE001 - a map without tiles still reads
+        ax.set_facecolor("#f7f7f7")
+        print(f"  no basemap ({type(error).__name__}: {error})")
+
+
+def _tiles(frame: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """The same features, in the CRS the tiles are drawn in."""
+    return frame.to_crs(CRS_TILES)
 
 
 def _url() -> str:
@@ -212,16 +259,35 @@ def as_text(value) -> str:
 # --------------------------------------------------------------------------
 
 
-def _rendered(fig: plt.Figure) -> plt.Figure:
+#: What a figure is displayed at. Lower than print, high enough to read.
+DISPLAY_DPI = 96
+
+
+def _rendered(fig: plt.Figure, photographic: bool = False):
     """Lay a figure out, and hand its display to the value the cell returns.
 
     The inline backend shows every OPEN figure at the end of a cell, and the
     cell also displays whatever it returns -- so a builder that leaves its
     figure open renders the same picture twice. Closing it leaves exactly one.
+
+    A figure with tiles under it goes out as JPEG, everything else as PNG.
+    Aerial and street imagery is photographic and PNG stores it terribly: the
+    category map is 674 KB as PNG against 135 KB as JPEG, and with five tiled
+    maps that is the difference between a 15 MB commit and a 3 MB one every
+    time this page is refreshed. Charts and the card panel stay PNG, because
+    JPEG rings around text and thin lines.
     """
     fig.tight_layout()
     plt.close(fig)
-    return fig
+    if not photographic:
+        return fig
+    try:
+        from IPython.display import Image
+    except ImportError:  # outside a notebook there is nothing to display to
+        return fig
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="jpeg", dpi=DISPLAY_DPI, pil_kwargs={"quality": 82})
+    return Image(data=buffer.getvalue(), format="jpeg")
 
 
 def _finish(ax, title: str | None = None, width: int = 46) -> None:
@@ -253,25 +319,35 @@ def network_map(
 ) -> plt.Figure:
     """The whole network in one frame, with the ingested regions drawn on it."""
     fig, ax = plt.subplots(figsize=(12, 9))
+    network = _tiles(network)
     colours = category_colours(network[column])
     for category, colour in colours.items():
         part = network[network[column].astype(str) == category]
         part.plot(ax=ax, color=colour, linewidth=0.35)
     if starts is not None and len(starts):
-        starts.plot(ax=ax, color=INK, markersize=0.6, alpha=0.45)
+        _tiles(starts).plot(ax=ax, color=INK, markersize=0.6, alpha=0.45)
 
     for name, (min_lat, min_lon, max_lat, max_lon) in REGIONS.items():
         # REGIONS is (min_lat, min_lon, max_lat, max_lon) -- latitude first,
-        # the reverse of what a plot wants.
-        ax.plot(
-            [min_lon, max_lon, max_lon, min_lon, min_lon],
-            [min_lat, min_lat, max_lat, max_lat, min_lat],
-            color=INK,
-            linewidth=0.9,
-            linestyle="--",
-            alpha=0.6,
-        )
-        ax.text(min_lon, max_lat, f" {name}", fontsize=9, color=INK, va="bottom")
+        # the reverse of what a plot wants, and in 4326 rather than the CRS
+        # this is drawn in.
+        corners = gpd.GeoSeries(
+            [
+                LineString(
+                    [
+                        (min_lon, min_lat),
+                        (max_lon, min_lat),
+                        (max_lon, max_lat),
+                        (min_lon, max_lat),
+                        (min_lon, min_lat),
+                    ]
+                )
+            ],
+            crs=CRS_STORAGE,
+        ).to_crs(CRS_TILES)
+        corners.plot(ax=ax, color=INK, linewidth=0.9, linestyle="--", alpha=0.6)
+        label = corners.iloc[0].coords[3]
+        ax.text(label[0], label[1], f" {name}", fontsize=9, color=INK, va="bottom")
 
     handles = [
         Line2D([], [], color=colour, linewidth=2, label=category)
@@ -292,8 +368,9 @@ def network_map(
     # over the densest part of the map hides what it is labelling.
     ax.legend(handles=handles, loc="lower left", fontsize=8, frameon=False)
     ax.set_aspect("equal")
+    _basemap(ax)
     _finish(ax)
-    return _rendered(fig)
+    return _rendered(fig, photographic=True)
 
 
 def history_chart(history: pd.DataFrame) -> plt.Figure:
@@ -396,16 +473,19 @@ def findings_map(
 ) -> plt.Figure:
     """Where the open findings are, over the network they are findings about."""
     fig, ax = plt.subplots(figsize=(12, 9))
-    network.plot(ax=ax, color=FAINT, linewidth=0.25)
+    _tiles(network).plot(ax=ax, color=GREY, linewidth=0.2, alpha=0.5)
     for (name, layer), colour in zip(layers.items(), [RED, SAND, BLUE]):
         if not len(layer):
             continue
-        layer.plot(ax=ax, color=colour, markersize=6, linewidth=1.4, alpha=0.75)
+        _tiles(layer).plot(
+            ax=ax, color=colour, markersize=6, linewidth=1.4, alpha=0.8
+        )
         ax.plot([], [], color=colour, linewidth=2, label=f"{len(layer):,} {name}")
-    ax.legend(loc="lower right", fontsize=8, frameon=False)
+    ax.legend(loc="lower left", fontsize=8, frameon=False)
     ax.set_aspect("equal")
+    _basemap(ax)
     _finish(ax)
-    return _rendered(fig)
+    return _rendered(fig, photographic=True)
 
 
 def example_panel(
@@ -416,6 +496,7 @@ def example_panel(
     colour: str = RED,
     before: gpd.GeoDataFrame | None = None,
     floor_deg: float = 0.0015,
+    basemap=REFERENCE_TILES,
 ) -> None:
     """One zoomed example: the thing, and the network around it for context.
 
@@ -423,10 +504,11 @@ def example_panel(
     finding is about, it needs no connection at render time, and it keeps the
     exported page self-contained.
     """
+    subject, context = _tiles(subject), _tiles(context)
     if len(context):
-        context.plot(ax=ax, color=FAINT, linewidth=0.8)
+        context.plot(ax=ax, color=GREY, linewidth=0.8, alpha=0.7)
     if before is not None and len(before):
-        before.plot(ax=ax, color=GREY, linewidth=2.0, linestyle="--")
+        _tiles(before).plot(ax=ax, color=INK, linewidth=2.0, linestyle="--")
     # edgecolor as well as color: an island is a POLYGON a few tens of metres
     # across, and a fill that small disappears against the context under it.
     subject.plot(
@@ -440,12 +522,16 @@ def example_panel(
     bounds = subject.total_bounds
     # The floor sets how far a panel can zoom in. A snap repair moves an
     # endpoint by two metres, and at the default window that is one pixel:
-    # the panel has to be allowed to go closer than the finding is wide.
-    pad_x = max((bounds[2] - bounds[0]) * 0.6, floor_deg)
-    pad_y = max((bounds[3] - bounds[1]) * 0.6, floor_deg)
+    # the panel has to be allowed to go closer than the finding is wide. In
+    # Web Mercator the unit is a metre stretched by latitude, near enough at
+    # 46 N for a window nobody measures off.
+    floor = floor_deg * 111_320
+    pad_x = max((bounds[2] - bounds[0]) * 0.6, floor)
+    pad_y = max((bounds[3] - bounds[1]) * 0.6, floor)
     ax.set_xlim(bounds[0] - pad_x, bounds[2] + pad_x)
     ax.set_ylim(bounds[1] - pad_y, bounds[3] + pad_y)
     ax.set_aspect("equal")
+    _basemap(ax, basemap)
     _finish(ax, title)
 
 
@@ -626,28 +712,31 @@ def examples_figure() -> plt.Figure:
     subject, context, caption = example("place_link")
     example_panel(axes[2], subject, context, f"snap — {caption}", colour=BLUE)
 
-    after, before, context, caption = repaired_example(pad_m=40.0)
+    after, before, context, caption = repaired_example(pad_m=90.0)
     example_panel(
         axes[3],
         after,
         context,
         f"fix — {caption}",
         before=before,
-        floor_deg=0.00012,  # ~13 m: a 2 m move has to be visible as a move
+        # ~45 m. Closer than this and the tile providers run out: they stop at
+        # zoom 20 and a 13 m window asks for 22, which comes back blurred.
+        floor_deg=0.0004,
     )
 
     trail, lane, context, caption = urban_exit_example()
     if len(context):
-        context.plot(ax=axes[4], color=FAINT, linewidth=0.8)
-    lane.plot(ax=axes[4], color=GREY, markersize=26)
-    trail.plot(ax=axes[4], color=GREEN, markersize=34)
+        _tiles(context).plot(ax=axes[4], color=GREY, linewidth=0.8, alpha=0.7)
+    _tiles(lane).plot(ax=axes[4], color=INK, markersize=26)
+    _tiles(trail).plot(ax=axes[4], color=GREEN, markersize=34)
     axes[4].set_aspect("equal")
+    _basemap(axes[4])
     _finish(axes[4], f"urban exits — {caption}")
 
     subject, context, caption = example("draw")
     example_panel(axes[5], subject, context, f"route — {caption}", colour=GREEN)
 
-    return _rendered(fig)
+    return _rendered(fig, photographic=True)
 
 
 #: How a route is attributed to an area: the regions its member edges carry.
@@ -713,9 +802,9 @@ def mapped_routes_map(routes: gpd.GeoDataFrame, label_top: int = 6) -> plt.Figur
     palette = plt.get_cmap("tab20").colors
 
     for ax, area in zip(axes, areas):
-        here = routes[routes["area"] == area]
+        here = _tiles(routes[routes["area"] == area])
         for position, (_, row) in enumerate(here.iterrows()):
-            gpd.GeoSeries([row["geom"]], crs=CRS_STORAGE).plot(
+            gpd.GeoSeries([row["geom"]], crs=CRS_TILES).plot(
                 ax=ax, color=palette[position % len(palette)], linewidth=1.1
             )
         handles = [
@@ -736,12 +825,13 @@ def mapped_routes_map(routes: gpd.GeoDataFrame, label_top: int = 6) -> plt.Figur
             frameon=False,
         )
         ax.set_aspect("equal")
+        _basemap(ax)
         _finish(
             ax,
             f"{area} — {len(here)} routes, {here['km'].sum():,.0f} km",
             width=38,
         )
-    return _rendered(fig)
+    return _rendered(fig, photographic=True)
 
 
 def routes_by_kind(routes: gpd.GeoDataFrame) -> plt.Figure:
@@ -760,3 +850,221 @@ def routes_by_kind(routes: gpd.GeoDataFrame) -> plt.Figure:
     ax.grid(alpha=0.3, axis="x")
     ax.tick_params(labelsize=8)
     return _rendered(fig)
+# --------------------------------------------------------------------------
+# one route, in full
+# --------------------------------------------------------------------------
+
+#: A route's edges in WALKING order, which is not the order the relation lists
+#: them in. Measured on the Via Mercatorum: its member_index 88 sits at 99.93%
+#: along the merged line, so the members run backwards and start two thirds of
+#: the way through. Ordering by member_index put cliffs in the profile that are
+#: not on the hill.
+#:
+#: ST_LineLocatePoint on the merged line is the same technique the pipeline
+#: already uses to position a POI along a route. It needs ONE line, so a route
+#: that comes out in several pieces falls back to member order and keeps
+#: whatever the mapper's ordering is worth.
+ROUTE_EDGES = """
+WITH merged AS (
+    SELECT ST_LineMerge(geom) AS line, ST_NumGeometries(geom) AS parts
+    FROM qa.v_route WHERE rel_id = %(rel_id)s
+)
+SELECT er.member_index, er.piece_index, e.edge_id, e.length_m,
+       e.profile_m, e.geom,
+       CASE WHEN (SELECT parts FROM merged) = 1
+            THEN ST_LineLocatePoint(
+                     (SELECT line FROM merged),
+                     ST_LineInterpolatePoint(e.geom, 0.5))
+       END AS along
+FROM curated.edge_route er
+JOIN curated.edge e USING (edge_id)
+WHERE er.rel_id = %(rel_id)s
+ORDER BY along NULLS LAST, er.member_index, er.piece_index
+"""
+
+ROUTE_CARD = """
+SELECT v.rel_id, v.ref, v.name, v.route_kind, v.network, v.osmc_symbol,
+       v.km, v.edges, v.pieces, v.continuity_class, v.length_class,
+       v.scope_class,
+       el.ascent_m, el.descent_m, el.lowest_m, el.highest_m,
+       el.edges_without_profile,
+       c.way_members, c.matched_ways, c.matched_fraction, c.coverage_class
+FROM qa.v_route v
+LEFT JOIN qa.v_route_elevation el USING (rel_id)
+LEFT JOIN qa.v_route_coverage c USING (rel_id)
+WHERE v.rel_id = %(rel_id)s
+"""
+
+
+def route_edges(rel_id: int) -> gpd.GeoDataFrame:
+    """A route's edges, in the order the relation lists them."""
+    return geoframe(ROUTE_EDGES, rel_id=int(rel_id))
+
+
+def route_card_data(rel_id: int) -> pd.Series:
+    """Everything a card would carry about one route, from the three views."""
+    return frame(ROUTE_CARD, rel_id=int(rel_id)).iloc[0]
+
+
+def assemble_profile(edges: gpd.GeoDataFrame) -> tuple[list[float], list[float]]:
+    """Distance and height along a route, from its edges' sampled profiles.
+
+    Pure, and the interesting part is the orientation. A relation lists its
+    ways in walking order but each way keeps the direction it was drawn in, so
+    roughly half arrive backwards; concatenating their profiles as stored
+    gives a saw of false climbs and descents. Each edge is oriented against
+    the running end point before its samples are taken -- the same correction
+    docs/route-document.md still has open for route assembly.
+
+    A gap between pieces is not bridged. Distance keeps running, because the
+    walk does, and the profile stays honest about not knowing what is in
+    between.
+    """
+    distances: list[float] = []
+    heights: list[float] = []
+    travelled = 0.0
+    cursor = None
+
+    for _, row in edges.iterrows():
+        line = row["geom"]
+        if line is None or line.is_empty:
+            continue
+        profile = list(row["profile_m"] or [])
+
+        # Orient first, off the geometry, so an edge with no samples still
+        # leaves the cursor at the right end for the next one.
+        coords = list(line.coords)
+        start, end = coords[0], coords[-1]
+        if cursor is not None:
+            to_start = (start[0] - cursor[0]) ** 2 + (start[1] - cursor[1]) ** 2
+            to_end = (end[0] - cursor[0]) ** 2 + (end[1] - cursor[1]) ** 2
+            if to_end < to_start:
+                profile = profile[::-1]
+                start, end = end, start
+
+        if len(profile) >= 2:
+            step = row["length_m"] / (len(profile) - 1)
+            for index, height in enumerate(profile):
+                distances.append((travelled + index * step) / 1000.0)
+                heights.append(height)
+
+        # ALWAYS, even for an edge nothing was sampled on. 75 edges north of
+        # the DEM's edge have no profile, and dropping their length as well as
+        # their heights would shorten the route on the axis -- a gap makes the
+        # climb unknown, not the walk shorter. The line drawn across such a
+        # stretch is an absence, not a claim that it is flat.
+        travelled += row["length_m"]
+        cursor = end
+
+    return distances, heights
+
+
+def route_profile_card(rel_id: int) -> plt.Figure:
+    """One route in full: the climb it asks for, and what a card would say.
+
+    The profile is the thing distance alone cannot tell you -- 20 km along a
+    lake and 20 km over a ridge are the same number and not the same day.
+    """
+    card = route_card_data(rel_id)
+    distances, heights = assemble_profile(route_edges(rel_id))
+
+    fig = plt.figure(figsize=(13, 4.2))
+    profile_ax = fig.add_subplot(1, 3, (1, 2))
+    profile_ax.fill_between(distances, heights, color=BLUE, alpha=0.25)
+    profile_ax.plot(distances, heights, color=BLUE, linewidth=1.2)
+    profile_ax.set_xlabel("km along the route", fontsize=8)
+    profile_ax.set_ylabel("metres above sea level", fontsize=8)
+    profile_ax.grid(alpha=0.3)
+    profile_ax.tick_params(labelsize=8)
+    profile_ax.set_title(route_label(card), fontsize=10, color=INK, loc="left")
+
+    coverage = (
+        f"{card['matched_ways']}/{card['way_members']} ways "
+        f"({card['matched_fraction']:.0%})"
+    )
+    fields = [
+        ("kind", as_text(card["route_kind"])),
+        ("distance", f"{card['km']:.1f} km"),
+        ("climb", f"{card['ascent_m']:,.0f} m up / {card['descent_m']:,.0f} m down"),
+        ("between", f"{card['lowest_m']:,.0f} m and {card['highest_m']:,.0f} m"),
+        ("made of", f"{card['edges']:,} edges, {card['pieces']} piece(s)"),
+        ("continuity", as_text(card["continuity_class"])),
+        ("coverage", coverage),
+        ("scope", as_text(card["scope_class"])),
+        ("waymarked", as_text(card["osmc_symbol"]) or "not recorded"),
+        ("network", as_text(card["network"]) or "not recorded"),
+    ]
+    card_ax = fig.add_subplot(1, 3, 3)
+    card_ax.set_axis_off()
+    card_ax.set_title("what a card would carry", fontsize=10, color=INK, loc="left")
+    for position, (label, value) in enumerate(fields):
+        height = 0.94 - position * 0.095
+        card_ax.text(0.0, height, label, fontsize=8, color=GREY)
+        card_ax.text(0.34, height, value, fontsize=8.5, color=INK)
+    return _rendered(fig)
+
+
+# --------------------------------------------------------------------------
+# routes up close, and by category
+# --------------------------------------------------------------------------
+
+
+def route_closeups(
+    routes: gpd.GeoDataFrame, rel_ids: list[int], pad_m: float = 900.0
+) -> plt.Figure:
+    """A few routes over the earth they cross.
+
+    The reference map says where a line is; the imagery says what it goes
+    through -- forest, scree, a lake shore, somebody's field. That is the
+    question a walker actually has, and the one a categorised colour cannot
+    answer. Drawn twice, a wide pale line under a thin dark one, because a
+    single stroke over aerial imagery disappears into it.
+    """
+    picks = routes[routes["rel_id"].isin(rel_ids)]
+    fig, axes = plt.subplots(1, max(len(picks), 1), figsize=(14, 5.4))
+    axes = [axes] if len(picks) <= 1 else list(axes)
+
+    for ax, (_, row) in zip(axes, picks.iterrows()):
+        drawn = _tiles(gpd.GeoDataFrame([row], geometry="geom", crs=CRS_STORAGE))
+        drawn.plot(ax=ax, color="#ffe14d", linewidth=3.0)
+        drawn.plot(ax=ax, color=RED, linewidth=1.1)
+        bounds = drawn.total_bounds
+        pad = max(pad_m, (bounds[2] - bounds[0]) * 0.05)
+        ax.set_xlim(bounds[0] - pad, bounds[2] + pad)
+        ax.set_ylim(bounds[1] - pad, bounds[3] + pad)
+        ax.set_aspect("equal")
+        _basemap(ax, IMAGERY_TILES)
+        _finish(ax, f"{route_label(row)} · {row['km']:.0f} km", width=40)
+    return _rendered(fig, photographic=True)
+
+
+def routes_by_category(
+    routes: gpd.GeoDataFrame, column: str = "route_kind"
+) -> plt.Figure:
+    """Every mapped route on one map, coloured by what kind of route it is.
+
+    The area panels answer "where"; this answers "what". Two questions, and
+    one map cannot carry both without becoming a mess.
+    """
+    drawn = _tiles(routes)
+    categories = sorted(drawn[column].dropna().unique())
+    colours = dict(zip(categories, [BLUE, RED, GREEN, SAND, INK]))
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    # Commonest first, so the 25 mtb relations are not buried under the 684
+    # hiking ones.
+    for category in sorted(categories, key=lambda c: -(drawn[column] == c).sum()):
+        part = drawn[drawn[column] == category]
+        part.plot(ax=ax, color=colours[category], linewidth=1.0, alpha=0.9)
+        ax.plot(
+            [],
+            [],
+            color=colours[category],
+            linewidth=2,
+            label=f"{category} — {len(part)} routes, {part['km'].sum():,.0f} km",
+        )
+    ax.legend(loc="lower left", fontsize=8, frameon=False)
+    ax.set_aspect("equal")
+    _basemap(ax)
+    _finish(ax)
+    return _rendered(fig, photographic=True)
