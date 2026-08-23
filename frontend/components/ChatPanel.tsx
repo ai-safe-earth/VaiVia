@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   AuthRequiredError,
-  fetchRouteDetail,
   fetchRouteGeoJson,
   fetchTrailGeoJson,
   sendChat,
 } from '@/lib/api';
+import { isStillSelected, mayDraw, planReveal } from '@/lib/mapTurn';
 import { isAuthConfigured } from '@/lib/supabaseClient';
 import type { ChatMessage, Loop, RouteDetail, Trail } from '@/lib/types';
+import { useRouteDetails } from '@/lib/useRouteDetails';
 
 import { FoldedCards } from './FoldedCards';
 import { LoopCard } from './LoopCard';
@@ -45,6 +46,13 @@ interface Props {
    *  in the favorites view are the same state. Absent when signed out. */
   favorites?: Set<string>;
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
+  /** Out of sight, still mounted. The Saved-routes view takes over the column
+   *  but must not DESTROY the conversation underneath it: this panel owns the
+   *  visible transcript, and unmounting it threw the transcript away and
+   *  remounted from a `history` prop that only stored-conversation navigation
+   *  ever writes. Hidden, not unmounted, so closing Saved routes returns to
+   *  the answer you were reading — mid-stream turns included. */
+  hidden?: boolean;
 }
 
 export function ChatPanel({
@@ -55,6 +63,7 @@ export function ChatPanel({
   onConversationCreated,
   favorites,
   onToggleFavorite,
+  hidden = false,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
@@ -69,48 +78,55 @@ export function ChatPanel({
   // clicking between loops restyles what is already drawn instead of
   // refetching and making the map flicker.
   const loopFeatures = useRef<Map<string, GeoJSON.Feature>>(new Map());
+  // Which ANSWER those features belong to. The drawn set is one answer's, and
+  // "show more" under an older one used to merge its routes into the current
+  // answer's map — a picture belonging to neither turn.
+  const drawnTurn = useRef<number | null>(null);
   // Route documents' detail (profile, measures), fetched once per route on
-  // first expand or selection. undefined = never asked, null = gone/failed.
-  const [routeDetails, setRouteDetails] = useState<
-    Record<string, RouteDetail | null>
-  >({});
-  const detailInFlight = useRef<Set<string>>(new Set());
-  // Selection, readable from async continuations without a stale closure.
-  const selectedRef = useRef<string | null>(null);
+  // first expand or selection — asked once, null on failure, and only painted
+  // if its card is still the selected one. Shared with the saved-routes view,
+  // which is where those three rules were dropped when they were copied.
+  // Hidden means the Saved-routes view owns the column AND the map. A stream
+  // that finishes back here must not repaint under it, so every emission goes
+  // through these -- and through a REF, because a continuation that started
+  // while visible would otherwise close over the old value.
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
+  const emitGeometry: Props['onGeometry'] = (geometry) => {
+    if (!hiddenRef.current) onGeometry(geometry);
+  };
+  const emitDetail = (detail: RouteDetail | null) => {
+    if (!hiddenRef.current) onDetail?.(detail);
+  };
+
+  const routes = useRouteDetails(emitDetail);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    // Back in view: the map is this panel's again, so redraw what this answer
+    // had on it. Nothing was emitted while hidden, so without this the
+    // favorites view's last route would stay under the transcript.
+    if (!hidden && loopFeatures.current.size) drawLoops(routes.current());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidden]);
+
   async function selectTrail(trail: Trail) {
     setSelectedTrail(trail.id);
-    selectedRef.current = trail.id;
+    routes.select(trail.id);
     // Trails carry no document detail; the elevation panel goes quiet rather
     // than showing the previous route's profile under a trail's name.
-    onDetail?.(null);
+    emitDetail(null);
     loopFeatures.current.clear();
-    onGeometry(await fetchTrailGeoJson(trail.id));
-  }
-
-  /** Fetch a route's document detail once and hand it to the elevation
-   *  panel. A failure records null — "no profile", never a spinner forever. */
-  async function loadDetail(loop: Loop) {
-    if (loop.id in routeDetails) {
-      onDetail?.(routeDetails[loop.id] ?? null);
-      return;
-    }
-    if (detailInFlight.current.has(loop.id)) return;
-    detailInFlight.current.add(loop.id);
-    try {
-      const detail = await fetchRouteDetail(loop.id);
-      setRouteDetails((current) => ({ ...current, [loop.id]: detail }));
-      if (selectedRef.current === loop.id) onDetail?.(detail);
-    } catch {
-      setRouteDetails((current) => ({ ...current, [loop.id]: null }));
-    } finally {
-      detailInFlight.current.delete(loop.id);
-    }
+    // A trail whose geometry will not come (gone, or the session expired) is
+    // a blank map, not an unhandled rejection out of a void-ed handler.
+    const geometry = await fetchTrailGeoJson(trail.id).catch(() => null);
+    // A slow trail A must not repaint the map after trail B was picked.
+    if (!isStillSelected(routes.current(), trail.id)) return;
+    emitGeometry(geometry);
   }
 
   /** Every loop drawn at once, with `selected` marking the one to highlight.
@@ -121,37 +137,62 @@ export function ChatPanel({
       ...feature,
       properties: { ...(feature.properties ?? {}), id, selected: id === selectedId },
     }));
-    if (features.length === 0) return;
-    onGeometry({ type: 'FeatureCollection', features });
+    // An answer whose geometry all failed draws NOTHING rather than leaving
+    // the previous answer's routes on screen under it.
+    emitGeometry(features.length ? { type: 'FeatureCollection', features } : null);
   }
 
   function selectLoop(loop: Loop) {
     setSelectedTrail(loop.id);
-    selectedRef.current = loop.id;
+    routes.select(loop.id);
     drawLoops(loop.id);
-    void loadDetail(loop);
+    void routes.load(loop.id);
   }
 
-  async function loadLoopGeometry(loops: Loop[]) {
+  async function loadLoopGeometry(loops: Loop[], turn: number) {
     loopFeatures.current.clear();
-    await appendLoopGeometry(loops);
+    await appendLoopGeometry(loops, turn);
+  }
+
+  /** "Show more" under one answer's loops.
+   *
+   *  Revealing cards of the answer already on the map ADDS them to it. From
+   *  any other answer it is a change of subject: that turn takes the map
+   *  over, drawn from its first card so what is shown is one answer whole,
+   *  never a mix of two.
+   */
+  async function revealLoops(turn: number, loops: Loop[], from: number, to: number) {
+    const plan = planReveal(drawnTurn.current, turn, from, to);
+    drawnTurn.current = plan.drawnTurn;
+    const [start, end] = plan.slice;
+    if (!plan.clear) {
+      await appendLoopGeometry(loops.slice(start, end), turn);
+      return;
+    }
+    routes.select(null);
+    setSelectedTrail(null);
+    await loadLoopGeometry(loops.slice(start, end), turn);
   }
 
   /** Fetch geometry for these loops and merge it into the drawn set — used
    *  both for the visible fold of a fresh answer and for cards a "show more"
    *  just revealed. Settled, not all: one route missing its geometry must not
    *  stop the others being drawn. */
-  async function appendLoopGeometry(loops: Loop[]) {
+  async function appendLoopGeometry(loops: Loop[], turn: number) {
     const missing = loops.filter((loop) => !loopFeatures.current.has(loop.id));
     const results = await Promise.allSettled(
       missing.map((loop) => fetchRouteGeoJson(loop.id)),
     );
+    // The drawn set belongs to ONE answer, and this fetch was slow enough that
+    // another answer may own it now. Guarding only the dispatch left the
+    // continuation free to merge an older turn's routes into the new set.
+    if (!mayDraw(drawnTurn.current, turn)) return;
     results.forEach((result, index) => {
       if (result.status === 'fulfilled' && result.value) {
         loopFeatures.current.set(missing[index].id, result.value);
       }
     });
-    drawLoops(selectedRef.current);
+    drawLoops(routes.current());
   }
 
   async function submit(text: string) {
@@ -175,6 +216,11 @@ export function ChatPanel({
         return next;
       });
 
+    // Which assistant turn this submit is writing: the user turn is appended
+    // first, so it is the one after it. A later "show more" compares against
+    // this to tell whose geometry is on the map.
+    const turnIndex = messages.length + 1;
+
     let streamed = '';
     try {
       for await (const event of sendChat(message, conversationId)) {
@@ -190,7 +236,8 @@ export function ChatPanel({
             // visible fold is fetched; "show more" fetches what it reveals.
             if (event.results.loops?.length) {
               const fold = event.results.answered_count ?? DEFAULT_FOLD;
-              void loadLoopGeometry(event.results.loops.slice(0, fold));
+              drawnTurn.current = turnIndex;
+              void loadLoopGeometry(event.results.loops.slice(0, fold), turnIndex);
               break;
             }
             // A composed plan can resolve several routes; draw them all.
@@ -198,7 +245,7 @@ export function ChatPanel({
               .map((block) => block.geometry)
               .filter((g): g is GeoJSON.LineString => Boolean(g));
             if (lines.length > 1) {
-              onGeometry({
+              emitGeometry({
                 type: 'FeatureCollection',
                 features: lines.map((geometry) => ({
                   type: 'Feature',
@@ -207,7 +254,7 @@ export function ChatPanel({
                 })),
               });
             } else if (event.results.geometry) {
-              onGeometry(event.results.geometry);
+              emitGeometry(event.results.geometry);
             }
             break;
           }
@@ -238,7 +285,9 @@ export function ChatPanel({
   }
 
   return (
-    <section className="chat">
+    // display:none rather than a class, so it beats `.chat { display: flex }`
+    // — and it takes the panel out of the tab order and the a11y tree too.
+    <section className="chat" style={hidden ? { display: 'none' } : undefined}>
       {!isAuthConfigured() && (
         <div className="notice">
           <div className="notice-bar" />
@@ -308,12 +357,9 @@ export function ChatPanel({
                 them. */}
             {message.results?.loops && message.results.loops.length > 0 && (
               <FoldedCards
-                count={message.results.loops.length}
                 fold={message.results.answered_count ?? DEFAULT_FOLD}
                 onReveal={(from, to) =>
-                  void appendLoopGeometry(
-                    (message.results?.loops ?? []).slice(from, to),
-                  )
+                  void revealLoops(index, message.results?.loops ?? [], from, to)
                 }
               >
                 {message.results.loops.map((loop) => (
@@ -323,7 +369,7 @@ export function ChatPanel({
                     selected={selectedTrail === loop.id}
                     onSelect={selectLoop}
                     onExpand={selectLoop}
-                    detail={routeDetails[loop.id]}
+                    detail={routes.details[loop.id]}
                     favorited={favorites?.has(loop.id) ?? false}
                     onToggleFavorite={onToggleFavorite}
                   />
@@ -332,10 +378,7 @@ export function ChatPanel({
             )}
 
             {message.results?.trails && message.results.trails.length > 0 && (
-              <FoldedCards
-                count={message.results.trails.length}
-                fold={message.results.answered_count ?? DEFAULT_FOLD}
-              >
+              <FoldedCards fold={message.results.answered_count ?? DEFAULT_FOLD}>
                 {message.results.trails.map((trail) => (
                   <TrailCard
                     key={trail.id}

@@ -15,6 +15,7 @@ observed on cold Docker starts. A routing outage should not follow from that.
 import json
 import logging
 from contextlib import suppress
+from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 
@@ -154,13 +155,34 @@ async def _load_route_document(route_id: str, db: DbDep) -> dict:
             "geometry is unavailable until they are",
         )
     document_path = Path(settings.route_documents_dir) / f"{route_id}.json"
-    if not document_path.is_file():
+    try:
+        stat = document_path.stat()
+    except OSError:
         raise HTTPException(
             status_code=503,
             detail=f"route {route_id!r} is in the catalogue but its document is "
             "missing from the store — re-emit the documents",
-        )
-    return json.loads(document_path.read_text(encoding="utf-8"))
+        ) from None
+    return _read_document(str(document_path), stat.st_mtime_ns, stat.st_size)
+
+
+#: How many parsed route documents to hold. Selecting one card asks for its
+#: geometry AND its detail, which was the same file read and json.loads'd
+#: twice; a fold of cards multiplies that by ten. Documents are static between
+#: exports, so the parse is worth keeping.
+DOCUMENT_CACHE_SIZE = 32
+
+
+@lru_cache(maxsize=DOCUMENT_CACHE_SIZE)
+def _read_document(path: str, mtime_ns: int, size: int) -> dict:
+    """One parsed route document. Callers READ it; nobody may mutate it.
+
+    Keyed by mtime and size as well as path, so a re-export invalidates the
+    entry by not matching it rather than by anyone remembering to clear a
+    cache — route ids are geometry-derived and survive a rebuild, which is
+    exactly why the path alone would not be enough.
+    """
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def _attribution(document: dict) -> str:
@@ -228,8 +250,16 @@ async def get_route_detail(route_id: str, db: DbDep) -> RouteDetail:
     if profile and profile.get("distance_m"):
         route_m = document["measures"]["distance_m"]
         profile_end = profile["distance_m"][-1]
-        off_by = abs(profile_end - route_m) / route_m if route_m else 0.0
-        profile_quality = "ok" if off_by <= PROFILE_TOLERANCE else "approximate"
+        if not route_m:
+            # Nothing to compare the profile against — a clipped fragment with
+            # a 0 or absent measured length. `off_by = 0.0` here read as a
+            # PERFECT agreement and shipped 'ok', which is the quiet lie
+            # PROFILE_TOLERANCE exists to stop: no basis means no claim of
+            # accuracy, so the chart carries its caveat.
+            profile_quality = "approximate"
+        else:
+            off_by = abs(profile_end - route_m) / route_m
+            profile_quality = "ok" if off_by <= PROFILE_TOLERANCE else "approximate"
 
     return RouteDetail(
         route_id=route_id,

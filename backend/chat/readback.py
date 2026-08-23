@@ -37,13 +37,6 @@ DIFFICULTY_WORDS = {1: "easy", 2: "intermediate", 3: "difficult", 4: "hardest"}
 
 ACTIVITY_WORDS = {"hike": "on foot", "mtb": "by mountain bike"}
 
-SEASON_WORDS = {
-    "spring": "spring",
-    "summer": "summer",
-    "autumn": "autumn",
-    "winter": "winter",
-}
-
 
 def _km(metres: float) -> str:
     """Metres as a walker says them. Whole kilometres above 10 km."""
@@ -60,6 +53,10 @@ def _hours(minutes: int) -> str:
 
 def _band(low: float | None, high: float | None) -> str | None:
     if low is not None and high is not None:
+        # A band of one number is an equality filter, and "15 km to 15 km"
+        # reads like a range that happens to be narrow. Say what it does.
+        if low == high:
+            return f"exactly {_km(low)}"
         return f"{_km(low)} to {_km(high)}"
     if high is not None:
         return f"under {_km(high)}"
@@ -99,16 +96,44 @@ def _features(poi_types: list[str]) -> str | None:
     return " and ".join([", ".join(named[:-1]), named[-1]])
 
 
-def _search_rows(search: TrailSearchIntent, rows: list[dict[str, str]]) -> None:
+def _search_rows(
+    search: TrailSearchIntent,
+    rows: list[dict[str, str]],
+    *,
+    view: LoopSearchIntent | None = None,
+) -> None:
+    """The trail ask as it ran; `view` is the catalogue ask beside it, if any.
+
+    The two are not always the same query. A single stated distance stays
+    exact for the trails and is WIDENED into a band for the catalogue (real
+    routes are 15,328 m, so 15 km exactly matches nothing there), and showing
+    only one of them under one heading reports a filter half the answer did
+    not run.
+    """
+    catalogue = view is not None
     _row(rows, "activity", ACTIVITY_WORDS.get(search.activity or ""))
-    _row(rows, "distance", _band(search.min_distance_m, search.max_distance_m))
+    _row(rows, "distance", _distance_row(search, view))
     _row(
         rows,
         "climb",
         _climb_band(search.min_elevation_gain_m, search.max_elevation_gain_m),
     )
     if search.max_duration_min is not None:
-        _row(rows, "time", f"under {_hours(search.max_duration_min)}")
+        # Trails ARE post-filtered by duration; the catalogue beside them is
+        # not (its durations wait on DIN 33466 calibration). When both kinds
+        # answer the same ask, a bare "under 2 h" asserts a filter over half
+        # the results it did not run — the silent drop this module exists to
+        # prevent, and the same caveat _loop_rows carries.
+        _row(
+            rows,
+            "time",
+            (
+                f"under {_hours(search.max_duration_min)} — named trails only; "
+                "our catalogue durations are not calibrated yet"
+                if catalogue
+                else f"under {_hours(search.max_duration_min)}"
+            ),
+        )
     if search.family_friendly:
         # The cap is applied in the orchestrator, so say the cap, not the flag.
         _row(rows, "difficulty", "easy only, for children")
@@ -120,7 +145,8 @@ def _search_rows(search: TrailSearchIntent, rows: list[dict[str, str]]) -> None:
         )
     _row(rows, "passes", _features(list(search.poi_types)))
     _row(rows, "near", search.region)
-    _row(rows, "season", SEASON_WORDS.get(search.season or ""))
+    # No mapping: a season is already the word a walker said.
+    _row(rows, "season", search.season)
     _row(
         rows, "avoiding", ", ".join(h.replace("_", " ") for h in search.exclude_hazards)
     )
@@ -131,9 +157,30 @@ def _search_rows(search: TrailSearchIntent, rows: list[dict[str, str]]) -> None:
     )
 
 
+def _distance_row(
+    search: TrailSearchIntent, view: LoopSearchIntent | None
+) -> str | None:
+    """The band the trails ran, plus the catalogue's where it differs."""
+    stated = _band(search.min_distance_m, search.max_distance_m)
+    if view is None or stated is None:
+        return stated
+    if (view.min_distance_m, view.max_distance_m) == (
+        search.min_distance_m,
+        search.max_distance_m,
+    ):
+        return stated
+    widened = _band(view.min_distance_m, view.max_distance_m)
+    return f"{stated} for trails, {widened} in our route catalogue"
+
+
 def _difficulty(low: int | None, high: int | None) -> str | None:
     if low is not None and high is not None and low == high:
         return DIFFICULTY_WORDS.get(high)
+    if low is not None and high is not None:
+        # Both ran, so both are shown. Rendering the ceiling alone hid a floor
+        # the query applied, and a hidden filter is the one thing a readback
+        # must never do.
+        return f"{DIFFICULTY_WORDS.get(low, low)} to {DIFFICULTY_WORDS.get(high, high)}"
     if high is not None:
         return f"{DIFFICULTY_WORDS.get(high, high)} at most"
     if low is not None:
@@ -175,12 +222,17 @@ def describe(plan: ComposedPlan) -> list[dict[str, str]]:
         _loop_rows(plan.loop, rows)
         _row(rows, "looked in", "our route catalogue")
     elif plan.search is not None:
-        _search_rows(plan.search, rows)
+        # The catalogue ask that ran beside the trails, if one did. It decides
+        # how honest two rows have to be: the duration the catalogue cannot
+        # filter, and the distance band it widened.
+        view = catalogue_view(plan.search) if plan.theme is None else None
+        also_catalogue = view is not None
+        _search_rows(plan.search, rows, view=view)
         if plan.theme is not None:
             # A theme cannot be matched against the catalogue (no embeddings
             # there), which is why such a turn stays trails-only.
             _row(rows, "looked in", "named trails, matched by description")
-        elif catalogue_view(plan.search) is not None:
+        elif also_catalogue:
             _row(rows, "looked in", "named trails and our route catalogue")
         else:
             _row(

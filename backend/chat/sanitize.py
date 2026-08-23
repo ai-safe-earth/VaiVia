@@ -24,9 +24,23 @@ from collections.abc import AsyncIterator
 #: answer needs so its prose and the cards on screen agree.
 _MARKDOWN_LINK = re.compile(r"\[([^\]\n]*)\]\(\s*<?[^)\s]*[^)]*\)")
 
-#: A bare URL the model typed out. Scheme-ful or www-prefixed only: a rule that
-#: also ate ``trailforks.com`` would eat ``Monte Misma, 1.161 m.s.l.m.`` too.
+#: A bare URL the model typed out, scheme-ful or www-prefixed.
 _BARE_URL = re.compile(r"(?:https?://|www\.)[^\s<>()\[\]]+", re.IGNORECASE)
+
+#: ...and the same thing with neither, which the rule above let through. The
+#: ban is on links, and ``trailforks.com/trails/lecco`` is one a walker can
+#: type in whatever the model left off. Two shapes only, so ordinary prose
+#: survives: a domain under a GENERIC TLD, or any domain carrying a path.
+#: ``Monte Misma, 1.161 m.s.l.m.`` is neither -- and the two-letter country
+#: codes stay out of the generic set, because a missing space after a full
+#: stop ("steep.It flattens") would otherwise read as one.
+_LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+_PATH = r"/[^\s<>()\[\]]*"
+_BARE_DOMAIN = re.compile(
+    rf"(?<![\w.@/])(?:{_LABEL}\.)+(?:com|org|net|io|app|dev|info)\b(?:{_PATH})?"
+    rf"|(?<![\w.@/])(?:{_LABEL}\.)+[a-z]{{2,}}{_PATH}",
+    re.IGNORECASE,
+)
 
 _EMPTY_PARENS = re.compile(r"\(\s*\)")
 _RUN_OF_SPACES = re.compile(r"[ \t]{2,}")
@@ -37,6 +51,7 @@ def unlink(text: str) -> str:
     """Remove every link from ``text``, keeping the words around it readable."""
     text = _MARKDOWN_LINK.sub(r"\1", text)
     text = _BARE_URL.sub("", text)
+    text = _BARE_DOMAIN.sub("", text)
     text = _EMPTY_PARENS.sub("", text)
     text = _RUN_OF_SPACES.sub(" ", text)
     return _SPACE_BEFORE_PUNCT.sub(r"\1", text)
@@ -64,11 +79,32 @@ def _hold_from(buffer: str) -> int:
     opening = buffer.rfind("[")
     while opening != -1:
         if not _MARKDOWN_LINK.search(buffer, opening):
-            hold = min(hold, opening)
-            break
+            if _link_still_possible(buffer, opening):
+                hold = min(hold, opening)
+                break
         opening = buffer.rfind("[", 0, opening)
 
     return hold
+
+
+def _link_still_possible(buffer: str, opening: int) -> bool:
+    r"""Could the '[' at ``opening`` still grow into a link, or is it just a '['?
+
+    Holding on a bracket that can never close is what turns a streamed answer
+    into one late blob: a '[1]' citation or an aside like '[T1 to T3 apply'
+    would pin the hold and buffer every later token to end of stream. Two
+    things rule a link out for good, both read off _MARKDOWN_LINK: a newline in
+    the label, which its ``[^\]\n]*`` class forbids, and a ']' followed by
+    anything other than the '(' the pattern requires next.
+    """
+    rest = buffer[opening + 1 :]
+    close = rest.find("]")
+    label = rest if close == -1 else rest[:close]
+    if "\n" in label:
+        return False
+    if close == -1:
+        return True  # the ']' may still be on its way
+    return rest[close + 1 : close + 2] in ("", "(")
 
 
 async def strip_links_stream(deltas: AsyncIterator[str]) -> AsyncIterator[str]:

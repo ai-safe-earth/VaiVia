@@ -1,6 +1,6 @@
 # Handoff — VaiVia
 
-Last updated 2026-08-18.
+Last updated 2026-08-21.
 
 The project was renamed from `get-out-door` to **VaiVia** on 2026-08-17. The
 GitHub remote is now `https://github.com/ai-safe-earth/VaiVia.git` and the local
@@ -1474,6 +1474,186 @@ EVERY recreate re-fetches and can lose GDS. Durable fix (owner infra call):
 mount a plugins volume and seed GDS once from a reachable source, or pin a local
 jar. I did not change the plugin strategy unilaterally.
 
+## 2026-08-21 (eighth) - The code review, applied: ten findings and the eight the cap cut
+
+A high-effort review of feat/query-loop-foundations verified 27 deduped
+candidates (24 confirmed) and reported the 10 most severe. All ten are fixed,
+plus every cleanup finding the ten-item cap pushed out. Five commits, all tiers
+green: backend 314, frontend 58, gateway 40, ruff/black/tsc/next build clean.
+
+**The theme across the correctness ten was a claim with nothing behind it.**
+catalogue_view copied a stated distance verbatim, so "a 15 km hike" ran
+>= 15000 AND <= 15000 over routes that are 15,328 m long and the implicit
+block vanished, while "a 15 km loop" got a band and results. A region that
+failed POI resolution left the catalogue with NO geo filter while the readback
+said "near: Bergamo" over a list from Lecco. The reading showed "time: under
+2 h" on the catalogue path, where duration is deliberately not filtered, and
+showed a difficulty ceiling while hiding the floor beside it. And run_read's
+timeout was merged into the Cypher PARAMETERS by execute_query, arriving as an
+unused $timeout - so **docs/fragilities.md #15 is corrected**: the live probe
+that concluded "the server setting is the real control" was calling a driver
+that never sent a timeout at all. The server setting is still the availability
+control, but that probe wants re-running now the client hint is really sent.
+
+Favorites was the one surface where a quarantined route could reach the screen:
+route_exists and routes_by_ids carried no `warnings = 0`, so POSTing any id
+saved a 0.0 km OSM fragment wearing a famous name and the list rendered it as a
+full card. The theme path shipped 20 cards off a 25-candidate vector pool with
+no similarity floor; the cut is now RELATIVE to the best match (a normalized
+cosine score has no bright line) so it can shrink a result set but never empty
+one - **the constant wants calibrating against a populated index**.
+
+Three frontend state bugs: opening Saved routes UNMOUNTED the chat panel and
+remounted it from a `history` prop that only stored-conversation navigation
+writes, wiping the transcript you were reading; "show more" under an older
+answer merged its routes into the current answer's map, a picture belonging to
+neither turn; and FavoritesView awaited geometry outside its try, so a 503 left
+the card fetching a profile for ever.
+
+**Then the eight the cap cut.** Four more correctness: profile_quality read
+`off_by = ... if route_m else 0.0` and a zero disagreement is a PERFECT one, so
+a fragment measuring 0 m was served 'ok'; the saved set was built from `routes`
+alone and dropped `missing`, so a bookmark showed unfilled on a route saved
+long ago and the second tap DELETED it; the link ban only knew scheme-ful and
+www-prefixed URLs, and "trailforks.com/trails/lecco" is a link a walker can
+type; golden g20 lost its region pin when it was rewritten from search.* to
+loop.*. Re-run since: **scripts.eval_golden is 26/26 against the live model**,
+g20 included, so the region really does survive decomposition on the loop path.
+
+The reuse findings were all one rule written twice, and two had already
+drifted. routes_by_ids hand-copied search_loops' POI subquery and its 28-column
+RETURN and had grown a stray relationship variable; both now end in a
+route_card fragment, guarded byte-identical. The family-friendly cap lived at
+both call sites that promise it. api.ts had six copies of "get the token, set
+the header, fetch" reading the 401 four different ways, so an expired session
+showed up as a card that would not load. The chat panel and the saved-routes
+view both loaded route detail, and the copy is where the in-flight guard, the
+stale-selection guard and null-on-failure went missing - that copy is what
+produced one of the ten. One hook now.
+
+Two efficiency ones: selecting a card read and parsed the same document file
+twice (cached, keyed by mtime and size so a re-export invalidates by not
+matching), and a both-kinds turn ran the trail search, the place lookup and the
+catalogue strictly one after another (gathered; pinned by a fake db that makes
+the trail search wait for the catalogue query to start, and verified to fail
+against a sequential variant).
+
+Left deliberately, because they are design calls rather than defects:
+catalogue_view guards with a default-open blocklist where an allowlist would be
+safer; readback re-derives what the orchestrator did instead of rendering the
+parameters that actually ran; and the shape vocabulary (loop/circular/
+destination/linear) is spelled out in four places across three tiers.
+
+## 2026-08-21 (ninth) - Three live runs: the eval, the timeout, and a corpus of five
+
+Brought the stack up and closed the two open steps. The Neo4j container was
+started, never recreated - a recreate is what dropped GDS last time - and GDS
+came back on its own: **graphdatascience.ninja is reachable again** and the
+restart installed 2.13.12 (423 gds procedures live). The hazard is unchanged
+though: the plugins dir is still not volume-mounted, so the next recreate is
+another coin toss.
+
+**Golden eval, live: decomposition 26/26, retrieval 17/19 retrieved, 16/19
+ranked first.** g20's restored region pin passes against the live model, so
+"an easy mountain bike loop near Bergamo" really does decompose to
+loop.near = Bergamo. The two retrieval misses are both structured-filter
+conjunctions, not ranking failures: g10 asks for poi_types ['bathing_water'],
+which no fixture trail carries, and g18 decomposes into a TWELVE-constraint
+conjunction (min gain 800 m, 10-20 km, lake AND viewpoint, no road surface,
+summer, no snow, no ice) that nothing can satisfy. Both queries returned zero
+rows before any ranking ran. Worth a decision: g18's over-specification comes
+from the intent prompt inventing bounds nobody stated, and it is the same
+over-specification that makes catalogue_view refuse the ask.
+
+**The read timeout bites now** (docs/fragilities.md #15 rewritten, and
+`scripts/probe_read_timeout.py` added so it can be re-run). Two corrections
+were needed to get an honest number. The timeout was never sent - execute_query
+merges kwargs into the Cypher parameters - and the "expensive" read was not
+expensive: a three-way cartesian over 84k intersections returns in 0.05 s with
+595,608,748,359,353, because the planner multiplies counts instead of walking
+rows. Against half a billion non-optimisable iterations: a 2 s client timeout
+kills it at 2.66 s with TransactionTimedOutClientConfiguration, and with no
+client timeout the server's 10 s kills it at 11.77 s. Both layers work, the
+client hint is the tighter one, and the cap is approximate rather than a
+deadline - the check runs at a poll interval.
+
+**The semantic cut cannot be calibrated yet, and finding out why is the real
+result.** `(:Trail)` holds FIVE rows. The OSM data is there - 104,812 segments,
+3,195 POIs, 980 routes - but trails are still the Trailforks-shaped stub, so
+the whole semantic theme path searches five fixture documents and a
+25-candidate pool comes back with five. Any floor fitted to that describes the
+fixture, so SEMANTIC_SCORE_DROP stays at 0.05 (it keeps a median of 2 of the 5)
+with the measurement recorded beside it, and `scripts/calibrate_semantic_drop.py`
+is there to re-run the moment there is a corpus.
+
+The run did settle one thing the constant cannot fix. Off-corpus themes score
+LOW in absolute terms - "a coral reef dive with sea turtles" tops out at 0.58
+where a real match reaches 0.75-0.83 - and a relative cut always keeps the top
+row. So **"nothing here matches your theme" is unsayable by construction**, and
+that wants an absolute floor beside the relative one, whose value is exactly
+what a real corpus would let us measure.
+
+## 2026-08-21 (tenth) - The review round: a read-only path with no callers, and GDS quietly off
+
+An external review blocked the branch with four blockers, six should-fixes and
+four test gaps. Most of it held up; two blockers did not; and checking it
+turned up something bigger than anything on the list.
+
+**run_named delegated to run(), which is WRITE-routed - so run_read had ZERO
+production callers.** The API, the chat orchestrator, favorites and the whole
+catalogue ran under write mode while the docstrings, fragilities #15 and the
+"read-only path" commit all described a read-only query service. The timeout
+fix earlier today hardened a path nothing called. run_named is READ now; every
+named template is non-mutating (the guard suite fails the build otherwise), so
+the routing mode enforces what the guard asserts. Measured before switching,
+because two templates are GDS procedure calls rather than plain reads:
+gds.graph.project and gds.graph.drop both succeed under READ routing.
+
+**GDS was silently broken, found while probing that.** Allowlisted is not
+enough: gds.util.asNode reaches outside the procedure sandbox, so
+route_gds_dijkstra died with ProcedureRegistrationFailed and point-to-point
+routing fell back to hop-count shortestPath - silently, because the fallback is
+a Neo4jError catch. The base image ships
+dbms.security.procedures.unrestricted as apoc.*, which un-restricts the one
+namespace the Phase 1 allowlist exists to deny. It is gds.* now, and verified
+live after a container recreate: Dijkstra returns a comfort-weighted path
+again (total_cost 554.5 on a two-node hop), through run_named, under READ
+routing. Note the recreate re-fetched the plugin successfully - the manifest
+host is reachable today - but the plugins dir is still not volume-mounted.
+
+**The clarify bypass was real.** subqueries were truncated to MAX_SUBQUERIES
+BEFORE the clarify scan, so a fifth subquery carrying the refusal was dropped
+while the four runnable ones in front of it went to the graph - the guarantee
+broken by an off-by-a-cap, on exactly the adversarial input the guarantee
+exists for. The test that asserted the bypass now asserts the rule.
+
+**Three of the frontend findings were mine, from this morning's fixes.**
+Keeping ChatPanel mounted (the fix for the wiped transcript) let a stream
+finishing behind the Saved-routes view repaint the map under it; the turn-
+ownership fix guarded dispatch but not the continuation after the await; and
+the trail-geometry path never re-checked the selection. All three now go
+through explicit guards. Favorites state is also cleared on any account change,
+with responses that outlived their sign-in dropped, and a detail fetch that
+failed for anything other than a 404 stays retryable instead of becoming a
+permanent "no altitude profile".
+
+**Two blockers did not hold.** The estimate_loops collect is a real pattern but
+that template has no caller and the catalogue is ~1k rows bounded by the
+export; the suggested fix (count separately, then LIMIT) would break the one
+property the shared fragment exists to guarantee, so the comment now states
+plainly that the OUTPUT is bounded and the intermediate is not. And
+"fragilities.md plans model-generated Cypher" is pre-existing text from
+33b131d describing a FLAGGED future capability from the approved plan - it
+documents the controls rather than removing a boundary. Worth an owner
+decision on wording, since CLAUDE.md says "never" flatly, but not a code
+blocker.
+
+**The test-gap criticism was the fair one.** The frontend tests mirrored
+production logic in the test file, which is this repo's convention and is worth
+nothing against a race: inverting a guard in the component left every assertion
+green. lib/mapTurn.ts and lib/favorites.ts now hold the rules the components
+call, and the tests import those.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1752,7 +1932,7 @@ jar. I did not change the plugin strategy unilaterally.
         },
         {
           "date": "2026-08-16",
-          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) — never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
+          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) \u2014 never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
         },
         {
           "date": "2026-08-16",
@@ -1760,7 +1940,7 @@ jar. I did not change the plugin strategy unilaterally.
         },
         {
           "date": "2026-08-16",
-          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node — the lake's node sits ~400 m off its own shoreline path"
+          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node \u2014 the lake's node sits ~400 m off its own shoreline path"
         },
         {
           "date": "2026-08-16",
@@ -2108,6 +2288,90 @@ jar. I did not change the plugin strategy unilaterally.
     }
   ],
   "nextSteps": [
+    {
+      "title": "Decide the wording of fragilities #15 against CLAUDE.md: the doc describes a flagged model-generated-Cypher capability while CLAUDE.md says the LLM never writes Cypher, flatly. One of the two should move",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Re-run smoke_routing now that GDS works again - point-to-point routing has been silently falling back to hop-count shortestPath, so any routing figures measured since the allowlist landed are shortestPath's, not comfort-weighted",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Revisit estimate_loops' unbounded intermediate collect if the catalogue grows by an order of magnitude - the output is capped, the collect is not, and an exact count plus its sample cannot be split without two queries that can disagree",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether the frontend gets a component-test setup (jsdom + testing-library): the pure-helper split covers the race guards, but nothing tests a component end to end",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Split or re-scope this branch before merging: feat/query-loop-foundations now carries the query-loop foundations plus ten review fixes across four tiers",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Derive (:Trail) from OSM and the route documents - it is still 5 Trailforks-shaped fixtures, so the whole semantic theme path searches five documents",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Add an ABSOLUTE similarity floor beside the relative cut, then calibrate both with scripts.calibrate_semantic_drop against a real corpus - a relative cut always keeps the top row, so 'nothing matches your theme' cannot be said today (off-corpus themes top out at 0.58 against 0.75-0.83 for a real match)",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide what to do about intent over-specification: golden g18 decomposes into a twelve-constraint conjunction nothing can satisfy, which is also why catalogue_view refuses that ask",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Align the POI vocabulary the intent model emits with the one the graph carries - golden g10 asks for poi_types ['bathing_water'] and retrieves nothing",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Mount a plugins volume for Neo4j so GDS survives a container recreate - it came back this time only because graphdatascience.ninja happened to be reachable",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether catalogue_view should guard with an allowlist of fields it can map rather than the current blocklist of constraints it cannot",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether readback should render the parameters that RAN rather than re-deriving them from the intent - the claims it hand-maintains are what two review findings were about",
+      "est": 1,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
     {
       "title": "Reinstall GDS and stop the recreate hazard: mount the Neo4j plugins dir as a volume and seed GDS once from a reachable source (graphdatascience.ninja is down here; github/maven work), or pin a local jar. Until then routing runs on the shortestPath fallback",
       "est": 0.5,
@@ -2462,6 +2726,27 @@ jar. I did not change the plugin strategy unilaterally.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

@@ -31,9 +31,19 @@ services:
       #   gds.*                          routing (Dijkstra) and its projection lifecycle
       # dbms.* stays for driver routing; narrowing it further is a later tightening.
       NEO4J_dbms_security_procedures_allowlist: "db.*,dbms.*,gds.*"
-      # A hard cap on any single transaction. The driver's per-query timeout does
-      # NOT bite while this is 0 (measured 2026-08-21, docs/fragilities.md #15), so
-      # THIS is the availability control for a pathological generated read.
+      # Allowlisted is not enough for GDS. gds.util.asNode reaches outside the
+      # procedure sandbox, so route_gds_dijkstra died with
+      # ProcedureRegistrationFailed ("unavailable because it is sandboxed") and
+      # routing fell back to hop-count shortestPath -- silently, because the
+      # fallback is a Neo4jError catch. Measured 2026-08-21. The base image
+      # ships this as apoc.*, which un-restricts the one namespace the
+      # allowlist above exists to deny, so it is replaced rather than extended.
+      NEO4J_dbms_security_procedures_unrestricted: "gds.*"
+      # A hard cap on any single transaction, and a real one: with this set,
+      # a 2 s client timeout stops a runaway read at 2.66 s and this setting
+      # stops one carrying no client timeout at 11.77 s (measured 2026-08-21,
+      # docs/fragilities.md #15). It is the control for any read whose caller
+      # passed no timeout of its own.
       NEO4J_db_transaction_timeout: "10s"
       # Neo4j 5 names: the dbms.memory.* forms still work but log a deprecation
       # warning on every boot.

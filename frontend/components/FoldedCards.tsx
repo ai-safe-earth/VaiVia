@@ -3,8 +3,6 @@
 import { Children, useState, type ReactNode } from 'react';
 
 interface Props {
-  /** How many cards exist in total (for the "of N" in the control). */
-  count: number;
   /** How many show before the fold — the same number the answer prose
    *  narrates (results.answered_count), so text and cards agree. */
   fold: number;
@@ -23,9 +21,12 @@ const STEP = 5;
  * narrates (CARD_RESULT_LIMIT vs ANSWER_RESULT_LIMIT in the backend), and
  * this is the seam between the two.
  */
-export function FoldedCards({ count, fold, onReveal, children }: Props) {
-  const [visible, setVisible] = useState(Math.min(Math.max(fold, 1), count));
+export function FoldedCards({ fold, onReveal, children }: Props) {
+  // The total is the children, not a prop beside them: a `count` that could
+  // disagree with what is rendered is a "show 3 more of 20" over 12 cards.
   const items = Children.toArray(children);
+  const count = items.length;
+  const [visible, setVisible] = useState(Math.min(Math.max(fold, 1), count));
   const hidden = count - visible;
 
   return (
