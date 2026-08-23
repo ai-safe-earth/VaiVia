@@ -244,6 +244,32 @@ end, and that vertex is one trailhead, not four. The rest carry their reason: 1,
 chapel is passed, not started from", 999 "a residential area is a polygon, not a point a
 walk begins at", 405 "a summit is a destination, not a trailhead".
 
+### The repair history is in the store, not in a note (2026-08-23)
+
+`qa.finding` keeps every run's findings, so what the repair passes did is a query rather
+than something somebody wrote down afterwards:
+
+| rule | first run | now |
+|---|---|---|
+| degenerate | 488 | 0 |
+| gap_dangle_edge | 92 | 0 |
+| gap_dangle_junction | 15 | 0 |
+| gap_dangle_pair | 9 | 0 |
+| island | 389 | 370 |
+| overlap | 128 | **164** |
+
+Overlap is the one that moved the wrong way, and it is the queue that stays open because
+no rule can close it. `notebooks/state.ipynb` draws this.
+
+**The 2 m tolerance binds two of the four repair rules, not all four.**
+`gap_dangle_pair` and `gap_dangle_junction` MOVE an endpoint, and neither exceeds it
+(max 1.96 m and 1.98 m). `gap_dangle_edge` splits an edge at a point and `degenerate`
+collapses a sub-metre one; neither moves anything, so their `start_moved_m` /
+`end_moved_m` measure the piece that resulted — up to 989 m and 267 m. Read across all
+four, `qa.v_fix` appears to say a repair moved ground 555 m, which never happened. The
+review bundle's blanket "nothing should have moved more than the 2 m tolerance" is true
+of the snaps and misleading over the other two.
+
 ### Urban exits: the 999 rejections, answered (2026-08-22)
 
 "A residential area is a polygon, not a point a walk begins at" is right about the polygon

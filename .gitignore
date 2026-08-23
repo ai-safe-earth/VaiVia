@@ -22,6 +22,10 @@ build/
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
+# ...except the pipeline's state notebook, which is a REVIEW SURFACE rather
+# than someone's scratch pad: it is committed with its outputs so the state of
+# the build reads on GitHub without a database, alongside its HTML export.
+!pipeline/notebooks/*.ipynb
 
 # OSM / data files (can be large)
 *.osm
