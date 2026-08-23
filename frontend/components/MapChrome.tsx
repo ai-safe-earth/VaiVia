@@ -65,27 +65,56 @@ export interface Profile {
 }
 
 /**
- * The elevation profile: 2px-gap lime bars, three labels beneath.
- *
- * INACTIVE — the payload carries total ascent, not a series, so there is
- * nothing to plot. The labels keep their places with an em dash rather than a
+ * The bars themselves: 2px-gap lime, height relative to the peak. Shared
+ * between the map's elevation panel and the expanded route card, so the two
+ * can never drift apart. An 'approximate' profile — stitched across the gaps
+ * of a multi-piece route — carries its caveat as part of the drawing: the
+ * shape is real, the x-axis is not a true along-route measure.
+ */
+export function ElevationProfile({
+  profile,
+  quality,
+}: {
+  profile: Profile;
+  quality?: 'ok' | 'approximate' | null;
+}) {
+  const peak = Math.max(...profile.samples, 1);
+  return (
+    <>
+      <div className="profile">
+        {profile.samples.map((metres, index) => (
+          <i key={index} style={{ height: `${(metres / peak) * 100}%` }} />
+        ))}
+      </div>
+      {quality === 'approximate' && (
+        <p className="profile-caveat vv-body-sm">
+          Stitched across the gaps of a multi-part route — read the shape, not
+          the distances.
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * The elevation profile panel under the map: the bars, three labels beneath.
+ * With no profile the labels keep their places with an em dash rather than a
  * number: a zero would be a measurement, and we do not have one.
  */
-export function ElevationPanel({ profile }: { profile?: Profile }) {
-  const peak = profile ? Math.max(...profile.samples, 1) : 1;
-
+export function ElevationPanel({
+  profile,
+  quality,
+}: {
+  profile?: Profile;
+  quality?: 'ok' | 'approximate' | null;
+}) {
   return (
     <section className="map-panel" aria-label="Elevation profile">
       {profile ? (
-        <div className="profile">
-          {profile.samples.map((metres, index) => (
-            <i key={index} style={{ height: `${(metres / peak) * 100}%` }} />
-          ))}
-        </div>
+        <ElevationProfile profile={profile} quality={quality} />
       ) : (
         <p className="profile-pending vv-body-sm">
-          No profile yet — the route carries its total climb, not a height at each
-          step.
+          No profile yet — pick a route to see its heights drawn here.
         </p>
       )}
 

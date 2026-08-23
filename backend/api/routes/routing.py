@@ -25,6 +25,7 @@ from api.deps import DbDep
 from api.models import (
     GeoJsonLineString,
     PoiRef,
+    RouteDetail,
     RouteGeoJson,
     RouteRequest,
     RouteResponse,
@@ -133,16 +134,13 @@ async def _route_via_gds(
     }
 
 
-@router.get("/routes/{route_id}/geojson", response_model=RouteGeoJson)
-async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
-    """Map payload for one catalogue route, read from its ROUTE DOCUMENT.
+async def _load_route_document(route_id: str, db: DbDep) -> dict:
+    """The 404/503 ladder every document-backed endpoint shares.
 
-    The graph deliberately carries no geometry (a second home for it is how
-    two truths start — pipeline/export/catalogue.cypher); the document is
-    canonical and this endpoint is the API serving it. The graph answers only
-    "does this route exist", so an unknown id 404s before the filesystem is
-    touched; a catalogue route whose document store is missing or unconfigured
-    is a 503, never an empty shape — the semantic-search degradation rule.
+    The graph answers only "does this route exist", so an unknown id 404s
+    before the filesystem is touched; a catalogue route whose document store
+    is missing or unconfigured is a 503, never an empty answer — the
+    semantic-search degradation rule.
     """
     rows = await db.run_named("route_exists", route_id=route_id)
     if not rows:
@@ -162,7 +160,25 @@ async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
             detail=f"route {route_id!r} is in the catalogue but its document is "
             "missing from the store — re-emit the documents",
         )
-    document = json.loads(document_path.read_text(encoding="utf-8"))
+    return json.loads(document_path.read_text(encoding="utf-8"))
+
+
+def _attribution(document: dict) -> str:
+    return "; ".join(
+        source["attribution"]
+        for source in document.get("provenance", {}).get("sources", [])
+    )
+
+
+@router.get("/routes/{route_id}/geojson", response_model=RouteGeoJson)
+async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
+    """Map payload for one catalogue route, read from its ROUTE DOCUMENT.
+
+    The graph deliberately carries no geometry (a second home for it is how
+    two truths start — pipeline/export/catalogue.cypher); the document is
+    canonical and this endpoint is the API serving it.
+    """
+    document = await _load_route_document(route_id, db)
     geometry = document["geometry"]
     if geometry["type"] != "LineString":
         # A route held in pieces is a MultiLineString; the response model is a
@@ -177,16 +193,54 @@ async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
     properties = {
         "route_id": route_id,
         "point_count": len(coordinates),
-        "attribution": "; ".join(
-            source["attribution"]
-            for source in document.get("provenance", {}).get("sources", [])
-        ),
+        "attribution": _attribution(document),
     }
     if note:
         properties["note"] = note
     return RouteGeoJson(
         geometry=GeoJsonLineString(coordinates=coordinates),
         properties=properties,
+    )
+
+
+# A profile whose cumulative distance disagrees with the measured route length
+# by more than this share is served as 'approximate': multi-piece OSM profiles
+# are a concatenation across gaps (measured 2026-08-21: 16 of 752 differ >1%),
+# and a clean-looking chart over that would be a quiet lie.
+PROFILE_TOLERANCE = 0.01
+
+
+@router.get("/routes/{route_id}/detail", response_model=RouteDetail)
+async def get_route_detail(route_id: str, db: DbDep) -> RouteDetail:
+    """The expandable card's payload, read from the ROUTE DOCUMENT.
+
+    Geometry stays on /geojson (a map payload); this serves the rest of what
+    the document knows — the altitude profile the elevation panel exists to
+    draw, the measures, continuity, surface and places — with the same 404/503
+    honesty ladder. profile_quality says whether the profile can be trusted as
+    an along-route measure ('ok') or is a concatenation across the gaps of a
+    multi-piece route ('approximate').
+    """
+    document = await _load_route_document(route_id, db)
+
+    profile = document.get("profile")
+    profile_quality = None
+    if profile and profile.get("distance_m"):
+        route_m = document["measures"]["distance_m"]
+        profile_end = profile["distance_m"][-1]
+        off_by = abs(profile_end - route_m) / route_m if route_m else 0.0
+        profile_quality = "ok" if off_by <= PROFILE_TOLERANCE else "approximate"
+
+    return RouteDetail(
+        route_id=route_id,
+        shape=document.get("shape"),
+        profile=profile,
+        profile_quality=profile_quality,
+        measures=document["measures"],
+        continuity=document["continuity"],
+        surface=document["surface"],
+        places=document.get("places", []),
+        attribution=_attribution(document),
     )
 
 

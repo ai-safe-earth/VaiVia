@@ -54,7 +54,6 @@ class TrailSummary(BaseModel):
     duration_mtb_min: int | None = None
     best_seasons: list[str] = Field(default_factory=list)
     seasonal_hazards: list[str] = Field(default_factory=list)
-    trailforks_url: str | None = None
     pois: list[PoiRef] = Field(default_factory=list)
 
 
@@ -126,6 +125,32 @@ class RouteGeoJson(BaseModel):
     type: Literal["Feature"] = "Feature"
     geometry: GeoJsonLineString
     properties: dict[str, object]
+
+
+class RouteProfile(BaseModel):
+    """The altitude profile: two parallel arrays, cumulative metres and
+    heights, exactly as the route document carries them."""
+
+    distance_m: list[float]
+    elevation_m: list[float]
+
+
+class RouteDetail(BaseModel):
+    """The expandable card's payload — what the route document knows beyond
+    the map shape. profile_quality is 'ok' when the profile is a true
+    along-route measure, 'approximate' when it is a concatenation across the
+    gaps of a multi-piece route, and absent when there is no profile at all.
+    """
+
+    route_id: str
+    shape: str | None
+    profile: RouteProfile | None
+    profile_quality: Literal["ok", "approximate"] | None
+    measures: dict[str, float | None]
+    continuity: dict[str, object]
+    surface: dict[str, object]
+    places: list[dict[str, object]]
+    attribution: str
 
 
 class RouteRequest(BaseModel):

@@ -142,6 +142,7 @@ def sample_document(**overrides):
     base = {
         "route_id": "osm-relation-123",
         "kind": "osm_route",
+        "shape": "circular",
         "identity": {"name": "Test", "ref": "33"},
         "geometry": {"type": "LineString", "coordinates": [[9.4, 45.9], [9.41, 45.91]]},
         "bbox": [9.4, 45.9, 9.41, 45.91],

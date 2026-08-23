@@ -1329,6 +1329,151 @@ clean build, pipeline 160.
 
 No prompt or intent schema changed, so no live intent re-check was needed.
 
+## 2026-08-21 (fourth) - The catalogue meets the user, and the answer stops inventing links
+
+First: the previous entry's worry was stale before the session began - PR #21 was already
+merged; develop had it. The real work started by driving the whole stack in the browser
+against the new catalogue, and the smoke earned its keep twice over.
+
+The answer model was linking every route name to trailforks.com - five routes, five
+invented links, to the one domain no VaiVia result comes from, over OSM data that is not
+theirs. The prompt had asked for the opposite; a Trailforks-era rule whose negative half
+did not hold. The fix is the Cypher boundary's doctrine applied to prose:
+chat/sanitize.py strips links from the answer STREAM (markdown links keep their label,
+bare URLs go, held back only while a fragment could still grow into a link), and the
+prompt now forbids links outright. fragilities.md #14 records the general shape: a
+prompt that mentions a forbidden thing at all is a prompt that suggests it.
+
+Then the owner's rule landed: a trail ask answers with BOTH kinds. catalogue_view derives
+the catalogue's version of any trail_search and runs it beside search_trails - but only
+when every stated constraint can be honoured there (season, hazard, surface, floors kill
+it; duration is dropped loudly, the ratified exception). And vague asks are guided: "I
+want to go hiking" composes to a deterministic clarify - what shape of outing, roughly
+how far - with tappable suggestions. Python decides when to ask, never the model. Three
+gpt-4o-mini wobbles were fixed on the way: invented constraints for bare invitations
+(vacuous full-range difficulty now sanitized), history contaminating self-contained asks
+(a phantom 240-minute duration was silently suppressing the catalogue), and "easy"
+converted into a duration. eval_golden grew loop.<field> expectations and two guiding
+cases: 26/26, adversarial 7/7.
+
+## 2026-08-21 (fifth) - Shape measured, the full card, and saved routes
+
+Three stacked PRs (#23, #24, #25 on #22), one plan, all verified live.
+
+**Shape.** Every OSM named relation wore shape='named', invented at Neo4j load. Schema
+1.2 carries a top-level shape: loop/destination stay CONSTRUCTED (generation intent),
+circular/linear are MEASURED (export/shape.py). The mapper's roundtrip tag wins - it
+rescues the ring our coverage clips at 650 m of gap - then the endpoint gap at
+GAP_RATIO 0.01 of length, calibrated the honest way: rings close at <= 0.0005,
+everything else jumps to >= 0.14, and a route in pieces is linear unless tagged,
+because calling a linear route a loop strands a walker. The catalogue now reads 693
+linear / 126 loop / 102 destination / 59 circular, and 'named' is gone.
+
+**The full card.** The graph returns 20 rows, the answer model sees 5 (a prefix, never
+a re-sort - the prose and the cards above the fold are the same routes), and
+FoldedCards reveals five at a time, fetching geometry only for what is visible. "Full
+card" expands into descent, height range, dominant surface, off-road share, every
+place, and the altitude profile from the new GET /routes/{id}/detail - the route
+document serving what it always carried. profile_quality marks the 16 multi-piece
+concatenations 'approximate' with a visible caveat. The elevation panel under the map,
+dormant since the brand pass, now draws the selected route's profile - the same
+ElevationProfile component as the card, so the two cannot drift.
+
+**Saved routes.** Supabase, not the social layer's Mongo - a personal favorite is
+account data, and that doc's own trade-off paragraph anticipated exactly this (a
+postscript there records it). Migration 0003: RLS select policy AND the grant, rows
+keyed on the geometry-derived route_id so they survive the catalogue being replaced
+wholesale per export; vanished ids come back as `missing`, named rather than dropped.
+Everything mounts under /routes so the gateway is untouched; unfavorite is a POST.
+The brand icon set grew its deliberate eleventh member (a bookmark, asset first). One
+Set in page.tsx feeds the card bookmarks, the header mark, and the saved view.
+
+The live e2e now walks the whole card - kind label, expand + profile, fold reveal,
+favorites round-trip - 4/4. It also met two production behaviours doing their job:
+back-to-back runs trip the gateway's 60/min rate limit, and a day of live testing
+exhausts the dev user's daily LLM quota. Both are documented in the spec header rather
+than raised.
+
+Left honest and open: the "How I read it" block still says not wired up (the composed
+plan never reaches the browser); trail_search's poi_types is a conjunction, so "a lake
+OR a peak" quietly becomes AND; the five mock trails still carry synthetic
+trailforks_url links into TrailCard, which after the sanitize work reads as the next
+thing to retire.
+
+## 2026-08-21 (sixth) - Two lies retired, and the reading block tells the truth
+
+Cleanup that turned out to matter, then the last dark block in the UI.
+
+**The link we were still inventing.** The sanitize work three commits earlier
+stopped the MODEL writing trailforks.com links. It did not stop US: the
+synthetic fixture carries an `alias` per trail, ingestion turned it into
+https://www.trailforks.com/trails/<alias>/, and TrailCard rendered it as a live
+"View on Trailforks" anchor with the sources panel listing a second source,
+"terms pending". Nothing had been taken from Trailforks - the URL was
+constructed from a slug we made up - so it pointed at a real commercial domain,
+for a trail that does not exist there, beside OSM-derived data. Deterministic,
+ours, and rendered as an anchor rather than as prose, which makes it worse than
+the model's version. Gone end to end, with a test pinning that no ingested row
+may carry a url at all. docs/licensing.md's "nothing here covers Trailforks" is
+now closed by emitting nothing.
+
+**How I read it.** Wired, and deliberately showing the EXECUTED plan rather
+than the model's subqueries, because the interesting half is what the composer
+did to the question: a single stated distance widened into the band that
+actually ran (15 km -> 12-18 km), a duration dropped with the reason named, the
+poi conjunction spelled out so "a lake or a peak" cannot silently run as AND,
+"with my kids" shown as the difficulty cap it becomes, and which store answered
+- catalogue, named trails, or both, and when the catalogue was refused, that a
+constraint could not be honoured there. chat/readback.py is pure and every one
+is pinned. A clarify turn reads back nothing and says so, and the footer no
+longer implies the grid is editable.
+
+That last one incidentally makes the poi_types conjunction VISIBLE, which was
+the open question from the previous session. It is still an AND; a walker can
+now at least see that it is.
+
+## 2026-08-21 (seventh) - The count-driven query loop: foundations, and a GDS regression
+
+Design round with the owner on an agentic, count-driven query loop: guide the
+conversation until the ESTIMATED result count is small enough to answer well,
+then query; refine after results are on screen; build queries from templates,
+generating only as a flagged fallback. The plan is in
+.claude/plans/ (approved). Phase 0-1 landed on feat/query-loop-foundations
+(stacked on feat/plan-readback); Phases 2-5 remain.
+
+The measurements that shaped it, live on the 766-route clean catalogue: activity
+barely narrows (hike-ish = 646), distance is the strong cut (8-16 km -> 111),
+a feature cuts hard (+peak -> 42); mtb is already 129 and mtb+20km is 3, so the
+loop needs a RELAX branch as much as a narrow one. And the deep one: 515 of 646
+hike-ish routes have score IS NULL, so the current ORDER BY degenerates to "the
+20 hilliest" - narrowing mitigates that, scoring the OSM relations would fix it.
+
+Phase 0 (verification spike, docs/fragilities.md #15): driver RoutingControl.READ
+is a real read-only control on Community - it rejects a write AND the
+apoc.cypher.doIt string-executor bypass (both AccessMode, zero nodes land). But a
+client tx timeout does NOT bite while the server db.transaction.timeout is 0.
+
+Phase 1: hardened the container (procedure allowlist db.*,dbms.*,gds.* denying
+all apoc.*; db.transaction.timeout=10s), added a fragment/include mechanism to
+query_loader so search_loops and the new estimate_loops share ONE filter block
+(byte-identical, tested), and a run_read read-only client path. estimate_loops
+returns total + a bounded facet sample in one query. Verified live across 12
+funnel parameter sets: the rewritten search_loops is byte-identical in order to
+the base, and estimate.total == full count, all < 150 ms. Not yet wired into the
+orchestrator - no behavioural change to the product yet.
+
+**GDS regression I caused, needs owner attention.** Applying the allowlist
+recreated the Neo4j container, and on this machine graphdatascience.ninja (the
+GDS plugin manifest host) is unreachable (DNS fails; github/maven are fine), so
+the recreate dropped GDS - the known cold-start hazard, now persistent because
+that one host is down. Impact is contained: GDS feeds only point-to-point
+routing, which already falls back to shortestPath on Neo4jError; the whole
+catalogue/chat path uses no GDS, and all data survived (980 routes, 84k
+intersections). But it needs fixing: the plugins dir is not volume-mounted, so
+EVERY recreate re-fetches and can lose GDS. Durable fix (owner infra call):
+mount a plugins volume and seed GDS once from a reachable source, or pin a local
+jar. I did not change the plugin strategy unilaterally.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -1884,6 +2029,54 @@ No prompt or intent schema changed, so no live intent re-check was needed.
         {
           "date": "2026-08-21",
           "text": "Duration constraints are not enforced until DIN 33466 is calibrated - dropping the filter loudly beats filtering on a figure that reads 10 h for a 6-8 h classic"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "The answer carries no links, enforced in code: chat/sanitize.py strips links from the answer stream, because a prompt that mentions a forbidden thing at all is a prompt that suggests it (fragilities.md #14, found live when the model linked every route to trailforks.com)"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Owner rule: a trail ask answers with both kinds - named trails and catalogue routes, distinguishable to the eye - via composer.catalogue_view, which exists only when every stated constraint can be honoured on the catalogue (duration is dropped loudly, the ratified exception)"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Owner rule: an ask that is only an activity earns a deterministic guiding clarify (what shape of outing, roughly how far) with tappable suggestions; Python decides when to ask, never the model"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Route document schema 1.2: top-level shape, required. loop/destination are constructed (generation intent), circular/linear are measured (roundtrip tag first, then endpoint gap <= 0.01 of length, calibrated from the distribution; in pieces = linear unless tagged). The pairs stay distinct so a classifier bug cannot impersonate intent"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "The cards can show more than the prose narrates: graph returns CARD_RESULT_LIMIT (20), the answer model sees ANSWER_RESULT_LIMIT (5) as a prefix never a re-sort, answered_count marks the fold, geometry is fetched per visible card"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "GET /routes/{id}/detail serves the document's profile, measures, continuity, surface and places with the same 404/503 honesty ladder as /geojson; profile_quality marks multi-piece concatenations 'approximate' and the chart carries the caveat visibly"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Favorites live in Supabase (route_favorites, migration 0003), not the social layer's MongoDB - a personal favorite is account data and the ownership check belongs in the database; rows key on the geometry-derived route_id and vanished routes are reported missing, never dropped. Unfavorite is a POST because the gateway forwards only GET and POST"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "No URL is ever synthesised for a trail: the alias-to-trailforks.com link was constructed from a slug we invented and pointed at a real commercial domain for a trail that does not exist there. The property, its Cypher RETURNs, the API field, the card anchor and the sources row are gone, with a test pinning that no ingested row carries a url"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "How I read it shows the EXECUTED plan, not the model's subqueries: the widened distance band, the dropped duration and its reason, the poi conjunction spelled out, the family-friendly difficulty cap, and which store answered. chat/readback.py is pure; the vocabulary lives in the backend because a reader that re-derived it could drift from the truth"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Count-driven query loop APPROVED (design in .claude/plans): guide until the estimated result count is small (<=25, up to 2 questions) then query; relax on zero; refine after results via a persisted standing plan; templates first, generated Cypher only as a flagged, gated, logged fallback (shadow-mode 5a before executing 5b)"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "Read-only Cypher on Neo4j Community is BUILT not granted (no RBAC): driver RoutingControl.READ rejects writes and the apoc.cypher.doIt bypass (verified), a procedure allowlist denies all apoc.*, and db.transaction.timeout (server-side, the client hint does not bite) is the availability cap. docs/fragilities.md #15"
+        },
+        {
+          "date": "2026-08-21",
+          "text": "One filter block by construction: query_loader gains fragment/include so search_loops and estimate_loops cannot drift - a count can never disagree with the search it counts (byte-identical, tested)"
         }
       ]
     }
@@ -1916,36 +2109,43 @@ No prompt or intent schema changed, so no live intent re-check was needed.
   ],
   "nextSteps": [
     {
-      "title": "Drive the full stack in the browser against the new catalogue (sign in, ask for a loop, see LoopCards and the map) - the e2e smoke exists (npm run test:e2e)",
+      "title": "Reinstall GDS and stop the recreate hazard: mount the Neo4j plugins dir as a volume and seed GDS once from a reachable source (graphdatascience.ninja is down here; github/maven work), or pin a local jar. Until then routing runs on the shortestPath fallback",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Give generated routes an id derived from geometry, not a sequence number or run_id, so photos and comments cannot orphan on a rebuild (docs/social-layer.md)",
+      "title": "Continue the query loop: Phase 2 (standing plan state - read back messages.intent/result_refs, apply_delta), Phase 3 (the _narrow loop + narrowing.py facet chooser with relevance weights), Phase 4 (post-answer refinement chips + ordinal reference), Phase 5 (generated Cypher, 5a shadow-mode first)",
+      "est": 4,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Score the 515 unscored OSM relations, or add a deterministic tiebreak that is not 'hilliest': narrowing gets the set to 25, ordering decides which 5 the walker reads and that half is still coalesce(score,0.5)",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Merge the PR stack in order: #22 (both kinds + guided) -> #23 (shape) -> #24 (cards) -> #25 (favorites), retargeting each to develop as its base merges",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Decide whether poi_types grows an any_of: the readback now makes the AND visible, but 'a lake or a peak' still cannot be asked for",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Return the composed plan with /chat results so the \"How I read it\" block can render the constraints it understood",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Return a height series with route geometry so the elevation profile can be drawn",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed — it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
-      "severity": "high",
+      "title": "Make the readback editable - the block names the constraints but ask-again-in-words is still the only way to change one",
+      "est": 1.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2009,13 +2209,6 @@ No prompt or intent schema changed, so no live intent re-check was needed.
     {
       "title": "Rebuild trailheads and the catalogue at --min-off-road 0.3 so lakeside and valley routes exist at all; 220 of 266 trailheads are currently unbuilt",
       "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Push feat/route-catalogue and merge it; the whole route pipeline exists only on the dev machine",
-      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2269,6 +2462,20 @@ No prompt or intent schema changed, so no live intent re-check was needed.
     },
     {
       "date": "2026-08-20",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
+      "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-21",
       "model": "opus-5",
       "credits": null,
       "person": "oscar",

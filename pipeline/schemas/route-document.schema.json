@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-1.1.json",
+  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-1.2.json",
   "title": "VaiVia route document",
   "description": "The product: one route, as every reader consumes it. PostGIS holds the value; this is what is delivered. See docs/route-document.md for the reasoning behind each block. Readers outlive producers, so this is versioned and additive: a new field is a minor version, a removed or re-meaning field is a major one.",
   "type": "object",
@@ -8,6 +8,7 @@
     "schema_version",
     "id",
     "kind",
+    "shape",
     "identity",
     "geometry",
     "bbox",
@@ -38,6 +39,16 @@
         "generated"
       ],
       "description": "osm_route is a route somebody mapped; generated is one this pipeline drew. Same document either way."
+    },
+    "shape": {
+      "type": "string",
+      "enum": [
+        "loop",
+        "destination",
+        "circular",
+        "linear"
+      ],
+      "description": "What shape of outing this is, and how that is known. loop/destination are CONSTRUCTED (the generator drew them that way); circular/linear are MEASURED on a mapped route (endpoint gap against the calibrated ratio, or the mapper's roundtrip tag). The pairs stay distinct so a classifier bug can never impersonate generation intent."
     },
     "identity": {
       "type": "object",

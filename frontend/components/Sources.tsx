@@ -13,7 +13,6 @@ interface Props {
   /** Distance of the proximity match that linked the two sources, in metres.
    *  Same story: rendered when the API exposes it. */
   matchDistanceM?: number | null;
-  trailforksUrl?: string | null;
 }
 
 /**
@@ -23,9 +22,10 @@ interface Props {
  * product's central data decision, so it is stated on every route, collapsed
  * by default and one click from the answer.
  */
-export function Sources({ id, osmWayIds, matchDistanceM, trailforksUrl }: Props) {
+export function Sources({ id, osmWayIds, matchDistanceM }: Props) {
   const [open, setOpen] = useState(false);
-  const count = 1 + (trailforksUrl ? 1 : 0);
+  // One source: OpenStreetMap. There is no second one — see the note below.
+  const count = 1;
 
   return (
     <div className="sources">
@@ -61,23 +61,6 @@ export function Sources({ id, osmWayIds, matchDistanceM, trailforksUrl }: Props)
             <span className="vv-data-key">route</span>
             <span className="value">{id}</span>
           </div>
-
-          {trailforksUrl && (
-            <div className="source-row vv-data">
-              <span className="vv-data-key">grade</span>
-              <span className="value">
-                <a
-                  href={trailforksUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  Trailforks
-                </a>{' '}
-                — terms pending
-              </span>
-            </div>
-          )}
 
           <div className="source-row vv-data">
             <span className="vv-data-key">link</span>

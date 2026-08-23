@@ -138,6 +138,10 @@ def emit_generated() -> None:
             document = build_document(
                 route_id=rid,
                 kind="generated",
+                # Constructed, not measured: the generator drew it this way.
+                # provenance.generation.shape stays too — that is history,
+                # where this is the reader contract.
+                shape=shape,
                 identity={
                     "name": name,
                     "ref": None,

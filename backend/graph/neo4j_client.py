@@ -59,9 +59,36 @@ class Neo4jClient:
         return await self.run(get_query(name), **params)
 
     async def run(self, query: str, /, **params: Any) -> list[dict[str, Any]]:
-        """Execute one parameterized query, return records as dicts."""
+        """Execute one parameterized query, return records as dicts.
+
+        Defaults to WRITE routing (ingestion uses this). The query service uses
+        run_read, which is read-only by driver access mode.
+        """
         result = await self._driver.execute_query(
             query, params, database_=self._database
+        )
+        return [record.data() for record in result.records]
+
+    async def run_read(
+        self, query: str, /, timeout_s: float | None = None, **params: Any
+    ) -> list[dict[str, Any]]:
+        """Execute a query under READ access mode — the query-service path.
+
+        Read routing is a real control on this server (Community, no RBAC):
+        verified 2026-08-21 that a write, including the apoc.cypher.doIt string
+        bypass, is rejected with Neo.ClientError.Statement.AccessMode
+        (docs/fragilities.md #15). timeout_s is defence in depth; the hard cap
+        is the server's db.transaction.timeout, because the client hint does
+        not bite on its own here.
+        """
+        from neo4j import RoutingControl
+
+        result = await self._driver.execute_query(
+            query,
+            params,
+            database_=self._database,
+            routing_=RoutingControl.READ,
+            **({"timeout": timeout_s} if timeout_s is not None else {}),
         )
         return [record.data() for record in result.records]
 

@@ -33,6 +33,7 @@ from pathlib import Path
 
 from core import connect
 from export.document import Span, build_document
+from export.shape import classify_osm_shape
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -113,7 +114,13 @@ SELECT
     (SELECT min(z) FROM edges, LATERAL unnest(profile_m) z),
     (SELECT max(z) FROM edges, LATERAL unnest(profile_m) z),
     (SELECT count(*) FILTER (WHERE ascent_m IS NULL) FROM edges),
-    (SELECT array_agg(ARRAY[coalesce(length_m, 0)]::text[]) FROM edges)
+    (SELECT array_agg(ARRAY[coalesce(length_m, 0)]::text[]) FROM edges),
+    -- Endpoint gap in metres, for the shape classifier (export/shape.py).
+    -- Only a single LineString has two endpoints to measure; a route held in
+    -- pieces reports NULL and the classifier stays conservative.
+    (SELECT CASE WHEN GeometryType(geom) = 'LINESTRING'
+                 THEN ST_Distance(ST_StartPoint(utm), ST_EndPoint(utm)) END
+       FROM route_line WHERE rel_id = %(rel)s)
 """
 
 SPANS = """
@@ -216,6 +223,7 @@ def emit(
         highest_m,
         without_profile,
         _lengths,
+        endpoint_gap_m,
     ) = row
 
     spans = conn.execute(SPANS, {"rel": rel_id}).fetchall()
@@ -257,6 +265,13 @@ def emit(
     return build_document(
         route_id=f"osm-relation-{rel_id}",
         kind="osm_route",
+        # Measured, never declared: the mapper's roundtrip tag wins, then the
+        # merged-endpoint gap against the calibrated ratio (export/shape.py).
+        shape=classify_osm_shape(
+            None if endpoint_gap_m is None else float(endpoint_gap_m),
+            float(distance_m),
+            tags.get("roundtrip"),
+        ),
         identity={
             "name": tags.get("name"),
             "ref": tags.get("ref"),

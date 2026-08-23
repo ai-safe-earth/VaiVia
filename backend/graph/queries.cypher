@@ -60,7 +60,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
-       t.trailforks_url AS trailforks_url,
        pois AS pois
 ORDER BY t.total_distance_m ASC
 LIMIT $limit
@@ -89,7 +88,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
-       t.trailforks_url AS trailforks_url,
        pois AS pois
 
 // name: trail_geometry
@@ -187,7 +185,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
-       t.trailforks_url AS trailforks_url,
        pois AS pois,
        score AS score
 ORDER BY score DESC
@@ -248,7 +245,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
        t.duration_mtb_min AS duration_mtb_min,
        t.best_seasons AS best_seasons,
        t.seasonal_hazards AS seasonal_hazards,
-       t.trailforks_url AS trailforks_url,
        pois AS pois,
        score AS score
 ORDER BY score DESC
@@ -398,12 +394,12 @@ RETURN p.osm_id AS osm_id, p.name AS name, p.type AS type,
        p.description_license AS description_license,
        p.description_url AS description_url
 
-// name: search_loops
-// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
-// from precomputed routes instead of computing one per request. The catalogue
-// is loaded by pipeline/export/neo4j_load.py from the route documents, which
-// stay canonical -- geometry and the profile are fetched by route_id, never
-// stored here.
+// fragment: loop_candidates
+// The loop-catalogue filter block, shared by search_loops and estimate_loops
+// via '// include:' so a count can never disagree with the search it counts
+// (query_loader.py). Everything through the near-distance filter lives here;
+// each reader adds only its own tail. It ends in 'WITH r, s WHERE ...', so a
+// reader appending another WHERE must open its own WITH first.
 //
 // warnings = 0 is not optional. The export's own smoke test proved why: the
 // unfiltered catalogue puts 0.0 km OSM fragments wearing famous names at the
@@ -439,17 +435,33 @@ WHERE $near_lat IS NULL
        AND point.distance(s.location,
                           point({latitude: $near_lat, longitude: $near_lon}))
            <= $near_radius_m)
-CALL (r) {
-  MATCH (r)-[e:PASSES]->(p:Place)
-  WITH DISTINCT p
-  RETURN collect(p.kind) AS found_kinds,
-         collect({name: p.name, type: p.kind})[0..8] AS pois
-}
-WITH r, s, found_kinds, pois
+
+// fragment: loop_poi_conjunction
 // Every requested feature must be present, not merely one of them: "past a
-// hut AND a lake" is a conjunction to a walker.
+// hut AND a lake" is a conjunction to a walker. The EXISTS form is identical
+// in meaning to "wanted IN collect(kinds)" but needs no CALL subquery, so a
+// count does not pay for a display list it will not use (house style shared
+// with search_trails). Opens its own WITH -- loop_candidates ended in a WHERE.
+WITH r, s
 WHERE size($poi_types) = 0
-   OR all(wanted IN $poi_types WHERE wanted IN found_kinds)
+   OR all(wanted IN $poi_types
+          WHERE EXISTS { MATCH (r)-[:PASSES]->(p:Place) WHERE p.kind = wanted })
+
+// name: search_loops
+// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
+// from precomputed routes instead of computing one per request. The catalogue
+// is loaded by pipeline/export/neo4j_load.py from the route documents, which
+// stay canonical -- geometry and the profile are fetched by route_id, never
+// stored here.
+// include: loop_candidates
+// include: loop_poi_conjunction
+// The display POI list, capped -- the conjunction above already filtered.
+CALL (r) {
+  MATCH (r)-[:PASSES]->(p:Place)
+  WITH DISTINCT p
+  RETURN collect({name: p.name, type: p.kind})[0..8] AS pois
+}
+WITH r, s, pois
 RETURN r.route_id AS id,
        r.activity AS activity,
        r.kind AS kind,
@@ -462,8 +474,17 @@ RETURN r.route_id AS id,
        r.destination_name AS destination_name,
        r.distance_m AS distance_m,
        r.ascent_m AS ascent_m,
+       // The expanded card's figures. Already on the node (the export copies
+       // the document's measures), so returning them costs nothing.
+       r.descent_m AS descent_m,
+       r.lowest_m AS lowest_m,
+       r.highest_m AS highest_m,
+       r.surface_dominant AS surface_dominant,
+       r.pieces AS pieces,
+       r.continuous AS continuous,
        r.sac_scale AS sac_scale,
        r.sac_max AS sac_max,
+       r.graded_share AS graded_share,
        r.mtb_rideable AS mtb_rideable,
        r.mtb_scale AS mtb_scale,
        r.off_road_share AS off_road_share,
@@ -478,6 +499,31 @@ RETURN r.route_id AS id,
 // generated routes rather than at the bottom, and climb breaks the tie.
 ORDER BY coalesce(r.score, 0.5) DESC, coalesce(r.ascent_m, 0) DESC
 LIMIT $limit
+
+// name: estimate_loops
+// The count-driven loop's estimate: how many routes THIS plan would return,
+// plus a bounded sample of facet rows so Python can pick the most-narrowing
+// next question (chat/narrowing.py). Same two fragments as search_loops, so
+// the count is exactly the population search_loops would page through -- they
+// cannot drift. total is exact even though rows is capped: both aggregate the
+// same stream, and the cap slices only the collected list.
+// include: loop_candidates
+// include: loop_poi_conjunction
+OPTIONAL MATCH (r)-[:PASSES]->(pl:Place)
+WITH r, s, collect(DISTINCT pl.kind) AS kinds
+WITH count(r) AS total,
+     collect({
+       distance_m: r.distance_m,
+       ascent_m: coalesce(r.ascent_m, 0.0),
+       activity: r.activity,
+       shape: r.shape,
+       mtb_rideable: coalesce(r.mtb_rideable, false),
+       sac_rank: coalesce(r.sac_max_rank, 0),
+       mtb_rank: coalesce(r.mtb_scale_rank, 0),
+       has_named_start: s IS NOT NULL,
+       kinds: kinds
+     })[0..$facet_cap] AS rows
+RETURN total, rows
 
 // name: route_exists
 // The geometry itself lives in the route DOCUMENT (docs/route-document.md),
@@ -502,3 +548,48 @@ MATCH ()-[c:CONNECTS_TO]->() WITH trails, segments, intersections, pois,
 MATCH ()-[co:COMPOSED_OF]->()
 RETURN trails, segments, intersections, pois, connects_to,
        count(co) AS composed_of
+
+// name: routes_by_ids
+// Hydrate favorite routes into the same rows search_loops returns, so a
+// favorites list renders with the same cards as a search answer. No ORDER BY:
+// the caller re-sorts to the favorites' own saved order (Postgres created_at),
+// which the graph does not know. An id no longer in the catalogue simply
+// yields no row — the API reports it as missing rather than dropping it
+// silently, because :Route nodes are replaced wholesale per export and only
+// the geometry-derived id persists.
+MATCH (r:Route)
+WHERE r.route_id IN $route_ids
+OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
+CALL (r) {
+  MATCH (r)-[e:PASSES]->(p:Place)
+  WITH DISTINCT p
+  RETURN collect({name: p.name, type: p.kind})[0..8] AS pois
+}
+RETURN r.route_id AS id,
+       r.activity AS activity,
+       r.kind AS kind,
+       r.shape AS shape,
+       r.name AS name,
+       r.ref AS ref,
+       r.destination_name AS destination_name,
+       r.distance_m AS distance_m,
+       r.ascent_m AS ascent_m,
+       r.descent_m AS descent_m,
+       r.lowest_m AS lowest_m,
+       r.highest_m AS highest_m,
+       r.surface_dominant AS surface_dominant,
+       r.pieces AS pieces,
+       r.continuous AS continuous,
+       r.sac_scale AS sac_scale,
+       r.sac_max AS sac_max,
+       r.graded_share AS graded_share,
+       r.mtb_rideable AS mtb_rideable,
+       r.mtb_scale AS mtb_scale,
+       r.off_road_share AS off_road_share,
+       r.score AS score,
+       s.vertex_id AS start_vertex_id,
+       s.names AS start_names,
+       s.car_free AS car_free,
+       s.location.latitude AS start_lat,
+       s.location.longitude AS start_lon,
+       pois AS pois

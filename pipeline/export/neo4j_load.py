@@ -85,7 +85,10 @@ def document_rows(document: dict) -> dict[str, Any]:
         "route_id": document["id"],
         "props": {
             "kind": document["kind"],
-            "shape": generation.get("shape", "named"),
+            # Schema 1.2 carries shape top-level (measured for OSM routes,
+            # constructed for generated ones). The fallback chain serves
+            # legacy 1.1 documents only: generation shape, then 'named'.
+            "shape": document.get("shape", generation.get("shape", "named")),
             "activity": identity.get("activity"),
             "name": identity.get("name"),
             "ref": identity.get("ref"),

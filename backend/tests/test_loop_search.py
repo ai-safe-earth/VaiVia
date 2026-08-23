@@ -357,3 +357,36 @@ async def test_an_empty_implicit_catalogue_block_is_omitted(db):
     events = await collect(orchestrator, user_id="u1", message="a hike under 16 km")
 
     assert "loops" not in results_of(events)
+
+
+# ── The cards can show more than the prose narrates ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_answer_sees_a_prefix_while_the_cards_get_the_rest(db):
+    """CARD_RESULT_LIMIT rows travel in the results event (folded behind
+    "show more" client-side); the answer model is handed only the first
+    ANSWER_RESULT_LIMIT, or its prompt to cover every route would produce
+    twenty sentences. A prefix, never a re-sort: the prose and the cards
+    above the fold must be the same routes in the same order."""
+    import json
+
+    from chat.orchestrator import ANSWER_RESULT_LIMIT, CARD_RESULT_LIMIT
+    from tests.test_chat_orchestrator import build, collect, results_of
+
+    rows = [
+        {"id": f"cat_{i:03}", "name": f"Route {i}", "distance_m": 1000.0 * i}
+        for i in range(CARD_RESULT_LIMIT)
+    ]
+    db.when("search_loops", rows)
+    orchestrator, llm, _ = build(db, {"kind": "loop_search", "max_distance_m": 25000})
+    events = await collect(orchestrator, user_id="u1", message="a loop")
+
+    results = results_of(events)
+    assert len(results["loops"]) == CARD_RESULT_LIMIT
+    assert results["answered_count"] == ANSWER_RESULT_LIMIT
+
+    _, results_json = llm.answer_calls[0]
+    answered = json.loads(results_json)["loops"]
+    assert len(answered) == ANSWER_RESULT_LIMIT
+    assert [r["id"] for r in answered] == [r["id"] for r in rows[:ANSWER_RESULT_LIMIT]]

@@ -183,6 +183,21 @@ Now:
 Still open: nothing here covers Trailforks, which requires its own attribution
 the moment any of their data lands.
 
+**Closed 2026-08-21 — the one Trailforks link we were actually emitting.** The
+synthetic fixture carries an `alias` per trail, and ingestion turned it into
+`https://www.trailforks.com/trails/<alias>/`, which the trail card rendered as a
+live "View on Trailforks" anchor and the sources panel listed as a second
+source. Nothing had been taken from Trailforks — the URL was *constructed from a
+slug we invented* — so the link pointed at a real commercial domain for a trail
+that does not exist there, beside OSM-derived data, implying a provenance and a
+relationship that do not exist. It is the same failure the answer sanitizer
+exists to prevent (fragilities.md #14), except deterministic and ours rather
+than the model's. The synthesiser, the `trailforks_url` property, its four
+Cypher RETURNs, the API field, the card anchor and the sources row are all gone;
+a test pins that no ingested row may carry a url at all. `alias` stays in the
+fixture unused, because a synthetic record is allowed to look like the real
+shape — it just may not become a link.
+
 The good news on the OSM side: because ingestion never merges OSM and Trailforks
 nodes — they stay separate node types joined by `COMPOSED_OF` — the graph is
 structured the way the Collective Database Guideline describes, which keeps

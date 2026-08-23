@@ -117,6 +117,26 @@ body {
   white-space: nowrap;
 }
 
+/* The saved-routes mark: quiet chrome, lime when it is the open view. */
+.header-saved {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--vv-muted);
+  cursor: pointer;
+}
+
+.header-saved:hover {
+  color: var(--vv-text);
+}
+
+.header-saved[aria-pressed='true'] {
+  color: var(--vv-lime);
+}
+
 /* The account action is the one lime block in the chrome. */
 .header-action {
   flex: none;
@@ -298,14 +318,44 @@ body {
 }
 
 /* Which kind of outing the card is — "Loop", "Out & back", "Named trail" —
-   so a mixed answer stays legible without reading the numbers. */
+   so a mixed answer stays legible without reading the numbers. The row also
+   carries the bookmark, muted until saved. */
+.route-kind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--vv-s7) var(--vv-s7) 0;
+}
+
 .route-kind {
   display: block;
   padding: var(--vv-s7) var(--vv-s7) 0;
 }
 
+.route-kind-row .route-kind {
+  padding: 0;
+}
+
+.route-kind-row + .route-name,
 .route-kind + .route-name {
   padding-top: var(--vv-s1);
+}
+
+.save-toggle {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--vv-muted);
+  cursor: pointer;
+}
+
+.save-toggle:hover {
+  color: var(--vv-text);
+}
+
+.save-toggle[aria-pressed='true'] {
+  color: var(--vv-lime);
 }
 
 .route-name {
@@ -402,6 +452,83 @@ body {
   color: var(--vv-text);
   text-decoration: none;
   border-bottom: 1px solid var(--vv-lime);
+}
+
+/* ── Expanded card + the fold ─────────────────────────────────────────────
+   Same grammar as the sources expander: a full-width label row with a lime
+   sign, hairline-separated, square. The expanded body sits on --vv-panel so
+   the card's closed and open halves read as two surfaces of one thing. */
+
+.detail-toggle,
+.show-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--vv-s3) var(--vv-s7);
+  border: 0;
+  border-top: 1px solid var(--vv-line-2);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.detail-toggle .sign,
+.show-more .sign {
+  color: var(--vv-lime);
+  font-size: 13px;
+}
+
+.show-more {
+  border-top: 0;
+  border-bottom: 1px solid var(--vv-line);
+}
+
+.show-more:hover span:first-child,
+.detail-toggle:hover span:first-child {
+  color: var(--vv-lime);
+}
+
+.route-detail {
+  background: var(--vv-panel);
+  padding: var(--vv-s3) var(--vv-s7) var(--vv-s4);
+}
+
+.detail-figures {
+  display: flex;
+  gap: var(--vv-s6);
+  flex-wrap: wrap;
+  margin-bottom: var(--vv-s3);
+}
+
+.detail-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vv-s1);
+}
+
+.detail-note {
+  margin: 0 0 var(--vv-s3);
+}
+
+.detail-pois {
+  margin-bottom: var(--vv-s3);
+}
+
+.detail-pois .poi-list {
+  margin-top: var(--vv-s1);
+}
+
+.detail-profile .profile {
+  height: 56px;
+}
+
+.profile-caveat {
+  margin: var(--vv-s2) 0 0;
+  color: var(--vv-flare);
 }
 
 /* ── Hazard ───────────────────────────────────────────────────────────────

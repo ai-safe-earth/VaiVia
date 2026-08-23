@@ -1,63 +1,162 @@
 /**
- * Loop cards and the draw-all map payload.
+ * Loop cards, the fold, and the draw-all map payload.
  *
  * These pin the decisions that are easy to undo by accident: a route with no
- * name still gets a usable heading, difficulty is read from the scale matching
- * the activity, and the map payload marks exactly one feature selected.
+ * name still gets a usable heading, the map payload marks exactly one feature
+ * selected, and the fold reveals in steps without ever re-ordering. The
+ * fixture matches the CURRENT catalogue row (the pre-catalogue shape lived
+ * here unnoticed for a week because vitest does not typecheck).
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { distance, primaryDuration } from '../lib/format';
-import type { Loop } from '../lib/types';
+import { distance } from '../lib/format';
+import { profileFromDetail } from '../lib/profile';
+import type { Loop, RouteDetail } from '../lib/types';
 
 function loop(overrides: Partial<Loop> = {}): Loop {
   return {
-    id: '1461822581:hike:15000:0',
+    id: 'generated-020f312db6521964',
     activity: 'hike',
-    name: 'Monte Ocone',
-    distance_m: 15300,
-    ascent_m: 1200,
-    duration_hike_min: 480,
-    duration_mtb_min: 210,
-    hike_rating: 2,
-    mtb_rating: 3,
-    off_road_share: 0.88,
+    kind: 'generated',
+    shape: 'loop',
+    name: 'To Corno dell’Arco',
+    ref: null,
+    destination_name: 'Corno dell’Arco',
+    distance_m: 11000,
+    ascent_m: 1050,
+    descent_m: 1050,
+    lowest_m: 400,
+    highest_m: 1450,
+    surface_dominant: 'unpaved',
+    pieces: 1,
+    continuous: true,
+    graded_share: 0.8,
+    sac_scale: 'mountain_hiking',
+    sac_max: 'demanding_mountain_hiking',
+    mtb_rideable: false,
+    mtb_scale: null,
+    off_road_share: 0.72,
     score: 0.91,
-    named_pois: ['Monte Ocone', 'Passo del Gandazzo'],
-    trailhead_id: '1461822581',
-    trailhead_name: null,
+    start_vertex_id: 43128,
+    start_names: ['Vetta'],
+    car_free: true,
     start_lat: 45.82,
     start_lon: 9.45,
-    pois: [{ name: 'Monte Ocone', type: 'peak' }],
+    pois: [{ name: 'Corno dell’Arco', type: 'peak' }],
     ...overrides,
   };
 }
 
 describe('loop headings', () => {
   it('uses the name when the route has one', () => {
-    expect(loop().name).toBe('Monte Ocone');
+    expect(loop().name).toBe('To Corno dell’Arco');
   });
 
   it('falls back to something describing the route, never an id', () => {
-    // 19% of routes pass nothing worth naming them after. The id
-    // "1461822581:hike:15000:0" must never reach a user.
-    const unnamed = loop({ name: null });
-    const heading = unnamed.name ?? `${distance(unnamed.distance_m)} ${unnamed.activity} loop`;
-    expect(heading).toBe('15.3 km hike loop');
+    const unnamed = loop({ name: null, ref: null });
+    const heading =
+      unnamed.name ?? `${distance(unnamed.distance_m)} ${unnamed.activity} loop`;
+    expect(heading).toBe('11.0 km hike loop');
     expect(heading).not.toContain(unnamed.id);
   });
 });
 
-describe('duration', () => {
-  it('picks the walking figure for a hike and the riding one for an mtb route', () => {
-    // primaryDuration takes a structural shape, so it works on a Loop
-    // unchanged — which is why both durations are stored on every route.
-    expect(primaryDuration(loop())).toEqual({ label: 'walk', value: '8 h' });
-    expect(primaryDuration(loop({ activity: 'mtb' }))).toEqual({
-      label: 'ride',
-      value: '3 h 30 min',
-    });
+describe('shape labels', () => {
+  /** Mirrors LoopCard.shapeLabel. */
+  function label(shape: string): string {
+    return shape === 'loop' || shape === 'circular'
+      ? 'Loop'
+      : shape === 'destination'
+        ? 'Out & back'
+        : shape === 'linear'
+          ? 'Linear'
+          : 'Named route';
+  }
+
+  it('reads constructed and measured shapes the same way a walker would', () => {
+    expect(label('loop')).toBe('Loop');
+    expect(label('circular')).toBe('Loop'); // measured ring = same promise
+    expect(label('destination')).toBe('Out & back');
+    expect(label('linear')).toBe('Linear');
+  });
+
+  it('keeps the pre-1.2 fallback for stale transcripts only', () => {
+    expect(label('named')).toBe('Named route');
+  });
+});
+
+describe('the profile the expanded card draws', () => {
+  function detail(overrides: Partial<RouteDetail> = {}): RouteDetail {
+    return {
+      route_id: loop().id,
+      shape: 'loop',
+      profile: {
+        distance_m: [0, 5500, 11000],
+        elevation_m: [400, 1450, 400],
+      },
+      profile_quality: 'ok',
+      measures: {
+        distance_m: 11000,
+        ascent_m: 1050,
+        descent_m: 1050,
+        lowest_m: 400,
+        highest_m: 1450,
+      },
+      continuity: { pieces: 1, continuous: true },
+      surface: { distribution: { unpaved: 0.8 }, dominant: 'unpaved' },
+      places: [],
+      attribution: '© OpenStreetMap contributors',
+      ...overrides,
+    };
+  }
+
+  it('keeps start, peak and end as the real measured heights', () => {
+    const profile = profileFromDetail(detail());
+    expect(profile).toBeDefined();
+    expect(profile!.startM).toBe(400);
+    expect(profile!.maxM).toBe(1450);
+    expect(profile!.endM).toBe(400);
+  });
+
+  it('thins a long series to readable bars without averaging', () => {
+    const series = Array.from({ length: 500 }, (_, i) => 400 + (i % 100));
+    const profile = profileFromDetail(
+      detail({ profile: { distance_m: series.map((_, i) => i * 10), elevation_m: series } }),
+    );
+    expect(profile!.samples.length).toBeLessThanOrEqual(80);
+    // Every bar is a real sample, and the endpoints survive the thinning.
+    expect(profile!.samples.every((s) => series.includes(s))).toBe(true);
+    expect(profile!.samples[0]).toBe(series[0]);
+    expect(profile!.samples[profile!.samples.length - 1]).toBe(series[series.length - 1]);
+  });
+
+  it('is undefined when the document carries no profile — absent is not zero', () => {
+    expect(profileFromDetail(detail({ profile: null }))).toBeUndefined();
+    expect(profileFromDetail(null)).toBeUndefined();
+  });
+});
+
+describe('the fold', () => {
+  /** Mirrors FoldedCards: slice to visible, reveal in steps of 5. */
+  function reveal(count: number, fold: number, clicks: number): number {
+    let visible = Math.min(Math.max(fold, 1), count);
+    for (let i = 0; i < clicks; i += 1) visible = Math.min(visible + 5, count);
+    return visible;
+  }
+
+  it('shows the answered count first, so prose and cards agree', () => {
+    expect(reveal(20, 5, 0)).toBe(5);
+  });
+
+  it('reveals five at a time and stops at the end', () => {
+    expect(reveal(20, 5, 1)).toBe(10);
+    expect(reveal(20, 5, 3)).toBe(20);
+    expect(reveal(20, 5, 9)).toBe(20);
+  });
+
+  it('never folds a short list', () => {
+    expect(reveal(3, 5, 0)).toBe(3);
   });
 });
 
@@ -87,18 +186,13 @@ describe('draw-all map payload', () => {
   });
 
   it('keeps every loop in the payload so all stay drawn', () => {
-    // Selecting one must not remove the others: the point of draw-all is
-    // comparing options, and re-fetching on every click would flicker.
     expect(collection(['a', 'b', 'c'], 'b').features).toHaveLength(3);
   });
 });
 
 describe('route ids', () => {
   it('survive being put in a url', () => {
-    // "{trailhead}:{activity}:{distance}:{rank}" — colons are legal in a path
-    // segment but must still be encoded by the caller.
     const encoded = encodeURIComponent(loop().id);
-    expect(encoded).not.toContain(':');
     expect(decodeURIComponent(encoded)).toBe(loop().id);
   });
 });

@@ -15,6 +15,12 @@
  *                              and writes a conversation; off by default)
  *
  * Run from frontend/:  npm run test:e2e
+ *
+ * Re-running within the same minute can trip the gateway's per-user rate
+ * limit (RATE_LIMIT_MAX, default 60/min): a live run spends a few dozen
+ * requests, so two runs back-to-back 429 the /chat call and the turn shows
+ * an error instead of cards. Wait out the window rather than raising the
+ * limit — the limit is production behaviour and the smoke should see it.
  */
 
 import { expect, test } from '@playwright/test';
@@ -111,5 +117,41 @@ test.describe('VaiVia smoke', () => {
     // up as its markdown source — which is exactly what to assert against.
     const answer = await page.locator('.turn-assistant').last().innerText();
     expect(answer).not.toMatch(/https?:\/\/|]\(|trailforks/i);
+
+    // Every card says which kind of outing it is (owner rule 2026-08-21) —
+    // and since the catalogue reload, never the pre-1.2 'Named route'.
+    const kind = await card.locator('.route-kind').innerText();
+    expect(['LOOP', 'OUT & BACK', 'LINEAR']).toContain(kind.toUpperCase());
+
+    // Expanding reveals the full card, with the altitude profile fetched
+    // from the route document via /routes/{id}/detail.
+    await card.locator('.detail-toggle').click();
+    await expect(card.locator('.route-detail')).toBeVisible();
+    await expect(card.locator('.route-detail .profile i').first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // When the search found more than the prose narrates, the fold offers
+    // the rest five at a time. Not every ask overflows, so this is
+    // conditional — but when the control is there, it must reveal.
+    const showMore = page.locator('.show-more');
+    if (await showMore.isVisible()) {
+      const before = await page.locator('.route-card').count();
+      await showMore.click();
+      await expect
+        .poll(async () => page.locator('.route-card').count())
+        .toBeGreaterThan(before);
+    }
+
+    // Favorites round-trip: save the first card, find it in the saved view,
+    // unsave it there — leaving the account as we found it.
+    await card.getByLabel('Save this route').click();
+    await page.getByRole('button', { name: 'Saved routes', exact: true }).click();
+    const savedCard = page.locator('.favorites-view .route-card').first();
+    await expect(savedCard).toBeVisible({ timeout: 10_000 });
+    await savedCard.getByLabel('Remove from saved routes').click();
+    // The card stays until the list reloads (an accidental tap is undoable),
+    // but the bookmark must read unsaved at once.
+    await expect(savedCard.getByLabel('Save this route')).toBeVisible();
   });
 });
