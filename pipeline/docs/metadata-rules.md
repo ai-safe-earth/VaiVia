@@ -317,6 +317,22 @@ carry, which for car parks is usually nothing. `docs/route-pipeline.md` records 
 37 of 266 trailheads had a name and that naming one from a nearby feature is unsolved —
 inventing "the car park below Grignone" is a decision nobody has made yet.
 
+**Recount, 2026-08-23.** The 86 figure above predates the urban exits: over the current
+8,110 start vertices it is **99 on an island, 8,011 on the main component**. The 86 stands
+as what that pass measured; the number to filter on is the live one, which is why the view
+carries `component_id` rather than a stored verdict.
+
+### Ends are not modelled here, and that is now a written contract
+
+This whole section classifies **starts**. Nothing in the pipeline classifies an **end** —
+a route carries `shape` and `destination_name` and no more. `docs/route-document.md`, "The
+start/end contract" (proposed 2026-08-23), settles what an end is: reachability becomes a
+property of a *terminal* (one or two per route, by shape), interest stays a property of a
+*turnaround*, and `anchors.py::DESTINATION_NOT_START` is to derive from
+`destinations.py::INTEREST` so the two tables — which agree on twelve kinds and disagree
+only on `picnic_site` — cannot drift apart. Implement against that document, not against
+this section.
+
 ## Generated routes (`curated.route` + `curated.route_edge`, written 2026-08-20)
 
 The "on join" table above finally executes here, along a **walked edge sequence** —
