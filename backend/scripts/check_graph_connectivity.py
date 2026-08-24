@@ -65,59 +65,63 @@ async def main() -> None:
     parser.add_argument("--bbox", help=BBOX_HELP)
     args = parser.parse_args()
 
-    db = Neo4jClient()
-    await db.connect()
     graph_name = f"connectivity_{uuid4().hex[:12]}"
 
-    try:
-        bbox = await projection_bbox(db, args.bbox)
-        min_lat, min_lon, max_lat, max_lon = bbox
-        print(describe(bbox, args.bbox))
+    # `async with`, rather than a bare connect() outside the try: the driver's
+    # connection pool is built by the constructor, so a connect that fails --
+    # Neo4j down, which is exactly when this script gets run -- used to leave
+    # the pool unclosed. The finally below is now only about the projection.
+    async with Neo4jClient() as db:
+        try:
+            bbox = await projection_bbox(db, args.bbox)
+            min_lat, min_lon, max_lat, max_lon = bbox
+            print(describe(bbox, args.bbox))
 
-        projected = await db.run_named(
-            "graph_project_routing",
-            graph_name=graph_name,
-            min_lat=min_lat,
-            min_lon=min_lon,
-            max_lat=max_lat,
-            max_lon=max_lon,
-        )
-        if not projected or not projected[0].get("nodes"):
-            print("Projection empty — is the region ingested and GDS loaded?")
-            return
-
-        nodes = projected[0]["nodes"]
-        print(f"routing graph: {nodes} intersections / {projected[0]['rels']} edges\n")
-
-        # $graph_name as a parameter, not an f-string: the same rule the named
-        # templates follow, and GDS takes the graph name as one.
-        summary = await db.run(COMPONENT_SIZES, graph_name=graph_name, top_n=TOP_N)
-        components = summary[0]["components"]
-        top = summary[0]["top"]
-        largest = top[0] if top else 0
-        share = 100 * largest / nodes if nodes else 0
-
-        print(f"connected components: {components}")
-        print(f"largest component:    {largest} ({share:.1f}% of the network)\n")
-        print(f"top {TOP_N} components:")
-        for size in top:
-            print(f"  {size:>6} intersections")
-
-        edge_types = await db.run(EDGE_TYPES)
-        print("\ningested edge types:")
-        for row in edge_types:
-            print(f"  {row['highway_type'] or 'unknown':<12} {row['n']:>7}")
-
-        if share < 80:
-            print(
-                "\nWARNING: the network is fragmented. Routing between two points "
-                "in different components is impossible, and loop construction will "
-                "mostly fail. See docs/fragilities.md #9."
+            projected = await db.run_named(
+                "graph_project_routing",
+                graph_name=graph_name,
+                min_lat=min_lat,
+                min_lon=min_lon,
+                max_lat=max_lat,
+                max_lon=max_lon,
             )
-    finally:
-        with suppress(Neo4jError):
-            await db.run_named("graph_drop_routing", graph_name=graph_name)
-        await db.close()
+            if not projected or not projected[0].get("nodes"):
+                print("Projection empty — is the region ingested and GDS loaded?")
+                return
+
+            nodes = projected[0]["nodes"]
+            print(
+                f"routing graph: {nodes} intersections / {projected[0]['rels']} edges\n"
+            )
+
+            # $graph_name as a parameter, not an f-string: the same rule the named
+            # templates follow, and GDS takes the graph name as one.
+            summary = await db.run(COMPONENT_SIZES, graph_name=graph_name, top_n=TOP_N)
+            components = summary[0]["components"]
+            top = summary[0]["top"]
+            largest = top[0] if top else 0
+            share = 100 * largest / nodes if nodes else 0
+
+            print(f"connected components: {components}")
+            print(f"largest component:    {largest} ({share:.1f}% of the network)\n")
+            print(f"top {TOP_N} components:")
+            for size in top:
+                print(f"  {size:>6} intersections")
+
+            edge_types = await db.run(EDGE_TYPES)
+            print("\ningested edge types:")
+            for row in edge_types:
+                print(f"  {row['highway_type'] or 'unknown':<12} {row['n']:>7}")
+
+            if share < 80:
+                print(
+                    "\nWARNING: the network is fragmented. Routing between two points "
+                    "in different components is impossible, and loop construction will "
+                    "mostly fail. See docs/fragilities.md #9."
+                )
+        finally:
+            with suppress(Neo4jError):
+                await db.run_named("graph_drop_routing", graph_name=graph_name)
 
 
 if __name__ == "__main__":

@@ -37,7 +37,18 @@ class Neo4jClient:
         await self._driver.close()
 
     async def __aenter__(self) -> Self:
-        await self.connect()
+        """Connect, and close the driver again if connecting fails.
+
+        The pool is built in __init__, not here, and __aexit__ does NOT run when
+        __aenter__ raises -- so without this a Neo4j that is simply down leaves
+        an unclosed connection pool behind at every `async with` in the repo,
+        which is most of scripts/ and both ingestion entry points.
+        """
+        try:
+            await self.connect()
+        except BaseException:
+            await self.close()
+            raise
         return self
 
     async def __aexit__(

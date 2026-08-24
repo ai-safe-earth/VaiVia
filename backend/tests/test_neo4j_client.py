@@ -7,6 +7,7 @@ guarding a security property, not an implementation detail.
 
 import pytest
 from neo4j import Query, RoutingControl
+from neo4j.exceptions import ServiceUnavailable
 
 from graph.neo4j_client import Neo4jClient
 
@@ -16,28 +17,66 @@ class _Records:
 
 
 class _FakeDriver:
-    def __init__(self) -> None:
+    def __init__(self, connect_error: Exception | None = None) -> None:
         self.calls: list[dict] = []
+        self.closed = False
+        self._connect_error = connect_error
 
     async def execute_query(self, query, params=None, **kwargs):
         self.calls.append({"query": query, "params": params, **kwargs})
         return _Records()
 
-    async def close(self) -> None:  # pragma: no cover - not exercised here
-        pass
+    async def verify_connectivity(self) -> None:
+        if self._connect_error is not None:
+            raise self._connect_error
+
+    async def close(self) -> None:
+        self.closed = True
 
 
-@pytest.fixture
-def client(monkeypatch) -> Neo4jClient:
+def _install_driver(monkeypatch, driver: _FakeDriver) -> None:
     monkeypatch.setattr(
         "graph.neo4j_client.AsyncGraphDatabase.driver",
-        lambda *a, **k: _FakeDriver(),
+        lambda *a, **k: driver,
     )
     # A password must be set or __init__ refuses to construct.
     from core.config import get_settings
 
     monkeypatch.setattr(get_settings(), "neo4j_password", "x", raising=False)
+
+
+@pytest.fixture
+def client(monkeypatch) -> Neo4jClient:
+    _install_driver(monkeypatch, _FakeDriver())
     return Neo4jClient()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_connect_still_closes_the_pool(monkeypatch):
+    """The pool is built in __init__ and __aexit__ does not run when __aenter__
+    raises, so `async with` has to close it itself. Without this, a Neo4j that
+    is simply down leaks a connection pool at every `async with Neo4jClient()`
+    in the repo — which is most of scripts/ and both ingestion entry points."""
+    driver = _FakeDriver(connect_error=ServiceUnavailable("down"))
+    _install_driver(monkeypatch, driver)
+
+    with pytest.raises(ServiceUnavailable):
+        async with Neo4jClient():
+            pass  # pragma: no cover - the body must not be reached
+
+    assert driver.closed
+
+
+@pytest.mark.asyncio
+async def test_a_successful_context_closes_on_the_way_out(monkeypatch):
+    driver = _FakeDriver()
+    _install_driver(monkeypatch, driver)
+
+    async with Neo4jClient() as db:
+        assert db._driver is driver  # noqa: SLF001 — asserting the driver used
+        assert not driver.closed
+
+    assert driver.closed
 
 
 @pytest.mark.asyncio
