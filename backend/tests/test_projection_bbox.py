@@ -28,6 +28,13 @@ PROJECTION_MARKER = "graph_project_routing"
 #: Reading either of these off the settings object is the bug.
 FORBIDDEN_ATTRIBUTES = {"bbox", "default_bbox"}
 
+#: How the settings object is spelled. The fifth copy of this bug will not be
+#: written in the spelling the fourth one was, so the guard has to recognise all
+#: three reachings for it: a module-level `settings`, a local bound from the
+#: factory, and the factory called inline — which is the form
+#: tests/test_api_routing.py already uses.
+SETTINGS_FACTORY = "get_settings"
+
 
 def _projecting_sources() -> list[Path]:
     found = [
@@ -41,22 +48,60 @@ def _projecting_sources() -> list[Path]:
     return found
 
 
+def _is_settings_call(node: ast.AST) -> bool:
+    """Is this `get_settings()` / `config.get_settings()`?"""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id == SETTINGS_FACTORY
+    return isinstance(func, ast.Attribute) and func.attr == SETTINGS_FACTORY
+
+
+def _settings_receivers(tree: ast.AST) -> set[str]:
+    """Names holding the settings object: `settings`, plus every local assigned
+    from the factory (`cfg = get_settings()`)."""
+    names = {"settings"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and _is_settings_call(node.value):
+            names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and node.value is not None
+            and _is_settings_call(node.value)
+            and isinstance(node.target, ast.Name)
+        ):
+            names.add(node.target.id)
+    return names
+
+
 def _settings_attributes_read(source: str) -> set[str]:
-    """Which `settings.<attr>` reads the source actually performs.
+    """Which settings attributes the source actually reads.
 
     Parsed, not grepped. Every one of these files explains in prose why it no
     longer uses `settings.bbox`, and that record is the most valuable line in
     them — a text search would force the comment to be deleted to make the test
     pass, which is precisely backwards.
+
+    `default_bbox` counts on ANY receiver: nothing else in the codebase carries
+    that name, so `whatever.default_bbox` is the settings object under an alias
+    the two rules above did not catch. `bbox` deliberately does not get that
+    treatment — `args.bbox` is the argparse option, and flagging it would break
+    the very scripts that took the option instead of the setting.
     """
     tree = ast.parse(source)
-    return {
-        node.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "settings"
-    }
+    receivers = _settings_receivers(tree)
+    read: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if (
+            (isinstance(node.value, ast.Name) and node.value.id in receivers)
+            or _is_settings_call(node.value)
+            or node.attr == "default_bbox"
+        ):
+            read.add(node.attr)
+    return read
 
 
 def test_no_projection_reads_the_configured_bbox():
@@ -70,11 +115,36 @@ def test_no_projection_reads_the_configured_bbox():
         )
 
 
-def test_the_guard_would_catch_the_bug_it_exists_for():
+@pytest.mark.parametrize(
+    "source",
+    [
+        "min_lat, min_lon, max_lat, max_lon = settings.bbox",
+        # The form tests/test_api_routing.py already uses — and the one the old
+        # guard, which only matched an ast.Name called `settings`, walked past.
+        "min_lat, min_lon, max_lat, max_lon = get_settings().bbox",
+        "min_lat, min_lon, max_lat, max_lon = config.get_settings().bbox",
+        "cfg = get_settings()\nmin_lat, min_lon, max_lat, max_lon = cfg.bbox",
+        "cfg: Settings = get_settings()\nlo = cfg.bbox",
+    ],
+)
+def test_the_guard_would_catch_the_bug_it_exists_for(source):
     """A guard nobody has seen fail is a guard nobody knows works."""
-    assert _settings_attributes_read(
-        "min_lat, min_lon, max_lat, max_lon = settings.bbox"
-    ) == {"bbox"}
+    assert "bbox" in _settings_attributes_read(source)
+
+
+def test_default_bbox_is_caught_whatever_it_is_read_off():
+    """No other object in the codebase has this attribute, so any receiver at
+    all is the settings object wearing a name the guard does not know."""
+    assert _settings_attributes_read("lo = whatever.default_bbox") == {"default_bbox"}
+
+
+def test_the_guard_leaves_the_cli_option_alone():
+    """`--bbox` is the fix, not the bug: flagging `args.bbox` would fail exactly
+    the scripts that stopped reading the setting."""
+    assert _settings_attributes_read("lo = args.bbox") == set()
+
+
+def test_the_guard_ignores_prose():
     assert _settings_attributes_read("# settings.bbox in a comment") == set()
     assert _settings_attributes_read('"""settings.bbox in a docstring"""') == set()
 
@@ -92,6 +162,12 @@ def test_parse_bbox_reads_lat_lon_order():
         "45.8,9.3,north,9.6",  # not a float
         "46.0,9.3,45.8,9.6",  # min_lat above max_lat
         "45.8,9.6,46.0,9.3",  # min_lon east of max_lon
+        # float() takes these, and every min < max comparison is False for NaN,
+        # so without an explicit check they reach the projection and it comes
+        # back empty — reading as "nothing is ingested", not "your argument".
+        "nan,nan,nan,nan",
+        "45.8,9.3,inf,9.6",
+        "-inf,9.3,46.0,9.6",
     ],
 )
 def test_a_malformed_bbox_raises_rather_than_falling_back(text):

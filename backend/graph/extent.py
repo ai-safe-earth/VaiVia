@@ -18,6 +18,7 @@ test, and the fetching half is the one line that needs a database.
 
 from __future__ import annotations
 
+import math
 from typing import Protocol
 
 Bbox = tuple[float, float, float, float]
@@ -45,6 +46,11 @@ def parse_bbox(text: str) -> Bbox:
         min_lat, min_lon, max_lat, max_lon = (float(part) for part in parts)
     except ValueError as error:
         raise ValueError(f"--bbox must be four floats, got {text!r}") from error
+    if not all(math.isfinite(part) for part in (min_lat, min_lon, max_lat, max_lon)):
+        # float() accepts 'nan' and 'inf', and every comparison below is False
+        # for NaN, so an unchecked typo would project an empty graph and the
+        # script would blame ingestion or GDS for the operator's own argument.
+        raise ValueError(f"--bbox must be four finite floats, got {text!r}")
     if min_lat >= max_lat or min_lon >= max_lon:
         raise ValueError(
             "--bbox must read min_lat,min_lon,max_lat,max_lon with min < max, "

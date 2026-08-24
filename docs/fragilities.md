@@ -374,6 +374,14 @@ rather than greps on purpose — each of these files explains *in prose* why it 
 longer uses that box, and a text search would force the explanation to be deleted
 to make the test pass.
 
+The guard recognises the settings object under all three of its spellings, which
+matters because the fifth copy will not be written the way the fourth one was: a
+module-level `settings`, the factory called inline (`get_settings().bbox`, the
+form `tests/test_api_routing.py` already uses), and any local bound from the
+factory (`cfg = get_settings()`). `default_bbox` is flagged on *any* receiver —
+nothing else in the codebase carries that name — while a bare `.bbox` is not,
+because `args.bbox` is the `--bbox` option that is the fix rather than the bug.
+
 **The lesson to keep:** a bound that is *configuration* and a bound that is a
 *fact about the data* look identical at the call site — both are four floats. The
 difference only shows up as an answer that is quietly about less than you think.

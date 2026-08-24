@@ -65,6 +65,15 @@ def test_empty_body_is_rejected():
         query_loader.parse("// name: a\n// only a comment\n")
 
 
+#: The only templates exempt from the write check, by name rather than by a
+#: `graph_` prefix: they mutate the GDS catalogue, not graph data
+#: (gds.graph.project reads, gds.graph.drop trips the regex on DROP). A prefix
+#: would quietly extend the exemption to every future `graph_*` template —
+#: graph_counts and graph_extent are ordinary reads and are checked like the
+#: rest.
+PROJECTION_LIFECYCLE = {"graph_project_routing", "graph_drop_routing"}
+
+
 def test_no_template_writes_to_the_graph():
     """Read-only by construction: the query service must never mutate the graph.
 
@@ -74,7 +83,7 @@ def test_no_template_writes_to_the_graph():
         r"\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP)\b(?!\s+CONSTRAINT)", re.I
     )
     for name in query_loader.query_names():
-        if name.startswith("graph_"):  # GDS projection lifecycle, not graph data
+        if name in PROJECTION_LIFECYCLE:
             continue
         assert not forbidden.search(
             query_loader.get_query(name)
