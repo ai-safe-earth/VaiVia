@@ -29,11 +29,18 @@ from topology.qa import NEAR_MISS_DISTANCES
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-m", type=float, default=100.0)
+    parser.add_argument(
+        "--region",
+        default=None,
+        help="scope to one region's loose ends (e.g. Bergamo)",
+    )
     parser.add_argument("--out", default="data/near_miss.png")
     args = parser.parse_args()
 
     with connect() as conn:
-        rows = conn.execute(NEAR_MISS_DISTANCES, {"max_m": args.max_m}).fetchall()
+        rows = conn.execute(
+            NEAR_MISS_DISTANCES, {"max_m": args.max_m, "region": args.region}
+        ).fetchall()
     values = [float(r[0]) for r in rows if r[0] is not None]
     if not values:
         raise SystemExit("no near misses measured")

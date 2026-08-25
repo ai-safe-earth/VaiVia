@@ -64,7 +64,8 @@ LAYERS: list[Layer] = [
         """SELECT edge_id, way_id, length_m, highway, surface, sac_scale, name,
                   routable_foot, routable_bike, ascent_m, descent_m, net_m, gradient,
                   steepness_class, difficulty_class, surface_class, route_class,
-                  access_class, profile_class, profile_points, start_m, end_m, geom
+                  access_class, urban_m, urban_share, urban_class,
+                  profile_class, profile_points, start_m, end_m, geom
            FROM qa.v_network""",
         "The whole network with every derived attribute on it - tags, climb, "
         "steepness, whether it carries a named route. Open this first.",
@@ -123,7 +124,8 @@ LAYERS: list[Layer] = [
     Layer(
         "start",
         """SELECT vertex_id, component_id, degree, anchors, nearest_m, trips,
-                  car_free, access_class, reachability_class, naming_class, geom
+                  car_free, access_class, start_classes, arrival_class,
+                  reachability_class, naming_class, geom
            FROM qa.v_start""",
         "Where a walk can begin: one point per vertex, with what makes it a start.",
         style_by="reachability_class",
@@ -221,7 +223,7 @@ SELECT DISTINCT e.edge_id, e.way_id, e.length_m,
        e.tags ->> 'sac_scale' AS sac_scale,
        e.tags ->> 'name' AS name,
        e.routable_foot, e.routable_bike, e.geom
-FROM curated.edge e
+FROM source_map.edge e
 JOIN qa.finding f
   ON ST_DWithin(e.geom::geography, f.geom::geography, %(context_m)s)
 -- Latest run only, like every qa.v_* view. Without it the context accumulates
@@ -234,6 +236,11 @@ WHERE f.rule IN ('gap_dangle_pair', 'gap_dangle_edge', 'gap_dangle_junction',
 
 # The only hand-maintained part of the README. Everything else is queried.
 FIELD_NOTES: dict[str, str] = {
+    "urban_m": "metres of the edge inside residential fabric (curate.urban; NULL = not measured for this build)",
+    "urban_share": "urban_m / length_m; the distribution is bimodal - an edge is in town or it is not",
+    "urban_class": "the bimodal cut: 0 open / 1 touches / 2 mostly / 3 urban / 9 not measured",
+    "start_classes": "every kind of arrival this vertex offers (anchors.start_class)",
+    "arrival_class": "the BEST arrival, digit-ordered: station beats bus stop beats parking...",
     "edge_id": "the network edge; stable within one build, not across builds",
     "way_id": "provenance: the parent OSM way",
     "length_m": "geodesic length of this piece (WGS84 ellipsoid)",
@@ -341,50 +348,50 @@ DOCS = [
 
 # Everything numeric in the README comes from here. (label, sql, note)
 STATE = [
-    ("Network", "SELECT count(*) FROM curated.edge", "edges"),
+    ("Network", "SELECT count(*) FROM source_map.edge", "edges"),
     (
         "Network length",
-        "SELECT round((sum(length_m)/1000)::numeric,1) FROM curated.edge",
+        "SELECT round((sum(length_m)/1000)::numeric,1) FROM source_map.edge",
         (
             "km - **the integrity check**: a pass that moves this has either invented "
             "ground or thrown some away"
         ),
     ),
-    ("Vertices", "SELECT count(*) FROM curated.vertex", "routing nodes"),
+    ("Vertices", "SELECT count(*) FROM source_map.vertex", "routing nodes"),
     (
         "Connected",
         """SELECT round((100.0 * max(n) / sum(n))::numeric, 1) FROM
-           (SELECT count(*) n FROM curated.vertex GROUP BY component_id) s""",
+           (SELECT count(*) n FROM source_map.vertex GROUP BY component_id) s""",
         "% of vertices in the largest component",
     ),
     (
         "Named routes",
-        "SELECT count(DISTINCT rel_id) FROM curated.edge_route",
+        "SELECT count(DISTINCT rel_id) FROM source_map.edge_route",
         "route relations joined onto the network",
     ),
     (
         "Edges carrying a route",
-        "SELECT count(DISTINCT edge_id) FROM curated.edge_route",
+        "SELECT count(DISTINCT edge_id) FROM source_map.edge_route",
         "edges with a name from a relation",
     ),
     (
         "Elevation",
-        "SELECT count(*) FROM curated.edge WHERE ascent_m IS NOT NULL",
+        "SELECT count(*) FROM source_map.edge WHERE ascent_m IS NOT NULL",
         "edges with ascent and descent",
     ),
     (
         "Total climb",
-        "SELECT round(sum(ascent_m)::numeric,0) FROM curated.edge",
+        "SELECT round(sum(ascent_m)::numeric,0) FROM source_map.edge",
         "metres of ascent across the network",
     ),
     (
         "Places",
-        "SELECT count(*) FROM curated.place",
+        "SELECT count(*) FROM source_map.place",
         "POIs, settlements and stops snapped",
     ),
     (
         "Starts",
-        "SELECT count(DISTINCT vertex_id) FROM curated.place WHERE is_start",
+        "SELECT count(DISTINCT vertex_id) FROM source_map.place WHERE is_start",
         "vertices a walk can begin at",
     ),
 ]
@@ -437,7 +444,7 @@ ISSUES = [
     ),
     (
         "places over 100 m from the network",
-        "SELECT count(*) FROM curated.place WHERE distance_m > 100",
+        "SELECT count(*) FROM source_map.place WHERE distance_m > 100",
         (
             "Mostly trackless summits, which is a coverage fact, not an error. But some "
             "are car parks, which is either a missing access road in OSM or a polygon "
@@ -446,10 +453,11 @@ ISSUES = [
     ),
     (
         "edges with no altitude profile",
-        "SELECT count(*) FROM curated.edge WHERE ascent_m IS NULL",
+        "SELECT count(*) FROM source_map.edge WHERE ascent_m IS NULL",
         (
-            "North of 46.0001, where the single GLO-30 tile ends. Their climb is NULL "
-            "rather than a partial sum. Fetching tile N46 E009 closes it."
+            "Climb is NULL rather than a partial sum wherever the DEM does not "
+            "cover. Zero since tile N46 E009 joined N45 (2026-08-25); nonzero "
+            "again means coverage moved past the loaded tiles."
         ),
     ),
     (
@@ -486,7 +494,7 @@ SETTLED = [
     ),
     (
         "Route relations joined",
-        "SELECT count(DISTINCT rel_id) FROM curated.edge_route",
+        "SELECT count(DISTINCT rel_id) FROM source_map.edge_route",
         "of 752, with 10,361 edges that had no name of their own now carrying one",
     ),
     (
@@ -503,7 +511,7 @@ SETTLED = [
     (
         "Every staged source is read by something",
         (
-            "SELECT count(DISTINCT parameters ->> 'builder') FROM build_run "
+            "SELECT count(DISTINCT parameters ->> 'builder') FROM provenance.build_run "
             "WHERE parameters ? 'builder'"
         ),
         (
@@ -556,7 +564,7 @@ def write_readme(path: Path, conn, exported: list[tuple[Layer, pd.DataFrame]]) -
     stamp = scalar(conn, "SELECT to_char(now(), 'YYYY-MM-DD HH24:MI')")
     runs = conn.execute("""
         SELECT parameters ->> 'builder', max(started_at)::date, max(run_id)
-        FROM build_run WHERE parameters ? 'builder'
+        FROM provenance.build_run WHERE parameters ? 'builder'
         GROUP BY 1 ORDER BY 2 DESC, 1
     """).fetchall()
 
@@ -654,7 +662,7 @@ def write_readme(path: Path, conn, exported: list[tuple[Layer, pd.DataFrame]]) -
         add(f"| `{builder}` | {when} | `{run_id}` |")
     add("")
     add(
-        "Every curated row carries the `run_id` that produced it, and `build_run` holds"
+        "Every source_map row carries the `run_id` that produced it, and `provenance.build_run` holds"
     )
     add(
         "each run's parameters and counts — so two runs are compared inside the database"

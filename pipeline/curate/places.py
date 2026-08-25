@@ -1,7 +1,7 @@
 """Snap places to the network: POIs, settlements, transit stops.
 
 Three staged sources, one shape of job — nearest vertex, exact distance, and a
-verdict on whether a walk can begin there. Written into curated.place.
+verdict on whether a walk can begin there. Written into source_map.place.
 
 Division of labour, as CLAUDE.md sets it out. The snap is one statement per
 source over a whole table, so PostGIS does it, through a KNN search against the
@@ -33,12 +33,13 @@ from curate.anchors import (
     EXIT_ONTO_TRAIL,
     poi_verdict,
     settlement_verdict,
+    start_class,
     stop_verdict,
     urban_exit_verdict,
 )
 
 # One template, three sources. `key` is the source's own identity spelled as
-# text, so curated.place has a single primary key across all three rather than
+# text, so source_map.place has a single primary key across all three rather than
 # three nullable id columns.
 #
 # ST_PointOnSurface, not ST_Centroid: a marker must lie INSIDE the feature, and
@@ -52,7 +53,7 @@ FROM ({source}) s
 CROSS JOIN LATERAL (
     SELECT v.vertex_id,
            ST_Distance(s.geom::geography, v.geom::geography) AS distance_m
-    FROM curated.vertex v
+    FROM source_map.vertex v
     ORDER BY ST_Transform(s.geom, 32632) <-> ST_Transform(v.geom, 32632)
     LIMIT 1
 ) n
@@ -103,16 +104,16 @@ WITH urban AS (
     SELECT ST_Union(geom) AS geom FROM urban
 ), inside AS (
     SELECT v.vertex_id, v.geom, u.name, u.regions
-    FROM curated.vertex v
+    FROM source_map.vertex v
     JOIN urban u ON ST_Intersects(v.geom, u.geom)
 ), leaving AS (
     SELECT i.vertex_id, i.geom, i.name, i.regions,
            e.tags ->> 'highway' AS highway
     FROM inside i
-    JOIN curated.edge e
+    JOIN source_map.edge e
       ON (e.source = i.vertex_id OR e.target = i.vertex_id)
      AND e.routable_foot
-    JOIN curated.vertex far
+    JOIN source_map.vertex far
       ON far.vertex_id = CASE WHEN e.source = i.vertex_id
                               THEN e.target ELSE e.source END
     CROSS JOIN urban_all ua
@@ -134,7 +135,7 @@ ORDER BY vertex_id,
          highway
 """
 
-NETWORK_RUNS = "SELECT DISTINCT run_id FROM curated.edge"
+NETWORK_RUNS = "SELECT DISTINCT run_id FROM source_map.edge"
 
 SUMMARY = """
 SELECT source,
@@ -144,7 +145,7 @@ SELECT source,
        round(percentile_cont(0.9) WITHIN GROUP (ORDER BY distance_m)::numeric, 1) AS p90_m,
        round(max(distance_m)::numeric, 0)                         AS max_m,
        count(*) FILTER (WHERE distance_m > 100)                   AS over_100m
-FROM curated.place GROUP BY source ORDER BY 2 DESC
+FROM source_map.place GROUP BY source ORDER BY 2 DESC
 """
 
 
@@ -161,15 +162,15 @@ def verdict_for(source: str, kind: str, n_trips: int | None):
 
 def check(conn) -> int:
     """Report whether the stored places still describe the network."""
-    (places,) = conn.execute("SELECT count(*) FROM curated.place").fetchone()
+    (places,) = conn.execute("SELECT count(*) FROM source_map.place").fetchone()
     if places == 0:
-        print("curated.place is empty - run `python -m curate.places`")
+        print("source_map.place is empty - run `python -m curate.places`")
         return 1
 
     built_against: set[str] = set()
-    for (run_id,) in conn.execute("SELECT DISTINCT run_id FROM curated.place"):
+    for (run_id,) in conn.execute("SELECT DISTINCT run_id FROM source_map.place"):
         row = conn.execute(
-            "SELECT parameters -> 'network_run_id' FROM build_run WHERE run_id = %s",
+            "SELECT parameters -> 'network_run_id' FROM provenance.build_run WHERE run_id = %s",
             (run_id,),
         ).fetchone()
         if row and row[0]:
@@ -180,7 +181,7 @@ def check(conn) -> int:
     if unseen:
         print(
             f"STALE: {places:,} places were snapped against {sorted(built_against)}, "
-            f"but curated.edge now holds edges from {sorted(unseen)}.\n"
+            f"but source_map.edge now holds edges from {sorted(unseen)}.\n"
             "Re-run `python -m curate.places`."
         )
         return 2
@@ -209,9 +210,9 @@ def main() -> None:
         if args.check:
             raise SystemExit(check(conn))
 
-        (vertices,) = conn.execute("SELECT count(*) FROM curated.vertex").fetchone()
+        (vertices,) = conn.execute("SELECT count(*) FROM source_map.vertex").fetchone()
         if not vertices:
-            raise SystemExit("curated.vertex is empty - build the network first")
+            raise SystemExit("source_map.vertex is empty - build the network first")
         network = sorted(r for (r,) in conn.execute(NETWORK_RUNS))
         print(f"network: {vertices:,} vertices, run(s) {network}")
 
@@ -252,6 +253,7 @@ def main() -> None:
                         distance_m,
                         verdict.is_start,
                         verdict.note,
+                        start_class(source, kind, key),
                         n_trips,
                         regions,
                         geom,
@@ -273,7 +275,7 @@ def main() -> None:
 
         run_id = f"curate-{uuid.uuid4().hex[:8]}"
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters) VALUES (%s, 'curate', %s)",
+            "INSERT INTO provenance.build_run (run_id, stage, parameters) VALUES (%s, 'curate', %s)",
             (
                 run_id,
                 json.dumps(
@@ -287,12 +289,13 @@ def main() -> None:
         )
 
         # Replace, not merge: see the module docstring.
-        conn.execute("TRUNCATE curated.place")
+        conn.execute("TRUNCATE source_map.place")
         with (
             conn.cursor() as cur,
             cur.copy(
-                "COPY curated.place (source, source_id, kind, name, ele_m, vertex_id,"
-                " distance_m, is_start, start_note, n_trips, regions, geom, run_id)"
+                "COPY source_map.place (source, source_id, kind, name, ele_m, vertex_id,"
+                " distance_m, is_start, start_note, start_class, n_trips, regions,"
+                " geom, run_id)"
                 " FROM STDIN"
             ) as copy,
         ):
@@ -313,11 +316,11 @@ def main() -> None:
             "places": len(rows),
             "starts": sum(1 for r in rows if r[7]),
             "start_vertices": conn.execute(
-                "SELECT count(DISTINCT vertex_id) FROM curated.place WHERE is_start"
+                "SELECT count(DISTINCT vertex_id) FROM source_map.place WHERE is_start"
             ).fetchone()[0],
         }
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
         print(

@@ -71,7 +71,7 @@ ingestion never fetches. Comes free in the same Geofabrik extract (pyosmium reso
 member ways).
 
 **Status.** 752 relations loaded, and since 2026-08-20 joined onto the network by
-`curate/routes.py` into `curated.edge_route`: all 752 matched, 17,118 edges / 2,469.5 km
+`curate/routes.py` into `source_map.edge_route`: all 752 matched, 17,118 edges / 2,469.5 km
 of the 9,238.0 km network now carry a named route, and 10,361 edges that had no `name` of
 their own now carry one. See `docs/metadata-rules.md` for the join's rules and
 `qa.v_route` / `qa.v_route_coverage` for the layers.
@@ -260,3 +260,21 @@ Attribution obligations accumulate: OSM (ODbL), Copernicus DEM (fixed credit str
 CLC+ (source credit), REL (CC-BY), CAI (ODbL), Wikipedia (CC-BY-SA, per-POI, already
 stored). The frontend already renders OSM attribution; the others join it when their data
 first reaches a user-facing surface.
+
+## Addendum, 2026-08-25
+
+**DEM: both tiles are loaded.** `glo30_N46_E009.tif` (Copernicus AWS open
+data) joined N45, closing the band north of 46.0001° where 75 edges
+(56.8 km) carried NULL climb; `curate.elevation` was re-run over the full
+coverage.
+
+**GTFS: the calendar is read.** `load/gtfs.py` opens `trips.txt`,
+`calendar.txt` and `calendar_dates.txt` and stores each stop's service span
+(`service_start`/`service_end`; added-service exceptions widen it, removals
+narrow nothing). The first honest measurement: **trenord's feed runs
+2026-07-26 → 2026-12-12 — not year-round** — so "reachable by train" was
+indeed a claim nobody had checked, exactly as the start/end contract §2
+suspected. A stop with NULL span means the feed carried no calendar for its
+trips: unverified, never year-round. The Bergamo basin bus feed still waits
+on its licence check before loading; its stops will classify as `bus_stop`
+by feed label when it lands.

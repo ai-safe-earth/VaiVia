@@ -73,8 +73,8 @@ WHERE p.reachability_class = '0 main network'
 
 NEAREST_VERTEX = """
 SELECT v.vertex_id
-FROM curated.vertex v
-WHERE v.component_id = (SELECT component_id FROM curated.vertex
+FROM source_map.vertex v
+WHERE v.component_id = (SELECT component_id FROM source_map.vertex
                         GROUP BY component_id ORDER BY count(*) DESC LIMIT 1)
 ORDER BY ST_Transform(v.geom, 32632)
      <-> ST_Transform(ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326), 32632)
@@ -101,11 +101,11 @@ ORDER BY seq
 EDGES_BASE = {
     "foot": (
         "SELECT edge_id AS id, source, target, length_m AS cost "
-        "FROM curated.edge WHERE routable_foot"
+        "FROM source_map.edge WHERE routable_foot"
     ),
     "mtb": (
         "SELECT edge_id AS id, source, target, length_m AS cost "
-        "FROM curated.edge WHERE routable_bike"
+        "FROM source_map.edge WHERE routable_bike"
     ),
 }
 
@@ -115,7 +115,7 @@ SELECT e.edge_id, e.source, e.target, e.length_m,
        e.profile_m, e.ascent_m, e.descent_m,
        e.tags ->> 'surface', e.tags ->> 'sac_scale', e.tags ->> 'mtb:scale',
        e.tags ->> 'highway', e.routable_bike
-FROM curated.edge e WHERE e.edge_id = ANY(%(ids)s)
+FROM source_map.edge e WHERE e.edge_id = ANY(%(ids)s)
 """
 
 
@@ -129,7 +129,7 @@ def edges_sql(activity: str, penalised: set[int], factor: float = 3.0) -> str:
         "SELECT edge_id AS id, source, target, "
         f"CASE WHEN edge_id IN ({ids}) THEN length_m * {factor} "
         "ELSE length_m END AS cost "
-        f"FROM curated.edge WHERE {legality}"
+        f"FROM source_map.edge WHERE {legality}"
     )
 
 
@@ -157,7 +157,7 @@ def directions(conn, steps: list[tuple[int, int]]) -> list[tuple[int, bool]]:
     ids = [edge_id for _node, edge_id in steps]
     sources = dict(
         conn.execute(
-            "SELECT edge_id, source FROM curated.edge WHERE edge_id = ANY(%(ids)s)",
+            "SELECT edge_id, source FROM source_map.edge WHERE edge_id = ANY(%(ids)s)",
             {"ids": ids},
         )
     )
@@ -333,7 +333,7 @@ def main() -> None:
             return
 
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters) VALUES (%s, 'draw', %s)",
+            "INSERT INTO provenance.build_run (run_id, stage, parameters) VALUES (%s, 'draw', %s)",
             (
                 run_id,
                 json.dumps(
@@ -348,7 +348,7 @@ def main() -> None:
                         "network_run_id": sorted(
                             r
                             for (r,) in conn.execute(
-                                "SELECT DISTINCT run_id FROM curated.edge"
+                                "SELECT DISTINCT run_id FROM source_map.edge"
                             )
                         ),
                     }
@@ -410,7 +410,7 @@ def main() -> None:
         # routes are siblings the same way foot and mtb are, and regenerating
         # one family must not silently delete the other.
         conn.execute(
-            "DELETE FROM curated.route WHERE activity = %s AND shape = %s",
+            "DELETE FROM catalogue.route WHERE activity = %s AND shape = %s",
             (args.activity, args.shape),
         )
         inserted = 0
@@ -423,13 +423,13 @@ def main() -> None:
             # id is the ground, so the earlier row stands and this candidate
             # folds into it rather than duplicating the geometry.
             exists = conn.execute(
-                "SELECT 1 FROM curated.route WHERE route_id = %s", (rid,)
+                "SELECT 1 FROM catalogue.route WHERE route_id = %s", (rid,)
             ).fetchone()
             if exists:
                 continue
             conn.execute(
                 """
-                INSERT INTO curated.route
+                INSERT INTO catalogue.route
                     (route_id, kind, activity, shape, name,
                      destination_id, destination_kind, destination_name,
                      start_vertex, target_m, distance_m,
@@ -487,7 +487,7 @@ def main() -> None:
             with (
                 conn.cursor() as cur,
                 cur.copy(
-                    "COPY curated.route_edge (route_id, seq, edge_id, forward)"
+                    "COPY catalogue.route_edge (route_id, seq, edge_id, forward)"
                     " FROM STDIN"
                 ) as copy,
             ):
@@ -502,7 +502,7 @@ def main() -> None:
             "targets": targets,
         }
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
         print(

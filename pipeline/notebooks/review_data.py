@@ -157,7 +157,7 @@ def builders() -> pd.DataFrame:
                max(started_at)::date    AS last_run,
                count(*)                 AS runs,
                (array_agg(counts ORDER BY started_at DESC))[1] AS last_counts
-        FROM build_run
+        FROM provenance.build_run
         WHERE parameters ? 'builder'
         GROUP BY 1 ORDER BY 2 DESC, 1
         """)
@@ -172,7 +172,7 @@ def finding_history() -> pd.DataFrame:
     return frame("""
         SELECT b.started_at, f.run_id, f.rule, count(*) AS findings
         FROM qa.finding f
-        JOIN build_run b USING (run_id)
+        JOIN provenance.build_run b USING (run_id)
         GROUP BY 1, 2, 3
         ORDER BY 1, 3
         """)
@@ -574,7 +574,7 @@ def context_edges(geometry, pad_m: float = 150.0) -> gpd.GeoDataFrame:
     return geoframe(
         """
         SELECT e.edge_id, e.geom
-        FROM curated.edge e
+        FROM source_map.edge e
         WHERE ST_DWithin(
             e.geom::geography,
             ST_GeomFromText(%(wkt)s, 4326)::geography,
@@ -741,8 +741,8 @@ WITH area AS (
     SELECT er.rel_id,
            CASE WHEN count(DISTINCT reg) > 1 THEN 'Lecco + Bergamo'
                 ELSE min(reg) END AS area
-    FROM curated.edge_route er
-    JOIN curated.edge e USING (edge_id),
+    FROM source_map.edge_route er
+    JOIN source_map.edge e USING (edge_id),
          unnest(e.regions) AS reg
     GROUP BY er.rel_id
 )
@@ -870,8 +870,8 @@ SELECT er.member_index, er.piece_index, e.edge_id, e.length_m,
                      (SELECT line FROM merged),
                      ST_LineInterpolatePoint(e.geom, 0.5))
        END AS along
-FROM curated.edge_route er
-JOIN curated.edge e USING (edge_id)
+FROM source_map.edge_route er
+JOIN source_map.edge e USING (edge_id)
 WHERE er.rel_id = %(rel_id)s
 ORDER BY along NULLS LAST, er.member_index, er.piece_index
 """

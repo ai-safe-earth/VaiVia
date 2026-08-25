@@ -10,6 +10,7 @@ from curate.anchors import (
     STARTING_POI,
     poi_verdict,
     settlement_verdict,
+    start_class,
     stop_verdict,
     urban_exit_verdict,
 )
@@ -117,3 +118,28 @@ def test_an_exit_is_judged_on_the_way_out_not_on_the_settlement():
     the polygon still is not a start in its own right."""
     assert not settlement_verdict("residential").is_start
     assert urban_exit_verdict("path").is_start
+
+
+# ── start_class: what kind of arrival ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("source", "kind", "source_id", "expected"),
+    [
+        ("poi", "parking", "n1", "parking"),
+        ("poi", "station", "n2", "station"),
+        ("poi", "campsite", "n3", "campsite"),
+        ("poi", "peak", "n4", "other"),
+        ("settlement", "village", "w5", "settlement"),
+        ("urban_exit", "path", "v6", "urban_exit"),
+        # Rail however it was proven: the station POI and the rail feed's
+        # stop must read as the same class, or the factory's --start-class
+        # station would answer differently by door of proof.
+        ("gtfs_stop", "stop", "trenord:123", "station"),
+        # The day a basin bus feed is loaded, its stops classify themselves
+        # by feed label (data-sources.md licence caveat governs the loading).
+        ("gtfs_stop", "stop", "bergamo-basin:9", "bus_stop"),
+    ],
+)
+def test_start_class_names_the_arrival(source, kind, source_id, expected):
+    assert start_class(source, kind, source_id) == expected

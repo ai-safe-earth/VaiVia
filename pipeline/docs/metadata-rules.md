@@ -1,5 +1,12 @@
 # Metadata rules: how attributes survive splitting and joining
 
+> **Schema names, 2026-08-25.** The store's schemas were renamed to say
+> their jobs: `curated` became **`source_map`** (vertex, edge, edge_route,
+> place) with the generated-route tables moving to **`catalogue`**, and
+> `public.build_run` moved to **`provenance`**. References below use the
+> new names throughout, including in passages narrating v1-era events —
+> read older commits and `sql/v1/` with this mapping in hand.
+
 The two operations that silently corrupt a route map are cutting ways into pieces and
 merging pieces into routes. Neither has a safe default: "copy everything" on split
 produces reversed inclines, and "max" on join lets 30 m of scramble label a 20 km valley
@@ -39,10 +46,10 @@ Assembly itself is a check: the ordered pieces must `ST_LineMerge` to **exactly 
 LineString**. A MultiLineString means a gap, which is filed as a `qa.finding` pointing at
 the break — a broken route is never stored with a straight line across the hole.
 
-## Route-relation membership (`curated.edge_route`, written 2026-08-20)
+## Route-relation membership (`source_map.edge_route`, written 2026-08-20)
 
 The **Positional** row of the split table, realised. A member of an OSM route relation is
-a way id, and `curated.edge.way_id` is the same id, so the join needed no matching
+a way id, and `source_map.edge.way_id` is the same id, so the join needed no matching
 algorithm — it already existed in the data and had never been written.
 
 | decision | rule | why |
@@ -80,10 +87,10 @@ of 646 is a fragment with a famous name.
 `build_network` (which replaces the network) and `topology/repair` (which splits and
 deletes edges) both **clear** the table and say so; `curate.routes --check` reports
 staleness by comparing the network run ids recorded in `build_run` against the run ids now
-in `curated.edge`. An empty table is visibly missing, a partly-stale one lies — which is
-`curated.vertex_degree`'s lesson, applied before it could be repeated.
+in `source_map.edge`. An empty table is visibly missing, a partly-stale one lies — which is
+`source_map.vertex_degree`'s lesson, applied before it could be repeated.
 
-## Elevation (`curated.vertex.elevation_m`, `curated.edge.profile_m`, written 2026-08-20)
+## Elevation (`source_map.vertex.elevation_m`, `source_map.edge.profile_m`, written 2026-08-20)
 
 Copernicus GLO-30, sampled onto the network. Two decisions, both measured rather than
 assumed, because both defaults are wrong here.
@@ -141,9 +148,9 @@ network — but **a peak's elevation must come from its `ele` tag, never from th
 
 | field | rule |
 |---|---|
-| `curated.vertex.elevation_m` | one authoritative value per vertex — the routing graph is vertex-based and `elevation_change` on a routing edge is a difference of two of these |
-| `curated.edge.profile_m` | one sample per point of `geom`, in geometry order. `array_length` **must** equal `ST_NPoints(geom)`; the sampler refuses to write climb if it does not |
-| `curated.edge.ascent_m` / `descent_m` | **Directional**, in the same sense as `oneway` and `incline`: measured along the stored geometry, so reversing a piece **swaps them** |
+| `source_map.vertex.elevation_m` | one authoritative value per vertex — the routing graph is vertex-based and `elevation_change` on a routing edge is a difference of two of these |
+| `source_map.edge.profile_m` | one sample per point of `geom`, in geometry order. `array_length` **must** equal `ST_NPoints(geom)`; the sampler refuses to write climb if it does not |
+| `source_map.edge.ascent_m` / `descent_m` | **Directional**, in the same sense as `oneway` and `incline`: measured along the stored geometry, so reversing a piece **swaps them** |
 
 The profile is kept, not just its summary, because the "on join" rule above requires a
 route's ascent to come from the altitude profile — so the profile has to survive assembly.
@@ -169,7 +176,7 @@ already tagged `sac_scale=alpine_hiking` or harder by a mapper who never saw thi
 
 ### An aggregate over `edge_route` must collapse the link first
 
-`curated.edge_route` is keyed on `(edge_id, rel_id, member_index)` so a way listed twice in
+`source_map.edge_route` is keyed on `(edge_id, rel_id, member_index)` so a way listed twice in
 one relation keeps both visits. That grain is right for the link and **wrong for any
 aggregate over edges**: `qa.v_route` summed length per link and so counted 123 edges twice
 across 20 relations, reporting the Dorsale Orobica Lecchese as 44.17 km against an actual
@@ -177,7 +184,7 @@ across 20 relations, reporting the Dorsale Orobica Lecchese as 44.17 km against 
 The tell was that the edge COUNT was right — it was already `count(DISTINCT edge_id)` —
 while the kilometres beside it were not.
 
-## Places snapped to the network (`curated.place`, written 2026-08-20)
+## Places snapped to the network (`source_map.place`, written 2026-08-20)
 
 POIs, settlements and transit stops attached to the routing graph. One row per feature,
 carrying the vertex it snapped to, how far that was, and whether a walk can begin there.
@@ -333,7 +340,7 @@ property of a *terminal* (one or two per route, by shape), interest stays a prop
 only on `picnic_site` — cannot drift apart. Implement against that document, not against
 this section.
 
-## Generated routes (`curated.route` + `curated.route_edge`, written 2026-08-20)
+## Generated routes (`catalogue.route` + `catalogue.route_edge`, written 2026-08-20)
 
 The "on join" table above finally executes here, along a **walked edge sequence** —
 which edge, in what order, in which direction (`route_edge.forward`). Everything reads
@@ -504,14 +511,14 @@ before it was two lines with a gap between them. Not repaired automatically, so 
 
 ### A matview that lied
 
-`curated.vertex_degree` is materialised, every detector reads it, and 0004 said
+`source_map.vertex_degree` is materialised, every detector reads it, and 0004 said
 `build_network.py` refreshed it after a rebuild. It did not. A rebuilt network was
 therefore measured with the *previous* network's degrees: the same 101,870 edges reported
 9 dangle pairs before a rebuild and 19 after, with nothing changed in between. Repairs
 chosen from those numbers would weld vertices picked off a graph that no longer existed.
 
 The refresh now happens where the comment always claimed it did, and `topology/qa.py`
-refuses to run when the matview's row count does not match `curated.vertex` — the cheapest
+refuses to run when the matview's row count does not match `source_map.vertex` — the cheapest
 possible detection of a class of error that is otherwise silent.
 
 ### Two PostGIS traps found building these detectors
@@ -529,3 +536,45 @@ cost 14 s a route in the old graph.
   killed after ten minutes. Join the indexed relation directly and filter on `degree`
   inside the join: same result in 21 s. Related: a `::geography` predicate needs a
   `gist((geom::geography))` index; a plain geometry index cannot serve it.
+
+## The v2 additions (2026-08-25)
+
+Four rules landed with the schema rename, each with its measurement:
+
+**Urban fabric is measured, not inferred from highway class.**
+`source_map.edge.urban_m` is the edge's metres inside the union of the 999
+residential polygons (UTM32, computed by `curate/urban.py`, re-run after any
+rebuild like every derived layer; NULL means not measured for this build —
+absent is not zero). Measured over 101,951 edges the share is **bimodal**:
+58% of edges at exactly 0, 35% at ≥99.9%, only ~7% anywhere between — an
+edge is in town or it is not. `qa.v_network.urban_class` cuts in the valleys
+(0 / 50% / 99%). 2,014.6 of 9,238.0 km run through fabric. The route
+factory's urban-exposure rule reads this column, never `off_road_share`,
+which is a highway-class heuristic that cannot tell a park path from an
+alley.
+
+**Every start carries its arrival class.** `source_map.place.start_class`
+(`parking | station | bus_stop | urban_exit | settlement | campsite |
+other`), derived in `curate/anchors.py::start_class` beside the other
+verdicts and pure-tested. Rail reads `station` however it was proven — a
+station POI or a rail GTFS stop — so a factory filter cannot answer
+differently by door of proof. Live: 7,471 parking, 5,221 urban exits, 2,037
+settlements, 53 stations, 13 campsites; `qa.v_start.arrival_class` styles it.
+
+**A weld must stay on its own level.** The gap repairs weld on 2 m geodesic
+proximity, and a bridge deck passes within 2 m horizontally of the road
+beneath it. `topology/levels.py` (layer + bridge + tunnel, OSM defaults)
+guards every weld: ends at different levels are **refused** and stay in the
+finding queue as the grade separations they are; the finding notes now carry
+each side's level so the refusal is legible in QGIS. This is the noding
+rule ("never join a 2D crossing") applied to the repair pass, which had
+been the one place it did not hold.
+
+**The 2 m tolerance holds on Bergamo's own evidence.** The near-miss
+measurement is region-scopeable now (`topology.qa --measure --region
+Bergamo`, via `vertex_degree.regions`, aggregated from incident edges).
+Measured 2026-08-25 on the repaired network: Bergamo 57 of 8,985 loose ends
+within 2 m (0.6%), Lecco 31 of 6,190 (0.5%), both distributions rising
+smoothly through 5 and 10 m with no cliff below 2 m — the same shape the
+two-province histogram had. Retained; re-measure after any change to the
+network, as ever.

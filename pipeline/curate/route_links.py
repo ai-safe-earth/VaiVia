@@ -1,6 +1,6 @@
 """Expanding a route relation's members into edge links. Pure, so it is tested.
 
-The join itself is one equality (`member ref == curated.edge.way_id`) and could
+The join itself is one equality (`member ref == source_map.edge.way_id`) and could
 have been a single SQL statement. It is here instead because the expansion is
 per-feature branching -- member types to skip, an empty role that means "no
 role", a way listed twice in the same relation, a member way the network does
@@ -26,7 +26,7 @@ from typing import NamedTuple
 
 
 class Link(NamedTuple):
-    """One row of curated.edge_route."""
+    """One row of source_map.edge_route."""
 
     edge_id: int
     rel_id: int

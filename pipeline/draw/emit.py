@@ -6,7 +6,7 @@ differs is honest absence — no OSM relation identity, `matched_fraction: null`
 (there is no relation to match), and no name until trailhead naming is solved.
 
 The document's measures are REASSEMBLED from the stored walked sequence rather
-than copied from curated.route, so the emitter exercises the same pure rules
+than copied from catalogue.route, so the emitter exercises the same pure rules
 the tests pin, and a drift between table and document is impossible — the
 sequence is the single source.
 
@@ -32,35 +32,35 @@ SELECT r.route_id, r.activity, r.shape, r.name, r.destination_id, r.destination_
        r.destination_name, r.start_vertex, r.target_m, r.score, r.seed, r.run_id,
        ST_AsGeoJSON(r.geom),
        ARRAY[ST_XMin(r.geom), ST_YMin(r.geom), ST_XMax(r.geom), ST_YMax(r.geom)]
-FROM curated.route r
+FROM catalogue.route r
 ORDER BY r.route_id
 """
 
 SEQUENCE = """
 SELECT re.seq, re.edge_id, re.forward, e.source
-FROM curated.route_edge re
-JOIN curated.edge e ON e.edge_id = re.edge_id
+FROM catalogue.route_edge re
+JOIN source_map.edge e ON e.edge_id = re.edge_id
 WHERE re.route_id = %(route_id)s
 ORDER BY re.seq
 """
 
 REGIONS = """
 SELECT array_agg(DISTINCT region ORDER BY region)
-FROM curated.route_edge re
-JOIN curated.edge e ON e.edge_id = re.edge_id, unnest(e.regions) AS region
+FROM catalogue.route_edge re
+JOIN source_map.edge e ON e.edge_id = re.edge_id, unnest(e.regions) AS region
 WHERE re.route_id = %(route_id)s
 """
 
 PLACES = """
 WITH line AS (
-    SELECT geom FROM curated.route WHERE route_id = %(route_id)s
+    SELECT geom FROM catalogue.route WHERE route_id = %(route_id)s
 )
 SELECT p.source_id, p.kind, p.name, p.ele_m,
        ST_X(p.geom), ST_Y(p.geom),
        ST_Distance(p.geom::geography, l.geom::geography) AS offset_m,
        ST_LineLocatePoint(l.geom, p.geom) * ST_Length(l.geom::geography) AS along_m,
        p.is_start
-FROM line l, curated.place p
+FROM line l, source_map.place p
 WHERE ST_DWithin(ST_Transform(p.geom, 32632), ST_Transform(l.geom, 32632), %(radius)s)
 ORDER BY along_m, offset_m
 """

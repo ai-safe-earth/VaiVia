@@ -1,4 +1,4 @@
-"""Build the noded network: staging.osm_way -> curated.vertex + curated.edge.
+"""Build the noded network: staging.osm_way -> source_map.vertex + source_map.edge.
 
 Split logic is topology/split.py (pure, tested); this module is the plumbing
 around it — read ways, count vertex usage, split, assign vertex ids, COPY, and
@@ -31,10 +31,10 @@ from topology.split import Coord, split_at_junctions, vertex_usage
 GEOD = Geod(ellps="WGS84")
 
 COMPONENTS = """
-UPDATE curated.vertex v
+UPDATE source_map.vertex v
 SET component_id = c.component
 FROM pgr_connectedComponents(
-    'SELECT edge_id AS id, source, target, length_m AS cost FROM curated.edge'
+    'SELECT edge_id AS id, source, target, length_m AS cost FROM source_map.edge'
 ) c
 WHERE v.vertex_id = c.node
 """
@@ -52,7 +52,7 @@ def main() -> None:
 
     with connect() as conn:
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters) VALUES (%s, 'topology', %s)",
+            "INSERT INTO provenance.build_run (run_id, stage, parameters) VALUES (%s, 'topology', %s)",
             (run_id, json.dumps({"builder": "build_network"})),
         )
         rows = conn.execute("""SELECT way_id, ST_AsBinary(geom), tags, routable_foot,
@@ -106,21 +106,21 @@ def main() -> None:
                 )
         print(f"edges: {len(edges):,}, vertices used: {len(vertex_ids):,}")
 
-        # Replace, not merge: see module docstring. curated.edge_route is in the
+        # Replace, not merge: see module docstring. source_map.edge_route is in the
         # list because it holds edge_ids from the network being replaced —
         # PostgreSQL would refuse the TRUNCATE otherwise, which is the right
         # answer: a route link that survives a rebuild points at edges that no
         # longer exist. Clearing it makes the gap visible; re-run curate.routes.
         conn.execute(
-            "TRUNCATE curated.route_edge, curated.route, curated.edge_route,"
-            " curated.place, curated.edge, curated.vertex RESTART IDENTITY"
+            "TRUNCATE catalogue.route_edge, catalogue.route, source_map.edge_route,"
+            " source_map.place, source_map.edge, source_map.vertex RESTART IDENTITY"
         )
         with conn.cursor() as cur:
-            with cur.copy("COPY curated.vertex (geom, run_id) FROM STDIN") as copy:
+            with cur.copy("COPY source_map.vertex (geom, run_id) FROM STDIN") as copy:
                 for coord in vertex_ids:  # insertion order == id order
                     copy.write_row((ewkb4326(Point(coord).wkb_hex), run_id))
             with cur.copy(
-                "COPY curated.edge (way_id, piece_index, source, target, geom,"
+                "COPY source_map.edge (way_id, piece_index, source, target, geom,"
                 " length_m, tags, routable_foot, routable_bike, regions, run_id)"
                 " FROM STDIN"
             ) as copy:
@@ -147,14 +147,14 @@ def main() -> None:
         # is refreshed — but it was not, so a rebuild left the previous
         # network's degrees in place and the detectors then measured a network
         # that no longer existed. Refreshing here, where the claim already was.
-        conn.execute("REFRESH MATERIALIZED VIEW curated.vertex_degree")
+        conn.execute("REFRESH MATERIALIZED VIEW source_map.vertex_degree")
         comp = conn.execute("""SELECT count(DISTINCT component_id) AS components,
-                      (SELECT count(*) FROM curated.vertex v2
+                      (SELECT count(*) FROM source_map.vertex v2
                        WHERE v2.component_id = (
-                           SELECT component_id FROM curated.vertex
+                           SELECT component_id FROM source_map.vertex
                            GROUP BY component_id ORDER BY count(*) DESC LIMIT 1
                        ))::float / count(*) AS largest_share
-               FROM curated.vertex""").fetchone()
+               FROM source_map.vertex""").fetchone()
         counts = {
             "edges": len(edges),
             "vertices": len(vertex_ids),
@@ -162,7 +162,7 @@ def main() -> None:
             "largest_component_share": round(comp[1], 4),
         }
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
         print(

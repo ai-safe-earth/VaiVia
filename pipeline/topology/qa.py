@@ -41,7 +41,7 @@ import argparse
 import json
 import uuid
 
-from core import connect
+from core import REGIONS, connect
 
 # Detectors are (rule, severity, SQL). Each SQL returns (geom, note); the
 # runner stamps run_id and rule. Keeping them declarative means a new rule is a
@@ -50,8 +50,31 @@ from core import connect
 # $tol is the search radius in metres, applied via geography so it is real
 # distance rather than degrees.
 
+
+# The vertical level a way claims, as text for the finding notes -- '0',
+# '1+bridge', '-1+tunnel' (topology/levels.py is the Python twin the repair
+# guard uses; the two must agree, and the level tests pin the Python side).
+# A reviewer seeing levels disagree in a note knows at once why the repair
+# refused the weld: it is a grade separation, not a gap.
+def _level_sql(alias: str) -> str:
+    return (
+        f"concat_ws('+', coalesce({alias}.tags->>'layer','0'),"
+        f" CASE WHEN coalesce({alias}.tags->>'bridge','no') <> 'no' THEN 'bridge' END,"
+        f" CASE WHEN coalesce({alias}.tags->>'tunnel','no') <> 'no' THEN 'tunnel' END)"
+    )
+
+
+def _dangle_level(alias: str) -> str:
+    """The level of a dangle's single incident edge."""
+    return (
+        f"(SELECT {_level_sql('e2')} FROM source_map.edge e2"
+        f" WHERE e2.source = {alias}.vertex_id OR e2.target = {alias}.vertex_id"
+        f" LIMIT 1)"
+    )
+
+
 GAP_DANGLE_PAIR = """
--- Joined against curated.vertex_degree directly, NOT through a CTE: a CTE has
+-- Joined against source_map.vertex_degree directly, NOT through a CTE: a CTE has
 -- no indexes, so `FROM dangles a JOIN dangles b ON ST_DWithin(...)` degrades to
 -- a nested loop over every pair of loose ends (14,769^2 geography distances,
 -- which ran for ten minutes before being killed). Filtering on degree inside
@@ -59,10 +82,11 @@ GAP_DANGLE_PAIR = """
 SELECT ST_MakeLine(a.geom, b.geom) AS geom,
        json_build_object(
            'a', a.vertex_id, 'b', b.vertex_id,
-           'distance_m', round(ST_Distance(a.geom::geography, b.geom::geography)::numeric, 2)
+           'distance_m', round(ST_Distance(a.geom::geography, b.geom::geography)::numeric, 2),
+           'level_a', {level_a}, 'level_b', {level_b}
        )::text AS note
-FROM curated.vertex_degree a
-JOIN curated.vertex_degree b
+FROM source_map.vertex_degree a
+JOIN source_map.vertex_degree b
   ON a.vertex_id < b.vertex_id
  AND b.degree = 1
  AND ST_DWithin(a.geom::geography, b.geom::geography, %(tol)s)
@@ -73,10 +97,11 @@ GAP_DANGLE_EDGE = """
 SELECT ST_ShortestLine(d.geom, e.geom) AS geom,
        json_build_object(
            'vertex', d.vertex_id, 'edge', e.edge_id,
-           'distance_m', round(ST_Distance(d.geom::geography, e.geom::geography)::numeric, 2)
+           'distance_m', round(ST_Distance(d.geom::geography, e.geom::geography)::numeric, 2),
+           'level_vertex', {level_d}, 'level_edge', {level_e}
        )::text AS note
-FROM curated.vertex_degree d
-JOIN curated.edge e
+FROM source_map.vertex_degree d
+JOIN source_map.edge e
   ON ST_DWithin(d.geom::geography, e.geom::geography, %(tol)s)
  AND e.source <> d.vertex_id AND e.target <> d.vertex_id
 -- The dangle must be near the edge's INTERIOR: near an endpoint is either the
@@ -99,16 +124,20 @@ GAP_DANGLE_JUNCTION = """
 SELECT ST_MakeLine(d.geom, j.geom) AS geom,
        json_build_object(
            'vertex', d.vertex_id, 'junction', j.vertex_id,
-           'distance_m', round(ST_Distance(d.geom::geography, j.geom::geography)::numeric, 2)
+           'distance_m', round(ST_Distance(d.geom::geography, j.geom::geography)::numeric, 2),
+           'level_vertex', {level_d},
+           'level_junction', (SELECT string_agg(DISTINCT {level_e2}, ',')
+                              FROM source_map.edge e2
+                              WHERE e2.source = j.vertex_id OR e2.target = j.vertex_id)
        )::text AS note
-FROM curated.vertex_degree d
-JOIN curated.vertex_degree j
+FROM source_map.vertex_degree d
+JOIN source_map.vertex_degree j
   ON j.degree >= 2
  AND j.vertex_id <> d.vertex_id
  AND ST_DWithin(d.geom::geography, j.geom::geography, %(tol)s)
 WHERE d.degree = 1
   AND NOT EXISTS (
-      SELECT 1 FROM curated.edge e
+      SELECT 1 FROM source_map.edge e
       WHERE (e.source = d.vertex_id AND e.target = j.vertex_id)
          OR (e.target = d.vertex_id AND e.source = j.vertex_id)
   )
@@ -116,13 +145,13 @@ WHERE d.degree = 1
 
 ISLAND = """
 WITH sizes AS (
-    SELECT component_id, count(*) AS n FROM curated.vertex
+    SELECT component_id, count(*) AS n FROM source_map.vertex
     WHERE component_id IS NOT NULL GROUP BY component_id
 )
 SELECT ST_ConvexHull(ST_Collect(v.geom)) AS geom,
        json_build_object('component_id', s.component_id, 'vertices', s.n)::text AS note
 FROM sizes s
-JOIN curated.vertex v ON v.component_id = s.component_id
+JOIN source_map.vertex v ON v.component_id = s.component_id
 WHERE s.n < %(min_vertices)s
 GROUP BY s.component_id, s.n
 """
@@ -133,7 +162,7 @@ SELECT geom,
            'edge_id', edge_id, 'length_m', round(length_m::numeric, 2),
            'self_loop', source = target
        )::text AS note
-FROM curated.edge
+FROM source_map.edge
 WHERE length_m < %(min_length_m)s OR source = target
 """
 
@@ -151,8 +180,8 @@ FROM (
     SELECT a.edge_id AS a_id, b.edge_id AS b_id,
            ST_Intersection(a.geom, b.geom) AS shared,
            ST_Length(ST_Intersection(a.geom, b.geom)::geography) AS m
-    FROM curated.edge a
-    JOIN curated.edge b
+    FROM source_map.edge a
+    JOIN source_map.edge b
       ON a.edge_id < b.edge_id
      AND a.way_id <> b.way_id
      AND a.geom && b.geom
@@ -161,9 +190,23 @@ WHERE m >= %(min_overlap_m)s
 """
 
 DETECTORS: list[tuple[str, str, str]] = [
-    ("gap_dangle_pair", "error", GAP_DANGLE_PAIR),
-    ("gap_dangle_edge", "error", GAP_DANGLE_EDGE),
-    ("gap_dangle_junction", "error", GAP_DANGLE_JUNCTION),
+    (
+        "gap_dangle_pair",
+        "error",
+        GAP_DANGLE_PAIR.format(level_a=_dangle_level("a"), level_b=_dangle_level("b")),
+    ),
+    (
+        "gap_dangle_edge",
+        "error",
+        GAP_DANGLE_EDGE.format(level_d=_dangle_level("d"), level_e=_level_sql("e")),
+    ),
+    (
+        "gap_dangle_junction",
+        "error",
+        GAP_DANGLE_JUNCTION.format(
+            level_d=_dangle_level("d"), level_e2=_level_sql("e2")
+        ),
+    ),
     ("island", "info", ISLAND),
     ("degenerate", "warning", DEGENERATE),
     ("overlap", "warning", OVERLAP),
@@ -174,25 +217,34 @@ DETECTORS: list[tuple[str, str, str]] = [
 NEAR_MISS_DISTANCES = """
 SELECT (
     SELECT round(ST_Distance(d.geom::geography, e.geom::geography)::numeric, 2)
-    FROM curated.edge e
+    FROM source_map.edge e
     WHERE e.source <> d.vertex_id AND e.target <> d.vertex_id
       AND ST_DWithin(d.geom::geography, e.geom::geography, %(max_m)s)
     ORDER BY d.geom <-> e.geom
     LIMIT 1
 ) AS nearest_m
-FROM curated.vertex_degree d
+FROM source_map.vertex_degree d
 WHERE d.degree = 1
+  -- NULL region = the whole network; a name scopes the measurement to the
+  -- loose ends whose vertex touches that region's edges. The tolerance was
+  -- measured once over both provinces; new-province work re-measures on its
+  -- own evidence before any repair (the Bergamo gate).
+  AND (%(region)s::text IS NULL OR d.regions @> ARRAY[%(region)s::text])
 """
 
 
-def measure(tol_m: float, max_m: float) -> None:
+def measure(tol_m: float, max_m: float, region: str | None = None) -> None:
     """Report the near-miss distribution: what a tolerance would actually catch."""
     with connect() as conn:
-        rows = conn.execute(NEAR_MISS_DISTANCES, {"max_m": max_m}).fetchall()
+        rows = conn.execute(
+            NEAR_MISS_DISTANCES, {"max_m": max_m, "region": region}
+        ).fetchall()
     values = sorted(float(r[0]) for r in rows if r[0] is not None)
     total = len(rows)
+    where = f" in {region}" if region else ""
     print(
-        f"loose ends: {total:,}; with something within {max_m:.0f} m: {len(values):,}"
+        f"loose ends{where}: {total:,}; "
+        f"with something within {max_m:.0f} m: {len(values):,}"
     )
     if not values:
         return
@@ -222,14 +274,14 @@ def assert_degrees_fresh(conn) -> None:
     cheapest possible detection of it.
     """
     vertices, degrees = conn.execute(
-        "SELECT (SELECT count(*) FROM curated.vertex),"
-        "       (SELECT count(*) FROM curated.vertex_degree)"
+        "SELECT (SELECT count(*) FROM source_map.vertex),"
+        "       (SELECT count(*) FROM source_map.vertex_degree)"
     ).fetchone()
     if vertices != degrees:
         raise SystemExit(
-            f"curated.vertex_degree is stale ({degrees:,} rows against "
+            f"source_map.vertex_degree is stale ({degrees:,} rows against "
             f"{vertices:,} vertices). Run:\n"
-            "  psql -c 'REFRESH MATERIALIZED VIEW curated.vertex_degree'\n"
+            "  psql -c 'REFRESH MATERIALIZED VIEW source_map.vertex_degree'\n"
             "or rebuild with `python -m topology.build_network`, which refreshes it."
         )
 
@@ -256,15 +308,29 @@ def main() -> None:
         help="report the near-miss distribution and exit, writing nothing",
     )
     parser.add_argument("--max-measure-m", type=float, default=100.0)
+    parser.add_argument(
+        "--region",
+        default=None,
+        help="scope --measure to one region's loose ends (e.g. Bergamo)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     with connect() as conn:
         assert_degrees_fresh(conn)
 
+    if args.region and args.region not in REGIONS:
+        raise SystemExit(
+            f"unknown region {args.region!r}; configured: {sorted(REGIONS)}"
+        )
     if args.measure:
-        measure(args.tolerance_m, args.max_measure_m)
+        measure(args.tolerance_m, args.max_measure_m, args.region)
         return
+    if args.region:
+        raise SystemExit(
+            "--region scopes --measure only; detection and repair "
+            "run over the whole network"
+        )
 
     run_id = f"qa-{uuid.uuid4().hex[:8]}"
     params = {
@@ -277,7 +343,7 @@ def main() -> None:
     with connect() as conn:
         if not args.dry_run:
             conn.execute(
-                "INSERT INTO build_run (run_id, stage, parameters) "
+                "INSERT INTO provenance.build_run (run_id, stage, parameters) "
                 "VALUES (%s, 'topology', %s)",
                 (run_id, json.dumps({"detector": "qa", **params})),
             )
@@ -298,7 +364,7 @@ def main() -> None:
             print(f"  {rule:<18} {n:>7,}")
         if not args.dry_run:
             conn.execute(
-                "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+                "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
                 (json.dumps(counts), run_id),
             )
             print(f"\nwrote findings as run {run_id}")

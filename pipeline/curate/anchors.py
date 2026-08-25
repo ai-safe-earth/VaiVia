@@ -104,6 +104,34 @@ def poi_verdict(poi_type: str) -> Verdict:
     return Verdict(False, f"{poi_type} is not classified as a starting point")
 
 
+#: Feeds whose stops are RAIL. A new feed classifies itself the day it is
+#: loaded: in here it reads station, otherwise bus_stop. The Bergamo basin
+#: bus feeds belong outside this set (data-sources.md licence caveat governs
+#: their loading at all).
+RAIL_FEEDS = frozenset({"trenord"})
+
+
+def start_class(source: str, kind: str, source_id: str) -> str:
+    """What KIND of arrival this place is — the class the route factory
+    filters starts by, and the document's terminals will carry.
+
+    'station' means rail however it was proven (a station POI or a rail
+    GTFS stop; only rail feeds are loaded today, so a gtfs_stop from any
+    other feed reads bus_stop by its feed label — the day a basin bus feed
+    lands, its stops classify themselves). The class is stored, never
+    derived downstream, so the map legend, the factory and the chat cannot
+    come to describe the same start differently.
+    """
+    if source == "urban_exit":
+        return "urban_exit"
+    if source == "settlement":
+        return "settlement"
+    if source == "gtfs_stop":
+        feed = source_id.split(":", 1)[0]
+        return "station" if feed in RAIL_FEEDS else "bus_stop"
+    return kind if kind in ("parking", "station", "campsite") else "other"
+
+
 def settlement_verdict(kind: str) -> Verdict:
     """Can a walk begin at this settlement?"""
     if kind in STARTING_SETTLEMENT:
