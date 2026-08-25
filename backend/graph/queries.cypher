@@ -511,6 +511,10 @@ RETURN r.route_id AS id,
        r.graded_share AS graded_share,
        r.mtb_rideable AS mtb_rideable,
        r.mtb_scale AS mtb_scale,
+       // A "no" says why, in metres: 6 m of steps and 1.6 km of private
+       // road must not read identically (metadata-rules.md). Null on mapped
+       // relations, which carry no conjunction run.
+       r.bike_blocked_m AS bike_blocked_m,
        r.off_road_share AS off_road_share,
        r.score AS score,
        s.vertex_id AS start_vertex_id,
