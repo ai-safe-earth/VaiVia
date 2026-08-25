@@ -19,10 +19,19 @@ to be discovered by a user asking for a walk there.
 Idempotent: routes MERGE on a deterministic id of trailhead + target distance +
 rank, so re-running replaces a trailhead's routes rather than accumulating them.
 
+NOTE (2026-08-23): what this script is FOR is an open question. The live
+catalogue now comes from the pipeline's route documents, loaded by
+`pipeline/export/neo4j_load.py`, and all 283 (:Trailhead) nodes carry no routes
+because this backend-side generation was superseded. It still runs, and its
+projection was still wrong, which is why it is fixed here rather than left as a
+trap for whoever runs it next — but deciding whether it stays is a separate
+tracked step.
+
 Run from backend/ with Neo4j up, GDS loaded, a region ingested and trailheads
 built:
     uv run python -m scripts.build_routes --limit 5 --dry-run
     uv run python -m scripts.build_routes --min-off-road 0.6
+    uv run python -m scripts.build_routes --bbox 45.8,9.3,46.0,9.6
 """
 
 import argparse
@@ -35,6 +44,7 @@ from uuid import uuid4
 from neo4j.exceptions import Neo4jError
 
 from core.config import get_settings
+from graph.extent import BBOX_HELP, describe, projection_bbox
 from graph.graphhopper import GraphHopperClient
 from graph.neo4j_client import Neo4jClient
 from graph.route_context import pois_along_route, summarize_pois
@@ -231,6 +241,7 @@ async def main() -> None:
         help="refuse to store a route whose length score is below this "
         "(0.35 is roughly within a third of the target); 0 stores everything",
     )
+    parser.add_argument("--bbox", help=BBOX_HELP)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     targets = [int(t) for t in args.targets.split(",")]
@@ -282,7 +293,14 @@ async def main() -> None:
         if not trailheads:
             return
 
-        min_lat, min_lon, max_lat, max_lon = settings.bbox
+        # The whole ingested graph, not settings.bbox -- one Lecco-shaped
+        # box holding 31,514 of the graph's 84,137 intersections, which
+        # meant a trailhead outside it was projected away and generated
+        # nothing while reporting as barren (docs/fragilities.md #16).
+        bbox = await projection_bbox(db, args.bbox)
+        min_lat, min_lon, max_lat, max_lon = bbox
+        print(describe(bbox, args.bbox))
+        print()
         try:
             projected = await db.run_named(
                 "graph_project_routing",

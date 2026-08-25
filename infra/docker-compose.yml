@@ -18,7 +18,11 @@ services:
       - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687" # Bolt (dev only)
     environment:
       NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
-      NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+      # apoc only, and that is deliberate: it is bundled in the image, so
+      # installing it touches no network. graph-data-science is NOT listed
+      # here -- it lives on the neo4j_plugins volume below, and listing it
+      # would re-download and overwrite that copy on every start.
+      NEO4J_PLUGINS: '["apoc"]'
       # Procedure allowlist: what the query service is permitted to CALL. This is
       # the read-only boundary for model-GENERATED Cypher (docs/fragilities.md #15)
       # — Community has no RBAC, so it is an allowlist, not a grant. It denies
@@ -53,6 +57,31 @@ services:
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
+      # GDS is a DOWNLOAD, and this volume is where it lives -- it is not
+      # fetched on every start. The image bundles APOC at /var/lib/neo4j/labs
+      # and installs it from disk, but it ships no GDS jar
+      # (/var/lib/neo4j/products holds only fleet-management and genai), so
+      # listing graph-data-science in NEO4J_PLUGINS pulls it from
+      # graphdatascience.ninja -- a host that is not reliably reachable here --
+      # into the image layer, which `up -d --force-recreate` throws away.
+      #
+      # Mounting anything at /plugins makes the entrypoint point
+      # server.directories.plugins at it, so a jar put there survives a
+      # recreate. That is only worth something if nothing rewrites it, which is
+      # why graph-data-science is OUT of NEO4J_PLUGINS above:
+      # load_plugin_from_url runs unconditionally for every entry in that list
+      # and never checks whether the jar is already present, nor wget's exit
+      # status. `wget --output-document` truncates the destination BEFORE the
+      # transfer, and the only check afterwards is is_readable -- stat
+      # permission arithmetic, which passes on a 0-byte file. A 64 MB download
+      # dying halfway would therefore replace a working jar with a corrupt one
+      # and Neo4j would boot without GDS, i.e. routing silently back on
+      # hop-count shortestPath: the exact fragility this volume exists to
+      # prevent (docs/fragilities.md #16).
+      #
+      # So the volume is the single copy. Seeding a fresh one is a one-time
+      # step in CONTRIBUTING.md, "Start Neo4j".
+      - neo4j_plugins:/plugins
     networks:
       - internal
     healthcheck:
@@ -130,5 +159,6 @@ volumes:
   postgis_data:
   neo4j_data:
   neo4j_logs:
+  neo4j_plugins:
   graphhopper_cache:
   graphhopper_srtm:

@@ -602,3 +602,24 @@ MATCH (r:Route)
 WHERE r.route_id IN $route_ids AND r.warnings = 0
 OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
 // include: route_card
+
+// name: graph_extent
+// The ingested graph's own bounding box, which is what "the whole network"
+// means to anything that projects it into GDS.
+//
+// This exists because settings.default_bbox kept being used for it. That box is
+// one Lecco-shaped rectangle holding 31,514 of the graph's 84,137 intersections
+// once Bergamo was ingested, so every caller that projected it was silently
+// analysing 37% of the network -- see docs/fragilities.md #16. A projection
+// bbox is the QUERY's or the GRAPH's; it is never the app's configured one, and
+// keeping the extent here rather than as a string in three scripts is what stops
+// the fourth copy drifting.
+//
+// An aggregate over every :Intersection, no traversal: ~0.2 s over 84,137 nodes,
+// well inside db.transaction.timeout (measured 2026-08-23).
+MATCH (i:Intersection)
+WHERE i.location IS NOT NULL
+RETURN min(i.location.latitude) AS min_lat,
+       min(i.location.longitude) AS min_lon,
+       max(i.location.latitude) AS max_lat,
+       max(i.location.longitude) AS max_lon

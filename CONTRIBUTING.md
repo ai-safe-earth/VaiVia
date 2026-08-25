@@ -49,9 +49,55 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d neo4j
 ```
 
 Run this from the repo root — `--env-file` is required because the compose file
-lives in `infra/`. The container needs both **APOC** and **GDS**. If
-`gds.version()` comes back unknown, the plugin installer lost its network race
-on a cold Docker start: recreate the container rather than debugging it.
+lives in `infra/`. The container needs both **APOC** and **GDS**, and they do not
+arrive the same way:
+
+- **APOC is bundled.** The image ships it at `/var/lib/neo4j/labs/` and the
+  entrypoint copies it into place on every start. No network involved, so it is
+  the only entry in `NEO4J_PLUGINS`.
+- **GDS is a download, and it is deliberately *not* in `NEO4J_PLUGINS`.** The
+  image ships no GDS jar, so listing it there would refetch it from
+  `graphdatascience.ninja` on every single start. The jar lives on the
+  **`neo4j_plugins` volume** instead, put there once by hand.
+
+The volume is what makes GDS survive `up -d --force-recreate`, and leaving GDS
+out of `NEO4J_PLUGINS` is what makes the volume trustworthy: the entrypoint's
+installer runs unconditionally, never checks whether the jar is already present,
+and never checks `wget`'s exit status — and `wget --output-document` truncates
+its destination *before* the transfer. One 64 MB download dying halfway would
+overwrite a working jar with a corrupt one. Losing GDS is not loud: routing falls
+back to hop-count `shortestPath` inside a `Neo4jError` catch, so the app keeps
+answering, with worse routes.
+
+**Seeding the volume**, once per machine — `RETURN gds.version()` coming back
+unknown means it has not been done, or the local copy is gone:
+
+```bash
+mkdir -p infra/neo4j/plugins        # ~64 MB, gitignored
+
+# Either copy it out of a container that already has a working GDS. The path
+# differs by container: this branch mounts /plugins, but a container created
+# before it has the jar under NEO4J_HOME instead, so try both.
+docker cp vaivia-neo4j:/plugins/graph-data-science.jar \
+          infra/neo4j/plugins/graph-data-science.jar
+docker cp vaivia-neo4j:/var/lib/neo4j/plugins/graph-data-science.jar \
+          infra/neo4j/plugins/graph-data-science.jar
+
+# ...or fetch it once, to a temp name, so a failed transfer cannot destroy a
+# good copy. Match the version to the Neo4j image in infra/docker-compose.yml.
+curl -fL --output infra/neo4j/plugins/gds.jar.part \
+  https://graphdatascience.ninja/neo4j-graph-data-science-2.13.12.jar \
+  && mv infra/neo4j/plugins/gds.jar.part \
+        infra/neo4j/plugins/graph-data-science.jar
+
+# then, into the volume:
+docker cp infra/neo4j/plugins/graph-data-science.jar vaivia-neo4j:/plugins/
+docker restart vaivia-neo4j
+```
+
+`infra/neo4j/plugins/` is gitignored: it is a local pin, not a repo artefact.
+Keep the copy — it is what makes the next recreate safe. See
+`docs/fragilities.md` #16 for why a silent GDS fallback matters.
 
 ### 4. Start Supabase (auth, chat history, quotas)
 
