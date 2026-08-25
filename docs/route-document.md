@@ -277,9 +277,12 @@ and not in an implementation ticket.** A route id must be stable across rebuilds
 and is derived from geometry, because photos, comments and likes key to it. Two
 directions share one geometry. So the id has to carry the direction as well:
 `<geometry-digest>:fwd` / `:rev`, with the sense fixed by a deterministic rule
-— proposal: the direction whose first edge has the lower `edge_id` is `fwd` —
-never by generation order. A photo attached to the anticlockwise walk must not
-migrate to the clockwise one on the next rebuild.
+— `fwd` is the orientation whose canonical rounded coordinate sequence is the
+lexicographic minimum, exactly the `min(forward, backward)` that
+`draw/route_id.py::canonical()` already computes — never by generation order and
+never by `edge_id`, which `build_network` reassigns on every rebuild. A photo
+attached to the anticlockwise walk must not migrate to the clockwise one on the
+next rebuild.
 
 **What it costs.** 126 generated loops become 252; the mapped corpus grows by its
 circular and linear share. All 102 `destination` routes are unaffected. Retrace
