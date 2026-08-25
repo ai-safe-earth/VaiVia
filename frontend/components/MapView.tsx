@@ -5,6 +5,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 
+import { focusedRouteId, noteOf } from '@/lib/mapTurn';
+
 const LECCO: [number, number] = [9.39, 45.86];
 
 /**
@@ -139,7 +141,21 @@ export function MapView({ geometry }: Props) {
     else instance.once('load', draw);
   }, [geometry]);
 
-  return <div ref={container} style={{ position: 'absolute', inset: 0 }} />;
+  // The drawn line's caveat (a multi-piece route served as its longest piece
+  // says so in properties.note) is shown ON the map: the card can say
+  // "mapped in pieces", but the line is what a walker plans around. The
+  // focused route id rides along as a data attribute so a browser test can
+  // assert the drawn line IS the clicked card's.
+  const note = noteOf(geometry);
+  return (
+    <div
+      style={{ position: 'absolute', inset: 0 }}
+      data-selected-route={focusedRouteId(geometry) ?? undefined}
+    >
+      <div ref={container} style={{ position: 'absolute', inset: 0 }} />
+      {note && <div className="map-note vv-body-sm">{note}</div>}
+    </div>
+  );
 }
 
 /** Bounds over every coordinate in the line features of a Feature or collection. */

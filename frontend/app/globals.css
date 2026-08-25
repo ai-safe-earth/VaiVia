@@ -531,6 +531,33 @@ body {
   color: var(--vv-flare);
 }
 
+/* A card whose map line could not be fetched says so on the card. Flare for
+   the retryable failure, muted for the settled "left the catalogue". */
+.line-note {
+  margin: 0 0 var(--vv-s2);
+  color: var(--vv-muted);
+}
+
+.line-note-retry {
+  color: var(--vv-flare);
+}
+
+/* The drawn line's caveat, over the map: a multi-piece route served as its
+   longest piece must say so where the line is. Panel ground, hairline, no
+   radius -- the notice idiom on the map surface. */
+.map-note {
+  position: absolute;
+  left: var(--vv-s3);
+  bottom: var(--vv-s9);
+  z-index: 2;
+  max-width: 70%;
+  margin: 0;
+  padding: var(--vv-s1) var(--vv-s3);
+  background: var(--vv-panel);
+  border: 1px solid var(--vv-line);
+  color: var(--vv-text);
+}
+
 /* ── Hazard ───────────────────────────────────────────────────────────────
    6px flare bar, calm body text. The structure comes from tokens.css
    (.vv-hazard); only the label spacing is application detail. */

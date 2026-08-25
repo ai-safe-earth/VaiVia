@@ -63,6 +63,9 @@ export function FavoritesView({
     return () => {
       cancelled = true;
     };
+    // Deliberately once, on open: revalidation is tied to the view appearing,
+    // and onLoaded in the deps would re-fetch every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Draw the route and load its profile.
@@ -84,7 +87,22 @@ export function FavoritesView({
     // Late geometry for a card the user has already moved off must not
     // repaint the map under the one they are looking at now.
     if (routeDetails.current() !== loop.id) return;
-    onGeometry(geometries.current.get(loop.id) ?? null);
+    const feature = geometries.current.get(loop.id) ?? null;
+    // Marked selected: a saved route IS the picked one, and a bare feature
+    // rendered at the unselected 2px/0.55 — a cosmetic drift from the chat
+    // cards that made the same route render differently by point of entry.
+    onGeometry(
+      feature
+        ? {
+            ...feature,
+            properties: {
+              ...(feature.properties ?? {}),
+              id: loop.id,
+              selected: true,
+            },
+          }
+        : null,
+    );
     await routeDetails.load(loop.id);
   }
 
