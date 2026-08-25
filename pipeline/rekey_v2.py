@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 
 from core import connect
 from ids import DIRECTED_SHAPES, forward_is_stored, route_id
