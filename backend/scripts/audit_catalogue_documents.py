@@ -73,7 +73,9 @@ def audit(rows: list[dict], store: Path) -> int:
     # for a store that outlived a partial load; a flood of them after a full
     # export means the loader dropped rows.
     catalogued = {row["route_id"] for row in rows}
-    documents = list(store.glob("*.json"))
+    # vv2-*.json only: the store also holds the emitters' dot-prefixed
+    # ownership manifests, and pathlib's glob matches hidden files.
+    documents = list(store.glob("vv2-*.json"))
     orphans = [p.stem for p in documents if p.stem not in catalogued]
 
     print(f"routes in catalogue : {len(rows)}")

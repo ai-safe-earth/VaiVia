@@ -230,7 +230,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    files = sorted(DOCUMENTS.glob("*.json"))
+    # vv2-*.json only: the directory also holds the emitters' ownership
+    # manifests (dot-prefixed JSON lists), and pathlib's glob matches those.
+    files = sorted(DOCUMENTS.glob("vv2-*.json"))
     if not files:
         raise SystemExit(
             f"no route documents under {DOCUMENTS} — emit them first "
