@@ -248,7 +248,12 @@ def main() -> None:
             session.run(cypher[name])
 
         owned = session.run(cypher["count_owned"]).single()["owned"]
-        session.run(cypher["wipe_owned"])
+        # Bounded bites, each its own auto-commit transaction, so the wipe
+        # stays under the server's 10s transaction timeout on any cache.
+        while (
+            session.run(cypher["wipe_owned_batch"], limit=1000).single()["deleted"]
+        ):
+            pass
         print(f"replaced {owned:,} previously exported/legacy catalogue nodes")
 
         for batch in batches(routes):

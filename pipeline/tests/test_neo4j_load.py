@@ -224,7 +224,7 @@ def test_every_template_the_loader_runs_exists_and_is_parameterised():
         "constraints_place",
         "constraints_start",
         "count_owned",
-        "wipe_owned",
+        "wipe_owned_batch",
         "load_routes",
         "load_places",
         "load_starts",
