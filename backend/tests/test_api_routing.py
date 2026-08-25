@@ -187,7 +187,7 @@ def test_gds_route_over_cap_falls_back_then_404s(client, db):
 
 # ── catalogue route geometry (GET /routes/{id}/geojson) ──────────────────────
 
-ROUTE_ID = "generated-abc123def4567890"
+ROUTE_ID = "vv2-abc123def4567890-fwd"
 
 
 def _documents_dir(tmp_path, monkeypatch, document: dict | None):
@@ -210,7 +210,7 @@ def _documents_dir(tmp_path, monkeypatch, document: dict | None):
 # API now verifies before serving anything (docs/route-document.md).
 DOCUMENT = {
     "id": ROUTE_ID,
-    "schema_version": "1.2",
+    "schema_version": "2.0",
     "kind": "generated",
     "shape": "loop",
     "geometry": {"type": "LineString", "coordinates": [[9.4, 45.9], [9.41, 45.91]]},
@@ -330,7 +330,7 @@ def test_a_document_wearing_another_id_is_a_visible_failure(
     served verbatim whatever its id said. A store desynced from the
     catalogue must fail loudly, never display another route."""
     _documents_dir(
-        tmp_path, monkeypatch, {**DOCUMENT, "id": "generated-somebodyelse00"}
+        tmp_path, monkeypatch, {**DOCUMENT, "id": "vv2-5011b0d1e5011b0d-fwd"}
     )
     db.when("route_exists", [{"id": ROUTE_ID}])
     response = client.get(f"/routes/{ROUTE_ID}/geojson")
@@ -377,7 +377,7 @@ def test_matching_builds_serve_and_a_graph_without_the_field_still_serves(
 
 DETAIL_DOCUMENT = {
     "id": ROUTE_ID,
-    "schema_version": "1.2",
+    "schema_version": "2.0",
     "kind": "osm_route",
     "shape": "circular",
     "geometry": {"type": "LineString", "coordinates": [[9.4, 45.9], [9.41, 45.91]]},

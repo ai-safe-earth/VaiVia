@@ -69,6 +69,12 @@ UNWIND $rows AS row
 MERGE (s:Start {vertex_id: row.vertex_id})
 SET s.car_free = row.car_free,
     s.names = row.names,
+    s.start_classes = row.start_classes,
+    s.reachable_spring = row.reachable_spring,
+    s.reachable_summer = row.reachable_summer,
+    s.reachable_autumn = row.reachable_autumn,
+    s.reachable_winter = row.reachable_winter,
+    s.seasons_unverified = row.seasons_unverified,
     s.location = point({longitude: row.lon, latitude: row.lat}),
     s.run_id = $run_id
 

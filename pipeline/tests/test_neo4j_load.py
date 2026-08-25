@@ -12,7 +12,8 @@ from export.neo4j_load import document_rows, templates
 
 def _base_kwargs(**overrides):
     base = {
-        "route_id": "generated-abc123",
+        "route_id": "vv2-0123456789abcdef",
+        "direction": None,
         "kind": "generated",
         "shape": "destination",
         "identity": {
@@ -56,14 +57,24 @@ def _base_kwargs(**overrides):
                 "is_start": False,
             }
         ],
-        "start": {
-            "vertex_id": 42,
-            "names": [],
-            "anchors": 1,
-            "nearest_m": 3.0,
-            "car_free": True,
-            "point": {"type": "Point", "coordinates": [9.33, 45.92]},
-        },
+        "terminals": [
+            {
+                "vertex_id": 42,
+                "point": {"type": "Point", "coordinates": [9.33, 45.92]},
+                "names": [],
+                "start_classes": ["parking"],
+                "car_free": True,
+                "nearest_start_m": 3.0,
+                "reachable": True,
+                "seasons": {
+                    "spring": True,
+                    "summer": True,
+                    "autumn": True,
+                    "winter": True,
+                    "unverified": False,
+                },
+            }
+        ],
         "provenance": {
             "run_id": "draw-x",
             "producer": "pipeline/draw/emit.py",
@@ -97,7 +108,7 @@ def test_selection_properties_travel_and_geometry_does_not():
     rows = sample()
     props = rows["route"]["props"]
 
-    assert rows["route"]["route_id"] == "generated-abc123"
+    assert rows["route"]["route_id"] == "vv2-0123456789abcdef"
     assert props["name"] == "To Rifugio Elisa"
     assert props["sac_scale"] == "mountain_hiking"  # character
     assert props["sac_max"] == "alpine_hiking"  # exigent
@@ -122,7 +133,7 @@ def test_places_and_passes_stay_aligned():
     assert rows["places"][0]["place_id"] == "n1"
     assert rows["places"][0]["lat"] == 45.94
     assert rows["passes"][0] == {
-        "route_id": "generated-abc123",
+        "route_id": "vv2-0123456789abcdef",
         "place_id": "n1",
         "seq": 0,
         "offset_m": 12.0,
@@ -140,7 +151,9 @@ def test_the_start_becomes_a_node_and_a_link():
 
 
 def test_a_document_without_a_start_loads_without_one():
-    rows = sample(start=None)
+    # A route can have terminals none of which is a network vertex we know —
+    # the loader then anchors on nothing rather than inventing a start.
+    rows = sample(terminals=[])
 
     assert rows["start"] is None
     assert rows["start_link"] is None
@@ -169,7 +182,7 @@ def test_a_place_without_coordinates_is_skipped_not_invented():
 
 def test_an_osm_document_maps_with_its_measured_shape():
     rows = sample(
-        route_id="osm-relation-74613",
+        route_id="vv2-0074613007461300-fwd",
         kind="osm_route",
         shape="circular",  # measured by export/shape.py, carried top-level
         matched_fraction=0.97,
@@ -202,7 +215,7 @@ def test_a_legacy_document_without_shape_falls_back():
     osm = build_document(
         **{
             **_base_kwargs(),
-            "route_id": "osm-relation-74613",
+            "route_id": "vv2-0074613007461300-fwd",
             "kind": "osm_route",
             "provenance": {
                 "run_id": "export-x",

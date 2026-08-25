@@ -46,7 +46,7 @@ Consequences worth stating:
 - **The document is self-contained.** Attribution, licence and provenance travel inside it.
   A consumer that renders the geometry somewhere else cannot strip the ODbL obligation by
   accident, because it never had to fetch it separately.
-- **Two runs of the same route produce byte-identical JSON.** A diff means the data moved.
+- **Two runs of the same route produce byte-identical JSON** apart from `provenance.run_id`, the one field naming the run itself. Any other diff means the data moved.
 
 ## What is in it
 
@@ -63,7 +63,10 @@ The contract is `pipeline/schemas/route-document.schema.json`; this is the reaso
 | `surface` | length-weighted distribution, plus a dominant | "62% unpaved" is a fact; "unpaved" alone is a claim |
 | `difficulty` | SAC grade, the distribution, **and the rule that produced it** | The rule ships with the number so nobody has to guess how it was derived |
 | `continuity` | pieces, continuous | A route in nine pieces is honest about it rather than drawn as one line across the holes |
-| `start` | vertex, names, anchor count, car-free | From `source_map.place`. `names` is often empty, and that is a known gap, not a bug. **There is no matching `end`** — see "The start/end contract" below, which proposes replacing this with `terminals` |
+| `terminals` | 1-2 per route, each with `start_classes`, network `nearest_start_m`, `reachable`, four-season `seasons` | Schema 2.0 (2026-08-25): the start/end contract, ratified and implemented. Every terminal is tested independently — network distance over foot-legal edges, bounded at the measured 1 km knee; seasons default to reachable (absence of a gate tag is evidence of no gate) except transit-only terminals, which take the feed's measured span and stay `unverified` |
+| `direction` / `reverse_of` | which direction this document walks, and its sibling's id | 2.0: a loop/circular/linear route is two documents (`:fwd`/`:rev` on a shared digest); the `:rev` siblings arrive as pure additions |
+| `categories` | distance/climb/difficulty/surface class twins | 2.0: leading-digit classes carried IN the document, boundaries from the corpus's measured quintiles |
+| `divergence` | where a route leaves the corridor shared with same-terminal siblings, and `approach_m` | 2.0: computed at assembly against the sibling set; diversity ON it belongs to the query service |
 | `places` | what the route passes, each with `offset_m` and `distance_along_m` | Computed **here**, against the merged line — see below |
 | `quality` | warnings, matched fraction, edges without a profile | Carried, never filtered on |
 | `provenance` | run id, producer, sources with licence and attribution | Every row in PostGIS carries its `run_id`; the document carries it out |
@@ -111,6 +114,15 @@ exist. `pipeline/draw/` will generate its own and emits through the same module:
 generated route is a different `kind`, not a different document.
 
 ## The start/end contract
+
+> **Ratified and implemented at schema 2.0, 2026-08-25** — with one
+> amendment to §5 below: the `:fwd` sense comes from canonical geometry (the
+> lexicographic-minimum orientation), never from `edge_id`, which
+> `build_network` reassigns on every rebuild. Ids are minted only by
+> `pipeline/ids.py`; the direction-split emission (§5's second document) is
+> the one staged remainder. The section is preserved as the argument and its
+> measurements.
+
 
 **Proposed 2026-08-23, pending ratification.** The owner set out the model on
 2026-08-22: a route needs a reachable start, and an end that is either the start
@@ -351,7 +363,7 @@ single measure along a line that is not one line.
 
 ### What it implies, in order
 
-1. `schemas/route-document.schema.json` 1.2 → **1.3**: `start` → `terminals`
+1. `schemas/route-document.schema.json` 1.2 → **2.0** (with the id cutover): `start` → `terminals`
    (array of 1–2, each with its reachability and four-season scoping), a new
    `categories` block, `continuity.reason`, `divergence` / `approach_m`, and
    `reverse_of`.

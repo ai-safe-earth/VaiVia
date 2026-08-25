@@ -140,7 +140,8 @@ def test_an_unmatched_fraction_of_none_is_not_treated_as_a_fragment():
 
 def sample_document(**overrides):
     base = {
-        "route_id": "osm-relation-123",
+        "route_id": "vv2-00000000000000ab-fwd",
+        "direction": "fwd",
         "kind": "osm_route",
         "shape": "circular",
         "identity": {"name": "Test", "ref": "33"},
@@ -158,7 +159,7 @@ def sample_document(**overrides):
         "edges_without_profile": 0,
         "matched_fraction": 0.95,
         "places": [{"name": "Rifugio", "kind": "hut", "distance_along_m": 500.0}],
-        "start": {"vertex_id": 42, "car_free": False},
+        "terminals": [],
         "provenance": {"run_id": "curate-abc", "licence": "ODbL"},
     }
     base.update(overrides)

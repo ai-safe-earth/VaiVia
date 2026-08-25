@@ -30,7 +30,16 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "2.0"
+
+# The category vocabularies are qa's, verbatim — one name, one vocabulary,
+# on both sides of the store (climb_class and difficulty_class exist in the
+# qa views with these exact values; forking them under the same names made
+# the legend and the document disagree about the same route). distance_class
+# is the document's own (qa's corpus-wide length_class serves relations up
+# to multi-day; these cuts come from the catalogue's measured quintiles
+# 1.6 / 3.3 / 5.6 / 9.9 km, taken 2026-08-25).
+DISTANCE_CUTS_KM = (3.0, 6.0, 10.0, 15.0)
 
 # The share of length below which a grade is an incident rather than the
 # character of the route. Proven in backend/graph/graphhopper.py.
@@ -46,6 +55,102 @@ SAC_ORDER = [
     "demanding_alpine_hiking",
     "difficult_alpine_hiking",
 ]
+
+
+def distance_class(distance_m: float) -> str:
+    """The distance category, leading digit so a legend sorts."""
+    km = distance_m / 1000.0
+    if km < DISTANCE_CUTS_KM[0]:
+        return "0 short (<3 km)"
+    if km < DISTANCE_CUTS_KM[1]:
+        return "1 half-day (3-6 km)"
+    if km < DISTANCE_CUTS_KM[2]:
+        return "2 day (6-10 km)"
+    if km < DISTANCE_CUTS_KM[3]:
+        return "3 long (10-15 km)"
+    return "4 very long (>15 km)"
+
+
+def climb_class(ascent_m: float | None) -> str:
+    """qa.v_route's climb bands, verbatim. Unknown is its own bucket —
+    absent is not zero."""
+    if ascent_m is None:
+        return "9 unknown"
+    if ascent_m < 200:
+        return "1 flat (<200 m)"
+    if ascent_m < 600:
+        return "2 rolling (200-600 m)"
+    if ascent_m < 1200:
+        return "3 hilly (600-1200 m)"
+    return "4 mountain (>1200 m)"
+
+
+def difficulty_class(sac_max: str | None) -> str:
+    """qa.difficulty_class's vocabulary, verbatim, applied to the EXIGENT
+    grade — the safety promise, never the character label (a T2 walk with
+    a T4 move must read T4)."""
+    if sac_max is None:
+        return "0 ungraded"
+    labels = {
+        "hiking": "1 hiking (T1)",
+        "mountain_hiking": "2 mountain (T2)",
+        "demanding_mountain_hiking": "3 demanding mountain (T3)",
+        "alpine_hiking": "4 alpine (T4)",
+        "demanding_alpine_hiking": "5 demanding alpine (T5)",
+        "difficult_alpine_hiking": "6 difficult alpine (T6)",
+    }
+    return labels.get(sac_max, "9 invalid tag")
+
+
+#: qa.surface_class's groups, verbatim.
+_PAVED = {
+    "asphalt",
+    "concrete",
+    "paved",
+    "paving_stones",
+    "sett",
+    "cobblestone",
+    "concrete:plates",
+    "metal",
+    "wood",
+}
+_UNPAVED = {
+    "compacted",
+    "fine_gravel",
+    "gravel",
+    "pebblestone",
+    "unpaved",
+    "ground",
+    "dirt",
+    "earth",
+    "grass",
+    "sand",
+    "mud",
+    "rock",
+    "stone",
+    "woodchips",
+    "grass_paver",
+}
+
+
+def surface_class(dominant_surface: str | None) -> str:
+    """qa.surface_class's vocabulary, verbatim, over the dominant surface."""
+    if dominant_surface is None:
+        return "0 untagged"
+    if dominant_surface in _PAVED:
+        return "1 paved"
+    if dominant_surface in _UNPAVED:
+        return "2 unpaved"
+    return "3 other"
+
+
+def sibling_route_id(route_id: str) -> str | None:
+    """The other direction's id (delegates to pipeline/ids.py at the seam
+    where both modules must agree; re-exported here so document assembly
+    has one import)."""
+    from ids import sibling_id
+
+    return sibling_id(route_id)
 
 
 class Span(NamedTuple):
@@ -191,8 +296,11 @@ def build_document(
     edges_without_profile: int,
     matched_fraction: float | None,
     places: list[dict[str, Any]],
-    start: dict[str, Any] | None,
+    terminals: list[dict[str, Any]],
     provenance: dict[str, Any],
+    direction: str | None = None,
+    continuity_reason: str | None = None,
+    divergence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One route, as the artefact everything downstream reads.
 
@@ -234,8 +342,27 @@ def build_document(
             "rule": "sac_scale: hardest grade covering at least 5% of the "
             "length; sac_max: hardest graded metre, any length",
         },
-        "continuity": {"pieces": pieces, "continuous": pieces == 1},
-        "start": start,
+        "continuity": {
+            "pieces": pieces,
+            "continuous": pieces == 1,
+            # Why a broken route is broken: at our bbox (coverage_edge, a
+            # fact about our bounds) or inside coverage (network_gap). null
+            # when continuous. Carried, never filtered on.
+            "reason": None if pieces == 1 else (continuity_reason or "unknown"),
+        },
+        # Which direction of travel this document describes (start/end
+        # contract §5); its sibling's id from day one, so the :rev documents
+        # land as pure additions.
+        "direction": direction,
+        "reverse_of": sibling_route_id(route_id),
+        "terminals": terminals,
+        "categories": {
+            "distance_class": distance_class(distance_m),
+            "climb_class": climb_class(ascent_m),
+            "difficulty_class": difficulty_class(exigent_grade(sac_spans, SAC_ORDER)),
+            "surface_class": surface_class(dominant(surface)),
+        },
+        "divergence": divergence,
         "places": places,
         "quality": {
             "warnings": quality_warnings(

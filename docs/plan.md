@@ -172,10 +172,13 @@ Phase 2 only.
   (bimodal, class cuts in the valleys); oneway-honest pgRouting views; GTFS
   calendar read (trenord is NOT year-round: runs to 2026-12-12); DEM N46
   tile loaded.
-- [ ] P3 `feat/route-id-v2` — the id cutover (`vv2-<digest>[:fwd|:rev]`),
-  schema 2.0 documents (terminals, categories, divergence,
-  continuity.reason), atomic Neo4j reload, favorites truncate, the
-  cross-layer contract fixture.
+- [x] P3 `feat/route-id-v2` — the id cutover (`vv2-<digest>[-fwd|-rev]` —
+  hyphen, not colon: NTFS reads a colon as an Alternate Data Stream
+  separator and 877 documents once vanished proving it), schema 2.0
+  documents (terminals with network reachability and seasons, categories,
+  divergence, continuity.reason), same-ground relations folded out loud
+  (one pair: 14910465/14910466), Neo4j reloaded, favorites reset, the
+  cross-layer contract fixture pinned in both suites; audit 979/979 clean.
 - [ ] P4 `feat/draw-out-and-back` — strict out-and-back, the parameter
   surface, the urban-exposure rule with its measured threshold.
 - [ ] P5 `feat/compact-card` — the two-line card; exigent warning; three-
@@ -185,5 +188,5 @@ Phase 2 only.
   Phase 2); resume rehydrates cards from result_refs.
 - [ ] P7 `feat/custom-route-jobs` — Supabase 0004, pipeline-side worker,
   atomic publication, gateway quota on the creating POST.
-- [ ] P8 `feat/direction-documents` — the `:rev` siblings and `reverse_of`
+- [ ] P8 `feat/direction-documents` — the `-rev` siblings and `reverse_of`
   (additions, never renames — the id rule landed in P3).

@@ -21,7 +21,7 @@ from draw.assemble import (
     score,
 )
 from draw.loops import edge_jaccard, keep_distinct, ring_points
-from draw.route_id import canonical, route_id
+from ids import route_id
 
 
 def edge(
@@ -54,42 +54,17 @@ def edge(
     )
 
 
-# ── The id ───────────────────────────────────────────────────────────────────
+# ── The id ── minted by pipeline/ids.py since the v2 cutover; its own
+# suite (tests/test_ids.py) pins rounding, direction, folding and format.
+# What stays HERE is the seam the generator owns: the shape decides the
+# suffix, and the drawn orientation decides its sense.
 
 
-def test_the_id_survives_sub_metre_noise():
-    # A weld moving an endpoint 40 cm must not rename the route: a comment
-    # would orphan (docs/social-layer.md).
-    line = [(9.330442, 45.927688), (9.331000, 45.928100), (9.332500, 45.929000)]
-    nudged = [(9.330444, 45.927690), (9.331002, 45.928098), (9.332498, 45.929002)]
-
-    assert route_id(line) == route_id(nudged)
-
-
-def test_the_id_changes_when_the_ground_changes():
-    line = [(9.3304, 45.9277), (9.3310, 45.9281)]
-    rerouted = [(9.3304, 45.9277), (9.3350, 45.9300)]
-
-    assert route_id(line) != route_id(rerouted)
-
-
-def test_the_same_loop_walked_either_way_is_one_route():
+def test_the_generator_mints_v2_ids():
     line = [(9.30, 45.90), (9.31, 45.91), (9.32, 45.90), (9.30, 45.90)]
 
-    assert route_id(line) == route_id(list(reversed(line)))
-
-
-def test_canonical_collapses_points_that_round_together():
-    # Two points 30 cm apart are the same ground at 5 decimals; keeping both
-    # would make the id depend on vertex density.
-    dense = [(9.300001, 45.900001), (9.300002, 45.900002), (9.310000, 45.910000)]
-
-    assert len(canonical(dense)) == 2
-
-
-def test_the_id_shape_is_stable():
-    assert route_id([(9.3, 45.9), (9.4, 45.95)]).startswith("generated-")
-    assert len(route_id([(9.3, 45.9), (9.4, 45.95)])) == len("generated-") + 16
+    assert route_id([line], "loop", "fwd").endswith("-fwd")
+    assert route_id([line], "destination") == route_id([line], "out_and_back")
 
 
 # ── Direction ────────────────────────────────────────────────────────────────
