@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 
 from core import connect
 from ids import DIRECTED_SHAPES, forward_is_stored, route_id
@@ -35,7 +36,7 @@ def main() -> None:
         rows = conn.execute(ROWS).fetchall()
         mapping: list[tuple[str, str, str | None]] = []
         for old_id, shape, geojson in rows:
-            if old_id.startswith("vv2-"):
+            if re.fullmatch(r"vv2-[0-9a-f]{16}(-(fwd|rev))?", old_id):
                 continue
             coords = json.loads(geojson)["coordinates"]
             direction = None

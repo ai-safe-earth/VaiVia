@@ -187,7 +187,7 @@ def test_gds_route_over_cap_falls_back_then_404s(client, db):
 
 # ── catalogue route geometry (GET /routes/{id}/geojson) ──────────────────────
 
-ROUTE_ID = "vv2-abc123def4567890:fwd"
+ROUTE_ID = "vv2-abc123def4567890-fwd"
 
 
 def _documents_dir(tmp_path, monkeypatch, document: dict | None):
@@ -330,7 +330,7 @@ def test_a_document_wearing_another_id_is_a_visible_failure(
     served verbatim whatever its id said. A store desynced from the
     catalogue must fail loudly, never display another route."""
     _documents_dir(
-        tmp_path, monkeypatch, {**DOCUMENT, "id": "vv2-5011b0d1e5011b0d:fwd"}
+        tmp_path, monkeypatch, {**DOCUMENT, "id": "vv2-5011b0d1e5011b0d-fwd"}
     )
     db.when("route_exists", [{"id": ROUTE_ID}])
     response = client.get(f"/routes/{ROUTE_ID}/geojson")

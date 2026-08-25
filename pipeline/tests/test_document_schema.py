@@ -30,7 +30,7 @@ def validator() -> Draft202012Validator:
 
 def document(**overrides):
     base = {
-        "route_id": "vv2-00c0ffee00c0ffee:fwd",
+        "route_id": "vv2-00c0ffee00c0ffee-fwd",
         "direction": "fwd",
         "kind": "osm_route",
         "shape": "linear",

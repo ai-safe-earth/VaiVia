@@ -43,10 +43,10 @@ def test_piece_order_cannot_rename_a_multipiece_route():
 
 def test_directed_shapes_carry_their_direction():
     for shape in DIRECTED_SHAPES:
-        assert route_id([LINE], shape).endswith(":fwd")
-        assert route_id([LINE], shape, "rev").endswith(":rev")
+        assert route_id([LINE], shape).endswith("-fwd")
+        assert route_id([LINE], shape, "rev").endswith("-rev")
     assert route_id([LINE], "destination") == route_id([LINE], "out_and_back")
-    assert ":" not in route_id([LINE], "destination").removeprefix("vv2-")
+    assert route_id([LINE], "destination") == f"vv2-{digest([LINE])}"
 
 
 def test_a_directed_shape_refuses_a_missing_direction():
@@ -77,7 +77,7 @@ def test_canonical_piece_is_the_lexicographic_minimum():
 
 def test_siblings_swap_and_undirected_has_none():
     fwd = route_id([LINE], "loop")
-    assert sibling_id(fwd) == fwd[:-4] + ":rev"
+    assert sibling_id(fwd) == fwd[:-4] + "-rev"
     assert sibling_id(sibling_id(fwd)) == fwd
     assert sibling_id(route_id([LINE], "destination")) is None
 
@@ -85,6 +85,6 @@ def test_siblings_swap_and_undirected_has_none():
 def test_the_id_format_is_the_contract_pattern():
     import re
 
-    pattern = re.compile(r"^vv2-[0-9a-f]{16}(:(fwd|rev))?$")
+    pattern = re.compile(r"^vv2-[0-9a-f]{16}(-(fwd|rev))?$")
     assert pattern.match(route_id([LINE], "loop"))
     assert pattern.match(route_id([LINE], "destination"))

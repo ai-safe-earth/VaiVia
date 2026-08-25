@@ -14,11 +14,15 @@ The v2 format, per the ratified start/end contract (docs/route-document.md):
 
     vv2-<16 hex>            an out-and-back or destination route — one
                             outing that already contains both directions
-    vv2-<16 hex>:fwd|:rev   a shape where the walker CHOOSES a direction
+    vv2-<16 hex>-fwd|-rev   a shape where the walker CHOOSES a direction
                             (loop, circular, linear): each direction is its
-                            own document, sharing the digest
+                            own document, sharing the digest. A hyphen, not
+                            a colon: the id IS the document's filename, and
+                            NTFS reads a colon as an Alternate Data Stream
+                            separator — 877 documents once vanished into
+                            extension-less stream carriers proving it
 
-The `:fwd` sense is fixed by geometry alone: the orientation whose canonical
+The `-fwd` sense is fixed by geometry alone: the orientation whose canonical
 rounded coordinate sequence is the lexicographic minimum. Never by edge_id
 (reassigned every rebuild — the amendment to PR #32) and never by generation
 order. A photo attached to the anticlockwise walk must not migrate to the
@@ -44,7 +48,7 @@ ROUND = 5
 PREFIX = "vv2"
 
 #: Shapes where direction is the walker's choice: two documents per ground,
-#: `:fwd` and `:rev`. An out-and-back (`out_and_back`, `destination`) is one
+#: `-fwd` and `-rev`. An out-and-back (`out_and_back`, `destination`) is one
 #: outing containing both legs, so it carries no suffix.
 DIRECTED_SHAPES = frozenset({"loop", "circular", "linear"})
 
@@ -106,14 +110,14 @@ def route_id(
     if shape in DIRECTED_SHAPES:
         if direction not in ("fwd", "rev"):
             raise ValueError(f"directed shape {shape!r} needs direction fwd|rev")
-        return f"{core}:{direction}"
+        return f"{core}-{direction}"
     return core
 
 
 def sibling_id(one_id: str) -> str | None:
     """The other direction's id, or None for an undirected id."""
-    if one_id.endswith(":fwd"):
-        return one_id[:-4] + ":rev"
-    if one_id.endswith(":rev"):
-        return one_id[:-4] + ":fwd"
+    if one_id.endswith("-fwd"):
+        return one_id[:-4] + "-rev"
+    if one_id.endswith("-rev"):
+        return one_id[:-4] + "-fwd"
     return None

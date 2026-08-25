@@ -34,8 +34,8 @@
     },
     "id": {
       "type": "string",
-      "pattern": "^vv2-[0-9a-f]{16}(:(fwd|rev))?$",
-      "description": "Stable across rebuilds: a 16-hex digest of the canonical ground (coordinates rounded to ~1.1 m, pieces individually direction-normalised and ordered), minted only by pipeline/ids.py. Shapes where direction is the walker's choice (loop, circular, linear) carry :fwd or :rev — one document per direction, sharing the digest; an out-and-back carries no suffix. Comments and photos key to this, so the digest survives any rebuild and the :fwd sense is fixed by geometry alone (the lexicographic-minimum orientation), never by edge or vertex ids, which rebuilds reassign. osm-relation-<n> retired to identity.osm_relation_id as provenance."
+      "pattern": "^vv2-[0-9a-f]{16}(-(fwd|rev))?$",
+      "description": "Stable across rebuilds: a 16-hex digest of the canonical ground (coordinates rounded to ~1.1 m, pieces individually direction-normalised and ordered), minted only by pipeline/ids.py. Shapes where direction is the walker's choice (loop, circular, linear) carry -fwd or -rev — one document per direction, sharing the digest; an out-and-back carries no suffix. Comments and photos key to this, so the digest survives any rebuild and the -fwd sense is fixed by geometry alone (the lexicographic-minimum orientation), never by edge or vertex ids, which rebuilds reassign. osm-relation-<n> retired to identity.osm_relation_id as provenance."
     },
     "kind": {
       "type": "string",

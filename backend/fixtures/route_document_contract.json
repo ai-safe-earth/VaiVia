@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0",
-  "id": "vv2-c0ffeec0ffeec0ff:fwd",
+  "id": "vv2-c0ffeec0ffeec0ff-fwd",
   "kind": "osm_route",
   "shape": "circular",
   "identity": {
@@ -87,7 +87,7 @@
     "reason": null
   },
   "direction": "fwd",
-  "reverse_of": "vv2-c0ffeec0ffeec0ff:rev",
+  "reverse_of": "vv2-c0ffeec0ffeec0ff-rev",
   "terminals": [
     {
       "vertex_id": 4242,

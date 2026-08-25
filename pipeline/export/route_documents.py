@@ -351,8 +351,26 @@ def main() -> None:
         features = []
         warned = 0
         owned: list[str] = []
+        emitted: dict[str, int] = {}
+        folded: dict[int, int] = {}
         for rel_id, tags, regions, matched_fraction in relations:
             document = emit(conn, rel_id, tags, regions, matched_fraction, run_id)
+            # Two relations over the SAME canonical ground share one id — a
+            # duplicate mapping, or a foot and a bike relation on one rail
+            # trail. Same ground is same route (the rule that already folds
+            # an mtb ask into a bike-legal foot loop), so the id knows: the
+            # first relation (lowest rel_id — the iteration is ordered)
+            # keeps the document, the rest are FOLDED, out loud, and
+            # recorded in the run's counts. A silent overwrite here once
+            # cost a relation its identity with nobody told.
+            if document["id"] in emitted:
+                folded[rel_id] = emitted[document["id"]]
+                print(
+                    f"  folded relation {rel_id} into {emitted[document['id']]} "
+                    f"({document['id']}): same canonical ground"
+                )
+                continue
+            emitted[document["id"]] = rel_id
             path = out / f"{document['id']}.json"
             path.write_text(
                 json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -385,6 +403,15 @@ def main() -> None:
             )
 
         manifest.write_text(json.dumps(sorted(owned), indent=1), encoding="utf-8")
+        if folded:
+            conn.execute(
+                "UPDATE provenance.build_run SET notes = %s WHERE run_id = %s",
+                (
+                    "folded same-ground relations: "
+                    + ", ".join(f"{a}->{b}" for a, b in sorted(folded.items())),
+                    run_id,
+                ),
+            )
 
         collection = {
             "type": "FeatureCollection",

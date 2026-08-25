@@ -140,7 +140,7 @@ def test_an_unmatched_fraction_of_none_is_not_treated_as_a_fragment():
 
 def sample_document(**overrides):
     base = {
-        "route_id": "vv2-00000000000000ab:fwd",
+        "route_id": "vv2-00000000000000ab-fwd",
         "direction": "fwd",
         "kind": "osm_route",
         "shape": "circular",

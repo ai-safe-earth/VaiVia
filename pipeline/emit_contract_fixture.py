@@ -31,7 +31,7 @@ OUT = (
 #: including the ones the API reads structurally (geometry, measures,
 #: continuity, surface, places, profile, provenance).
 CONTRACT_KWARGS = {
-    "route_id": "vv2-c0ffeec0ffeec0ff:fwd",
+    "route_id": "vv2-c0ffeec0ffeec0ff-fwd",
     "kind": "osm_route",
     "shape": "circular",
     "direction": "fwd",
