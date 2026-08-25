@@ -432,6 +432,13 @@ class ChatOrchestrator:
             near_lat=near_lat,
             near_lon=near_lon,
             near_radius_m=settings.loop_near_radius_m,
+            # The factory's parameter surface, present in the template and
+            # deliberately unstated here: no intent field maps to them yet
+            # (regions/arrival-class/urban land with the standing plan and
+            # the card work), and an unstated filter filters nothing.
+            regions=None,
+            start_classes=None,
+            max_urban_share=None,
             limit=CARD_RESULT_LIMIT,
         )
         return rows, near_resolved

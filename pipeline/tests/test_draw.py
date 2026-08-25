@@ -215,6 +215,7 @@ def test_score_prefers_off_road_loops_near_target():
             bike_blocked_m=0.0,
             off_road_share=off_road_share,
             retrace_share=retrace_share,
+            urban_share=None,
         )
 
     good = assembled(10_000, off_road_share=0.9, retrace_share=0.05)
@@ -299,3 +300,43 @@ def test_edge_jaccard_edges():
     assert edge_jaccard({1, 2}, {1, 2}) == 1.0
     assert edge_jaccard({1, 2}, {3, 4}) == 0.0
     assert edge_jaccard(set(), set()) == 1.0
+
+
+# ── The strict return, and the urban measure ─────────────────────────────────
+
+
+def test_strict_return_is_the_same_edges_reversed_and_flipped():
+    from draw.assemble import strict_return
+
+    out = [(11, True), (12, False), (13, True)]
+    assert strict_return(out) == [(13, False), (12, True), (11, False)]
+    # Out plus its strict return retraces everything: the shape's promise.
+    assert strict_return(strict_return(out)) == out
+
+
+def test_urban_share_is_reversal_invariant_and_absent_is_not_zero():
+    from draw.assemble import urban
+
+    def edge(eid, forward, urban_m):
+        return WalkedEdge(
+            edge_id=eid,
+            forward=forward,
+            length_m=1000.0,
+            coords=[(9.3, 45.9), (9.31, 45.91)],
+            profile_m=None,
+            ascent_m=None,
+            descent_m=None,
+            surface=None,
+            sac_scale=None,
+            mtb_scale=None,
+            highway="path",
+            routable_bike=True,
+            urban_m=urban_m,
+        )
+
+    walked = [edge(1, True, 250.0), edge(2, False, 750.0)]
+    assert urban(walked) == 0.5
+    flipped = [edge(2, True, 750.0), edge(1, False, 250.0)]
+    assert urban(flipped) == 0.5
+    # One unmeasured edge makes the share unknown, never smaller.
+    assert urban([edge(1, True, 250.0), edge(2, True, None)]) is None

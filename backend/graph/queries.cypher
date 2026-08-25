@@ -441,13 +441,25 @@ WHERE r.warnings = 0
   // every named sentiero behind a number they do not have.
   AND ($min_off_road IS NULL OR r.off_road_share IS NULL
        OR r.off_road_share >= $min_off_road)
+  // Geography, arrival and town-share — the factory's parameter surface,
+  // answerable at selection too. regions is data the export always writes;
+  // urban_share is a generation-time measure, so mapped relations carry
+  // null and PASS a cap they cannot answer (the off-road rule's shape).
+  AND ($regions IS NULL OR any(region IN r.regions WHERE region IN $regions))
+  AND ($max_urban_share IS NULL OR r.urban_share IS NULL
+       OR r.urban_share <= $max_urban_share)
 OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
 WITH r, s
-WHERE $near_lat IS NULL
+WHERE ($near_lat IS NULL
    OR (s IS NOT NULL
        AND point.distance(s.location,
                           point({latitude: $near_lat, longitude: $near_lon}))
-           <= $near_radius_m)
+           <= $near_radius_m))
+  // The kind of arrival: any wanted class offered at the start. A route
+  // with no start cannot prove an arrival, so a stated filter excludes it.
+  AND ($start_classes IS NULL
+   OR (s IS NOT NULL
+       AND any(class IN s.start_classes WHERE class IN $start_classes)))
 
 // fragment: loop_poi_conjunction
 // Every requested feature must be present, not merely one of them: "past a

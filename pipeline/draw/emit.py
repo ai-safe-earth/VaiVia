@@ -246,6 +246,11 @@ def emit_generated() -> None:
                         "bike_blocked_m": round(facts.bike_blocked_m, 1),
                         "off_road_share": round(facts.off_road_share, 3),
                         "retrace_share": round(facts.retrace_share, 3),
+                        "urban_share": (
+                            None
+                            if facts.urban_share is None
+                            else round(facts.urban_share, 3)
+                        ),
                     },
                     "sources": SOURCES,
                 },

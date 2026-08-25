@@ -578,3 +578,38 @@ within 2 m (0.6%), Lecco 31 of 6,190 (0.5%), both distributions rising
 smoothly through 5 and 10 m with no cliff below 2 m — the same shape the
 two-province histogram had. Retained; re-measure after any change to the
 network, as ever.
+
+## The parametric factory (2026-08-25)
+
+Three shapes now, all over our own edges, all directed:
+
+- **`loop`** — the via-ring construction, unchanged.
+- **`destination`** — out to a ranked interesting place, home by an
+  alternative line where the ground allows (the out leg ×3-penalised on
+  return). `retrace_share` reports what the valley permitted.
+- **`out_and_back`** — STRICT: home on exactly the outbound edges, built by
+  reversing the outbound steps (`assemble.strict_return`), never by a second
+  routing that happens to agree. On the repeat-visit measure a perfect
+  out-and-back reads retrace 0.5 — every metre out is walked again coming
+  home — and for this shape that is a statement, not a measurement. Product
+  bands enforced at persistence: one way 2–20 km, total
+  4–40 km. The outbound leg routes over the two-way subset, because on a
+  directed graph the reverse of a oneway step is not a way home.
+
+**The legs run `directed := true` over `catalogue.v_edges_foot/bike`** —
+oneway, `oneway:bicycle` and implied roundabout oneway honoured; the
+penalty inflates both directions' costs but never resurrects a `-1`.
+
+**The parameter surface** (all null-idiom — an unstated filter filters
+nothing; every drop is counted and reported, because a drop is a coverage
+fact): `--start-class`, `--car-free-only`, `--region`, `--max-sac-exigent`
+(the EXIGENT grade, never the character label), `--max-ascent`,
+`--max-retrace`, `--max-urban-share`.
+
+**The urban rule, measured**: `urban_share` = walked metres inside
+residential fabric over total (reversal-invariant; one unmeasured edge
+makes it unknown, never smaller). Over the 228-route corpus: median 0.29,
+p95 0.66, then a thin tail to 0.92 of unnamed town walks. The default cap
+is **0.8** — "more than four fifths of the walk inside fabric is a town
+walk, not an outing" — pruning that tail and nothing else, with rejects
+printed per reason. sql/v2/0008 carries the measurement beside the column.

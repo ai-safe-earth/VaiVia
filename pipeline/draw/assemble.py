@@ -52,6 +52,7 @@ class WalkedEdge(NamedTuple):
     mtb_scale: str | None
     highway: str | None
     routable_bike: bool
+    urban_m: float | None = None  # metres inside residential fabric (curate.urban)
 
 
 class Assembled(NamedTuple):
@@ -70,6 +71,10 @@ class Assembled(NamedTuple):
     bike_blocked_m: float  # metres a bike may not legally ride
     off_road_share: float
     retrace_share: float
+    # Metres inside residential fabric over total — None when ANY walked
+    # edge is unmeasured (absent is not zero, as ever). Reversal-invariant,
+    # like length: fabric does not care which way you walk it.
+    urban_share: float | None
 
 
 def walked_coords(edge: WalkedEdge) -> list[Coord]:
@@ -181,6 +186,26 @@ def off_road(edges: list[WalkedEdge]) -> float:
     return sum(e.length_m for e in edges if e.highway in OFF_ROAD_HIGHWAYS) / total
 
 
+def urban(edges: list[WalkedEdge]) -> float | None:
+    """Share of the walked metres inside residential fabric."""
+    total = sum(e.length_m for e in edges)
+    if total <= 0:
+        return None
+    if any(e.urban_m is None for e in edges):
+        return None
+    return sum(e.urban_m for e in edges) / total
+
+
+def strict_return(steps: list[tuple[int, bool]]) -> list[tuple[int, bool]]:
+    """The exact way home: the outbound steps reversed, each direction
+    flipped. This is what makes an out-and-back STRICT — the return is the
+    same edges by construction, never a second routing that happens to
+    agree. On the repeat-visit measure a perfect out-and-back reads
+    retrace_share 0.5 — every metre out is walked again coming home — and
+    for this shape that is a statement, not a measurement."""
+    return [(edge_id, not forward) for edge_id, forward in reversed(steps)]
+
+
 def assemble(edges: list[WalkedEdge]) -> Assembled:
     """Every rule at once: the sequence in, the route's facts out."""
     up, down = climb(edges)
@@ -205,6 +230,7 @@ def assemble(edges: list[WalkedEdge]) -> Assembled:
         bike_blocked_m=blocked_m,
         off_road_share=off_road(edges),
         retrace_share=retrace(edges),
+        urban_share=urban(edges),
     )
 
 

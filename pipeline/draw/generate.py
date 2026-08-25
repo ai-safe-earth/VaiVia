@@ -33,9 +33,10 @@ import time
 import uuid
 
 from core import connect
-from draw.assemble import WalkedEdge, assemble, score
+from draw.assemble import WalkedEdge, assemble, score, strict_return
 from draw.destinations import Destination, crow_band, rank, route_name
 from draw.loops import keep_distinct, ring_points
+from export.document import SAC_ORDER
 from ids import DIRECTED_SHAPES, forward_is_stored, route_id
 
 # The starts worth drawing from, best first: on the main component (a start on
@@ -46,6 +47,14 @@ SELECT s.vertex_id, ST_X(s.geom), ST_Y(s.geom), s.anchors, s.car_free
 FROM qa.v_start s
 WHERE s.reachability_class = '0 main network'
   AND (s.anchors >= 2 OR s.car_free)
+  -- The parameter surface, null-idiom like the query service's fragments:
+  -- an unstated filter filters nothing.
+  AND (%(classes)s::text[] IS NULL OR s.start_classes && %(classes)s::text[])
+  AND (NOT %(car_free_only)s OR s.car_free)
+  AND (%(region)s::text IS NULL OR EXISTS (
+        SELECT 1 FROM source_map.vertex_degree vd
+        WHERE vd.vertex_id = s.vertex_id
+          AND vd.regions @> ARRAY[%(region)s::text]))
 ORDER BY s.car_free DESC, s.anchors DESC, s.vertex_id
 LIMIT %(limit)s
 """
@@ -88,7 +97,7 @@ LEG = """
 SELECT node, edge FROM pgr_dijkstra(
     %(edges_sql)s,
     %(from_vertex)s::bigint, %(to_vertex)s::bigint,
-    directed := false)
+    directed := true)
 WHERE edge >= 0
 ORDER BY seq
 """
@@ -97,15 +106,15 @@ ORDER BY seq
 # bike-legal BY CONSTRUCTION — the owner's observation made mechanism: a loop
 # that shares a foot loop's legal segments and detours around its forbidden
 # ones is exactly what the router produces when the forbidden ones are not in
-# its graph.
+# its graph. The 0005 views carry cost/reverse_cost with oneway (and implied
+# roundabout oneway) honoured, and the legs run directed := true — the claim
+# `oneway is never read` finally retired where it was made.
 EDGES_BASE = {
     "foot": (
-        "SELECT edge_id AS id, source, target, length_m AS cost "
-        "FROM source_map.edge WHERE routable_foot"
+        "SELECT id, source, target, cost, reverse_cost " "FROM catalogue.v_edges_foot"
     ),
     "mtb": (
-        "SELECT edge_id AS id, source, target, length_m AS cost "
-        "FROM source_map.edge WHERE routable_bike"
+        "SELECT id, source, target, cost, reverse_cost " "FROM catalogue.v_edges_bike"
     ),
 }
 
@@ -114,22 +123,30 @@ SELECT e.edge_id, e.source, e.target, e.length_m,
        ST_AsGeoJSON(e.geom),
        e.profile_m, e.ascent_m, e.descent_m,
        e.tags ->> 'surface', e.tags ->> 'sac_scale', e.tags ->> 'mtb:scale',
-       e.tags ->> 'highway', e.routable_bike
+       e.tags ->> 'highway', e.routable_bike, e.urban_m
 FROM source_map.edge e WHERE e.edge_id = ANY(%(ids)s)
 """
 
 
 def edges_sql(activity: str, penalised: set[int], factor: float = 3.0) -> str:
-    """The pgr_dijkstra edges query, with walked edges made expensive."""
-    legality = "routable_bike" if activity == "mtb" else "routable_foot"
+    """The pgr_dijkstra edges query, with walked edges made expensive.
+
+    The penalty multiplies BOTH directions' costs but never resurrects a
+    forbidden one: a -1 (oneway's "no such arc") stays -1, or an inflation
+    would turn illegal into merely expensive.
+    """
+    view = "catalogue.v_edges_bike" if activity == "mtb" else "catalogue.v_edges_foot"
     if not penalised:
         return EDGES_BASE[activity]
     ids = ",".join(str(int(edge_id)) for edge_id in sorted(penalised))
     return (
-        "SELECT edge_id AS id, source, target, "
-        f"CASE WHEN edge_id IN ({ids}) THEN length_m * {factor} "
-        "ELSE length_m END AS cost "
-        f"FROM source_map.edge WHERE {legality}"
+        "SELECT id, source, target, "
+        f"CASE WHEN cost < 0 THEN cost "
+        f"WHEN id IN ({ids}) THEN cost * {factor} ELSE cost END AS cost, "
+        f"CASE WHEN reverse_cost < 0 THEN reverse_cost "
+        f"WHEN id IN ({ids}) THEN reverse_cost * {factor} "
+        f"ELSE reverse_cost END AS reverse_cost "
+        f"FROM {view}"
     )
 
 
@@ -184,6 +201,7 @@ def walked_sequence(conn, steps: list[tuple[int, bool]]) -> list[WalkedEdge]:
             mtb_scale,
             highway,
             bike,
+            urban_m,
         ) = rows[edge_id]
         coords = [(x, y) for x, y in json.loads(geometry)["coordinates"]]
         out.append(
@@ -200,6 +218,7 @@ def walked_sequence(conn, steps: list[tuple[int, bool]]) -> list[WalkedEdge]:
                 mtb_scale=mtb_scale,
                 highway=highway,
                 routable_bike=bike,
+                urban_m=urban_m,
             )
         )
     return out
@@ -261,6 +280,34 @@ def draw_out_and_back(
     return walked_sequence(conn, directions(conn, steps))
 
 
+def draw_strict_out_and_back(
+    conn, activity: str, start_vertex: int, destination: Destination
+) -> list[WalkedEdge] | None:
+    """Out to the destination and home on EXACTLY the outbound edges.
+
+    No second routing: the return is the outbound steps reversed with each
+    direction flipped (assemble.strict_return), so the promise "same edges
+    in reverse" holds by construction. On the directed graph the reverse of
+    a legal step is only legal where the edge is two-way — a oneway on the
+    way out would make the way home illegal — so the out leg runs over the
+    two-way subset (reverse_cost >= 0 filtered here, not a new view).
+    """
+    if destination.vertex_id == start_vertex:
+        return None
+    out = conn.execute(
+        LEG,
+        {
+            "edges_sql": EDGES_BASE[activity] + " WHERE reverse_cost >= 0",
+            "from_vertex": start_vertex,
+            "to_vertex": destination.vertex_id,
+        },
+    ).fetchall()
+    if not out:
+        return None
+    out_steps = directions(conn, out)
+    return walked_sequence(conn, out_steps + strict_return(out_steps))
+
+
 def destination_pool(
     conn, start: tuple[float, float], target_m: float
 ) -> list[Destination]:
@@ -281,6 +328,56 @@ def destination_pool(
     return [Destination(*row) for row in rows]
 
 
+#: The strict shape's product bands: one way 2-20 km, total 4-40 km.
+#: Enforced at persistence like the length gate — a hard product rule, so
+#: rejects are counted and reported, never silently absent.
+OUT_AND_BACK_ONE_WAY_M = (2000.0, 20000.0)
+TOTAL_BAND_M = (4000.0, 40000.0)
+
+
+def _rejected(facts, args, rejections: dict[str, int]) -> bool:
+    """The parameter surface's hard filters, counted per reason.
+
+    Score stays descriptive — these are the caller's stated LIMITS, plus
+    the strict shape's product bands. A drop is a coverage fact, so every
+    reason is reported at the end.
+    """
+
+    def count(reason: str) -> bool:
+        rejections[reason] = rejections.get(reason, 0) + 1
+        return True
+
+    if (
+        args.max_sac_exigent is not None
+        and facts.sac_max is not None
+        and SAC_ORDER.index(facts.sac_max) > SAC_ORDER.index(args.max_sac_exigent)
+    ):
+        return count(f"exigent grade over {args.max_sac_exigent}")
+    if args.max_ascent is not None and (
+        facts.ascent_m is None or facts.ascent_m > args.max_ascent
+    ):
+        return count(f"ascent over {args.max_ascent:.0f} m (or unknown)")
+    if (
+        args.max_retrace is not None
+        and args.shape != "out_and_back"
+        and facts.retrace_share > args.max_retrace
+    ):
+        return count(f"retrace over {args.max_retrace:.0%}")
+    if (
+        args.max_urban_share is not None
+        and facts.urban_share is not None
+        and facts.urban_share > args.max_urban_share
+    ):
+        return count(f"urban share over {args.max_urban_share:.0%}")
+    if args.shape == "out_and_back":
+        one_way = facts.distance_m / 2.0
+        if not (OUT_AND_BACK_ONE_WAY_M[0] <= one_way <= OUT_AND_BACK_ONE_WAY_M[1]):
+            return count("one-way outside 2-20 km")
+    if not (TOTAL_BAND_M[0] <= facts.distance_m <= TOTAL_BAND_M[1]):
+        return count("total outside 4-40 km")
+    return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--starts", type=int, default=12, help="anchors to draw from")
@@ -295,15 +392,64 @@ def main() -> None:
     )
     parser.add_argument(
         "--shape",
-        choices=("loop", "destination"),
+        choices=("loop", "destination", "out_and_back"),
         default="loop",
-        help="loops, or out-and-back routes to an interesting place",
+        help="loops, destination routes with an alternative return, or "
+        "STRICT out-and-backs (same edges home, retrace 1.0 by construction)",
     )
     parser.add_argument(
         "--activity",
         choices=("foot", "mtb"),
         default="foot",
         help="mtb routes over bike-legal edges only: legal by construction",
+    )
+    parser.add_argument(
+        "--start-class",
+        action="append",
+        default=None,
+        help="only starts offering this arrival (repeatable: parking, "
+        "station, bus_stop, urban_exit, settlement, campsite)",
+    )
+    parser.add_argument(
+        "--car-free-only",
+        action="store_true",
+        help="only starts reachable without a car",
+    )
+    parser.add_argument(
+        "--region",
+        default=None,
+        help="only starts whose vertex touches this region's edges",
+    )
+    parser.add_argument(
+        "--max-sac-exigent",
+        default=None,
+        choices=SAC_ORDER,
+        help="drop candidates whose hardest metre exceeds this SAC grade "
+        "(safety filters use the EXIGENT grade, never the character label)",
+    )
+    parser.add_argument(
+        "--max-ascent",
+        type=float,
+        default=None,
+        help="drop candidates above this climb",
+    )
+    parser.add_argument(
+        "--max-retrace",
+        type=float,
+        default=None,
+        help="drop candidates re-walking more than this share (ignored for "
+        "out_and_back, whose repeat share is 0.5 by construction)",
+    )
+    parser.add_argument(
+        "--max-urban-share",
+        type=float,
+        # Measured 2026-08-25 over the 228-route corpus: p95 at 0.66, then a
+        # thin tail to 0.92 of unnamed town walks. 0.8 prunes the wholly-in-
+        # town tail; every drop is REPORTED, so the default can never narrow
+        # the catalogue silently. sql/v2/0008 carries the measurement.
+        default=0.8,
+        help="drop candidates with more than this share inside residential "
+        "fabric (measured default 0.8; pass a large value to disable)",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -317,7 +463,15 @@ def main() -> None:
     started = time.monotonic()
     run_id = f"draw-{uuid.uuid4().hex[:8]}"
     with connect() as conn:
-        starts = conn.execute(STARTS, {"limit": args.starts}).fetchall()
+        starts = conn.execute(
+            STARTS,
+            {
+                "limit": args.starts,
+                "classes": args.start_class,
+                "car_free_only": args.car_free_only,
+                "region": args.region,
+            },
+        ).fetchall()
         asks = len(starts) * len(targets)
         print(
             f"{len(starts)} starts x {len(targets)} distances x {args.seeds} seeds "
@@ -357,10 +511,11 @@ def main() -> None:
         )
 
         kept_total: list[dict] = []
+        rejections: dict[str, int] = {}
         for vertex_id, lon, lat, _anchors, _car_free in starts:
             for target_m in targets:
                 candidates = []
-                if args.shape == "destination":
+                if args.shape in ("destination", "out_and_back"):
                     # Deterministic like the seeds: the same pool ranks the
                     # same way, so the same asks draw the same routes.
                     pool = rank(
@@ -371,7 +526,11 @@ def main() -> None:
                 else:
                     attempts = [("seed", seed) for seed in range(args.seeds)]
                 for index, (mode, ask) in enumerate(attempts):
-                    if mode == "destination":
+                    if mode == "destination" and args.shape == "out_and_back":
+                        sequence = draw_strict_out_and_back(
+                            conn, args.activity, vertex_id, ask
+                        )
+                    elif mode == "destination":
                         sequence = draw_out_and_back(
                             conn, args.activity, vertex_id, ask
                         )
@@ -382,6 +541,8 @@ def main() -> None:
                     if not sequence:
                         continue
                     facts = assemble(sequence)
+                    if _rejected(facts, args, rejections):
+                        continue
                     candidates.append(
                         {
                             "score": score(facts, target_m),
@@ -405,6 +566,11 @@ def main() -> None:
                         f"off-road {best.off_road_share:.0%}, "
                         f"retrace {best.retrace_share:.0%}"
                     )
+
+        if rejections:
+            print("\nrejected by the stated limits (a drop is a coverage fact):")
+            for reason, n in sorted(rejections.items(), key=lambda kv: -kv[1]):
+                print(f"  {n:>5}  {reason}")
 
         # Replace, not merge — PER (ACTIVITY, SHAPE): loops and destination
         # routes are siblings the same way foot and mtb are, and regenerating
@@ -435,14 +601,14 @@ def main() -> None:
             conn.execute(
                 """
                 INSERT INTO catalogue.route
-                    (route_id, direction, kind, activity, shape, name,
+                    (route_id, direction, kind, activity, shape, name, urban_share,
                      destination_id, destination_kind, destination_name,
                      start_vertex, target_m, distance_m,
                      ascent_m, descent_m, sac_scale, sac_max, graded_share,
                      mtb_rideable, mtb_scale, bike_blocked_m,
                      surface, off_road_share, retrace_share, score, seed,
                      geom, run_id)
-                VALUES (%s, %s, 'generated', %s, %s, %s,
+                VALUES (%s, %s, 'generated', %s, %s, %s, %s,
                         %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s,
@@ -458,6 +624,7 @@ def main() -> None:
                         if candidate["destination"]
                         else None
                     ),
+                    facts.urban_share,
                     (
                         candidate["destination"].place_id
                         if candidate["destination"]

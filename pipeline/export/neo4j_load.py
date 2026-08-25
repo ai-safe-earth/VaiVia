@@ -119,6 +119,7 @@ def document_rows(document: dict) -> dict[str, Any]:
             "mtb_scale_rank": mtb_rank(generation.get("mtb_scale")),
             "bike_blocked_m": generation.get("bike_blocked_m"),
             "off_road_share": generation.get("off_road_share"),
+            "urban_share": generation.get("urban_share"),
             "retrace_share": generation.get("retrace_share"),
             "score": generation.get("score"),
             "matched_fraction": quality.get("matched_fraction"),
