@@ -1,7 +1,7 @@
 """One-shot rekey of catalogue.route to the v2 geometry-derived ids.
 
 The id cutover (approved plan, P3): every route kind takes a
-`vv2-<digest>[:fwd|:rev]` id minted by pipeline/ids.py, so the table the
+`vv2-<digest>[-fwd|-rev]` id minted by pipeline/ids.py, so the table the
 generated documents are emitted from must speak the same ids as the
 documents, or the emitter's drift guard refuses to run. Idempotent: rows
 already carrying a vv2- id are left alone. catalogue.route_edge rows follow
@@ -37,16 +37,18 @@ def main() -> None:
         mapping: list[tuple[str, str, str | None]] = []
         already: set[str] = set()
         for old_id, shape, geojson in rows:
-            if re.fullmatch(r"vv2-[0-9a-f]{16}(-(fwd|rev))?", old_id):
-                already.add(old_id)
-                continue
+            # Every row is VERIFIED against its recomputed ground — a
+            # format check alone once declared ring routes done while a
+            # canonicalisation fix had changed their digests underneath.
             coords = json.loads(geojson)["coordinates"]
             direction = None
             if shape in DIRECTED_SHAPES:
                 direction = "fwd" if forward_is_stored(coords) else "rev"
-            mapping.append(
-                (old_id, route_id([coords], shape, direction or "fwd"), direction)
-            )
+            new_id = route_id([coords], shape, direction or "fwd")
+            if new_id == old_id:
+                already.add(old_id)
+                continue
+            mapping.append((old_id, new_id, direction))
 
         print(f"{len(rows)} routes, {len(mapping)} to rekey")
         new_ids = {new for _old, new, _d in mapping}

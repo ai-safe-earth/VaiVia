@@ -185,7 +185,14 @@ def document_rows(document: dict) -> dict[str, Any]:
     # carries the second's reachability as properties, not as a second
     # :Start, until a query needs it.
     terminals = document.get("terminals") or []
-    start = terminals[0] if terminals else None
+    # Anchor on the first REACHABLE terminal: 106 live traverses had an
+    # unreachable A end and a reachable B end, and anchoring on [0] blindly
+    # gave them a nameless, seasonless :Start while the real trailhead — the
+    # one "routes starting near <village>" must match — went unindexed.
+    start = next(
+        (term for term in terminals if term.get("reachable")),
+        terminals[0] if terminals else None,
+    )
     start_row = None
     start_link = None
     if start and start.get("vertex_id") is not None:

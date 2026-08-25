@@ -32,13 +32,14 @@ from typing import Any, NamedTuple
 
 SCHEMA_VERSION = "2.0"
 
-# The category boundaries, measured over the 980-route corpus on 2026-08-25
-# (distance quintiles 1.6 / 3.3 / 5.6 / 9.9 km; ascent quintiles 88 / 200 /
-# 375 / 709 m) and cut at the nearest legible values. Carried IN the
-# document so the map legend and the chat cannot describe the same route
-# differently — the class twins rule, applied to the product itself.
+# The category vocabularies are qa's, verbatim — one name, one vocabulary,
+# on both sides of the store (climb_class and difficulty_class exist in the
+# qa views with these exact values; forking them under the same names made
+# the legend and the document disagree about the same route). distance_class
+# is the document's own (qa's corpus-wide length_class serves relations up
+# to multi-day; these cuts come from the catalogue's measured quintiles
+# 1.6 / 3.3 / 5.6 / 9.9 km, taken 2026-08-25).
 DISTANCE_CUTS_KM = (3.0, 6.0, 10.0, 15.0)
-CLIMB_CUTS_M = (100.0, 250.0, 500.0, 1000.0)
 
 # The share of length below which a grade is an incident rather than the
 # character of the route. Proven in backend/graph/graphhopper.py.
@@ -71,56 +72,76 @@ def distance_class(distance_m: float) -> str:
 
 
 def climb_class(ascent_m: float | None) -> str:
-    """The climb category. Unknown is its own bucket — absent is not zero."""
+    """qa.v_route's climb bands, verbatim. Unknown is its own bucket —
+    absent is not zero."""
     if ascent_m is None:
         return "9 unknown"
-    if ascent_m < CLIMB_CUTS_M[0]:
-        return "0 gentle (<100 m)"
-    if ascent_m < CLIMB_CUTS_M[1]:
-        return "1 rolling (100-250 m)"
-    if ascent_m < CLIMB_CUTS_M[2]:
-        return "2 hilly (250-500 m)"
-    if ascent_m < CLIMB_CUTS_M[3]:
-        return "3 mountain (500-1000 m)"
-    return "4 alpine (>1000 m)"
+    if ascent_m < 200:
+        return "1 flat (<200 m)"
+    if ascent_m < 600:
+        return "2 rolling (200-600 m)"
+    if ascent_m < 1200:
+        return "3 hilly (600-1200 m)"
+    return "4 mountain (>1200 m)"
 
 
 def difficulty_class(sac_max: str | None) -> str:
-    """The EXIGENT grade as a category — the safety promise, never the
-    character label (a T2 walk with a T4 move must read T4)."""
+    """qa.difficulty_class's vocabulary, verbatim, applied to the EXIGENT
+    grade — the safety promise, never the character label (a T2 walk with
+    a T4 move must read T4)."""
     if sac_max is None:
-        return "8 ungraded"
-    try:
-        rank = SAC_ORDER.index(sac_max)
-    except ValueError:
-        return "9 invalid tag"
-    labels = (
-        "0 hiking (T1)",
-        "1 mountain hiking (T2)",
-        "2 demanding mountain (T3)",
-        "3 alpine (T4)",
-        "4 demanding alpine (T5)",
-        "5 difficult alpine (T6)",
-    )
-    return labels[rank]
+        return "0 ungraded"
+    labels = {
+        "hiking": "1 hiking (T1)",
+        "mountain_hiking": "2 mountain (T2)",
+        "demanding_mountain_hiking": "3 demanding mountain (T3)",
+        "alpine_hiking": "4 alpine (T4)",
+        "demanding_alpine_hiking": "5 demanding alpine (T5)",
+        "difficult_alpine_hiking": "6 difficult alpine (T6)",
+    }
+    return labels.get(sac_max, "9 invalid tag")
 
 
-#: Dominant-surface groups, mirroring qa.surface_class in the store.
-_PAVED = {"asphalt", "paved", "concrete", "paving_stones", "sett"}
-_GRAVEL = {"gravel", "fine_gravel", "compacted", "pebblestone"}
-_GROUND = {"ground", "dirt", "earth", "grass", "sand", "mud", "rock", "unpaved"}
+#: qa.surface_class's groups, verbatim.
+_PAVED = {
+    "asphalt",
+    "concrete",
+    "paved",
+    "paving_stones",
+    "sett",
+    "cobblestone",
+    "concrete:plates",
+    "metal",
+    "wood",
+}
+_UNPAVED = {
+    "compacted",
+    "fine_gravel",
+    "gravel",
+    "pebblestone",
+    "unpaved",
+    "ground",
+    "dirt",
+    "earth",
+    "grass",
+    "sand",
+    "mud",
+    "rock",
+    "stone",
+    "woodchips",
+    "grass_paver",
+}
 
 
 def surface_class(dominant_surface: str | None) -> str:
+    """qa.surface_class's vocabulary, verbatim, over the dominant surface."""
     if dominant_surface is None:
-        return "9 unknown"
+        return "0 untagged"
     if dominant_surface in _PAVED:
-        return "0 paved"
-    if dominant_surface in _GRAVEL:
-        return "1 gravel"
-    if dominant_surface in _GROUND:
-        return "2 ground"
-    return "9 unknown"
+        return "1 paved"
+    if dominant_surface in _UNPAVED:
+        return "2 unpaved"
+    return "3 other"
 
 
 def sibling_route_id(route_id: str) -> str | None:

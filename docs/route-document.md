@@ -46,7 +46,7 @@ Consequences worth stating:
 - **The document is self-contained.** Attribution, licence and provenance travel inside it.
   A consumer that renders the geometry somewhere else cannot strip the ODbL obligation by
   accident, because it never had to fetch it separately.
-- **Two runs of the same route produce byte-identical JSON.** A diff means the data moved.
+- **Two runs of the same route produce byte-identical JSON** apart from `provenance.run_id`, the one field naming the run itself. Any other diff means the data moved.
 
 ## What is in it
 

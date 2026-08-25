@@ -119,9 +119,9 @@
   ],
   "categories": {
     "distance_class": "2 day (6-10 km)",
-    "climb_class": "3 mountain (500-1000 m)",
-    "difficulty_class": "1 mountain hiking (T2)",
-    "surface_class": "1 gravel"
+    "climb_class": "3 hilly (600-1200 m)",
+    "difficulty_class": "2 mountain (T2)",
+    "surface_class": "2 unpaved"
   },
   "divergence": {
     "vertex_id": 4243,

@@ -88,3 +88,36 @@ def test_the_id_format_is_the_contract_pattern():
     pattern = re.compile(r"^vv2-[0-9a-f]{16}(-(fwd|rev))?$")
     assert pattern.match(route_id([LINE], "loop"))
     assert pattern.match(route_id([LINE], "destination"))
+
+
+def test_a_closed_ring_is_rotation_invariant():
+    # The starting vertex of a ring is an assembly artefact: ST_LineMerge
+    # opens a pure ring wherever its input order lands, and a rebuild
+    # reorders that input. Five rotations once meant five digests — every
+    # loop-shaped route renaming on rebuild.
+    ring = [(9.30, 45.90), (9.31, 45.91), (9.32, 45.90), (9.31, 45.89), (9.30, 45.90)]
+    for k in range(1, 4):
+        opened = ring[:-1]
+        rotated = opened[k:] + opened[:k] + [opened[k]]
+        assert digest([ring]) == digest([rotated]), k
+
+
+def test_a_rings_direction_sense_survives_rotation():
+    # Whichever vertex a rebuild opens the ring at, the same physical
+    # direction of travel must keep the same -fwd/-rev name, or a photo on
+    # the clockwise walk migrates to the anticlockwise one.
+    ring = [(9.30, 45.90), (9.31, 45.91), (9.32, 45.90), (9.31, 45.89), (9.30, 45.90)]
+    opened = ring[:-1]
+    senses = set()
+    for k in range(4):
+        rotated = opened[k:] + opened[:k] + [opened[k]]
+        senses.add(forward_is_stored(rotated))
+    assert len(senses) == 1
+    reversed_ring = list(reversed(ring))
+    assert forward_is_stored(reversed_ring) != forward_is_stored(ring)
+
+
+def test_open_and_closed_lines_cannot_collide():
+    open_line = [(9.30, 45.90), (9.31, 45.91), (9.32, 45.90), (9.31, 45.89)]
+    closed = [*open_line, open_line[0]]
+    assert digest([open_line]) != digest([closed])

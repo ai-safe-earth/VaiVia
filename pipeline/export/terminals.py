@@ -75,8 +75,12 @@ SEASON_MONTHS = {
 }
 
 #: A start whose way in is not timetabled: reachable whenever the ground is.
+#: station and bus_stop are DELIBERATELY absent — they are the transit
+#: classes, and putting station here once bypassed the whole 0006 calendar
+#: (every rail stop read year-round-verified, the exact claim the service
+#: span exists to check).
 TIMELESS_CLASSES = frozenset(
-    {"parking", "settlement", "urban_exit", "campsite", "other", "station"}
+    {"parking", "settlement", "urban_exit", "campsite", "other"}
 )
 
 
@@ -113,7 +117,10 @@ def seasons_block(rows: list[tuple]) -> dict[str, bool]:
             "winter": False,
             "unverified": False,
         }
-    if any(row[0] in TIMELESS_CLASSES or row[0] is None for row in rows):
+    # NULL start_class is UNCLASSIFIED, not timeless: granting a row nobody
+    # classified year-round-verified reachability would make missing data
+    # read better than measured data.
+    if any(row[0] in TIMELESS_CLASSES for row in rows):
         return {
             "spring": True,
             "summer": True,
@@ -168,20 +175,59 @@ def terminal_for_point(conn, lon: float, lat: float) -> dict[str, Any]:
     return terminal_for_vertex(conn, vertex_id, point)
 
 
+def _separation(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Geodesic metres between two (lon, lat) points — enough precision to
+    rank endpoint pairs; the stored distances stay PostGIS's."""
+    from math import asin, cos, radians, sin, sqrt
+
+    lon1, lat1, lon2, lat2 = map(radians, (a[0], a[1], b[0], b[1]))
+    h = (
+        sin((lat2 - lat1) / 2) ** 2
+        + cos(lat1) * cos(lat2) * sin((lon2 - lon1) / 2) ** 2
+    )
+    return 2 * 6_371_000.0 * asin(sqrt(h))
+
+
 def endpoints_of(geometry: dict[str, Any], shape: str) -> list[tuple[float, float]]:
     """The terminal endpoints of a route geometry, per shape.
 
     One for the shapes a walker leaves from where they arrived (loop,
-    circular, out_and_back, destination); the two OUTERMOST endpoints of the
-    merged geometry for a linear traverse — a route in nine pieces has two
-    terminals, not eighteen (start/end contract §7).
+    circular, out_and_back, destination); two for a linear traverse — a
+    route in nine pieces has two terminals, not eighteen (start/end
+    contract §7).
+
+    For a multi-piece traverse the pair is the two piece-endpoints at
+    MAXIMAL geodesic separation, ties and ordering settled
+    lexicographically. Storage order was the first cut, and it chose
+    whatever fragments ST_LineMerge emitted first and last: 79 of 112 live
+    multi-piece traverses were reachability-tested at interior break
+    points, one at the same interior junction TWICE, while the true far
+    end went untested. Maximal separation is deterministic and right for a
+    broken chain; a deeply C-shaped traverse could still beat it, which is
+    a judgement the continuity queue can see, not silently mis-test.
     """
     if geometry["type"] == "LineString":
         coords = geometry["coordinates"]
         first, last = coords[0], coords[-1]
-    else:
-        pieces = geometry["coordinates"]
-        first, last = pieces[0][0], pieces[-1][-1]
-    if shape == "linear":
-        return [(first[0], first[1]), (last[0], last[1])]
-    return [(first[0], first[1])]
+        if shape == "linear":
+            return [(first[0], first[1]), (last[0], last[1])]
+        return [(first[0], first[1])]
+
+    pieces = geometry["coordinates"]
+    candidates = sorted(
+        {(piece[end][0], piece[end][1]) for piece in pieces for end in (0, -1)}
+    )
+    if shape != "linear":
+        # A ring in pieces has no privileged point; the smallest endpoint is
+        # at least the SAME point every run.
+        return [candidates[0]]
+    best = max(
+        (
+            (candidates[i], candidates[j])
+            for i in range(len(candidates))
+            for j in range(i + 1, len(candidates))
+        ),
+        key=lambda pair: (_separation(*pair), pair),
+        default=(candidates[0], candidates[0]),
+    )
+    return [best[0], best[1]]

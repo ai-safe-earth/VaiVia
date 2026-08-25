@@ -182,7 +182,7 @@ def test_a_place_without_coordinates_is_skipped_not_invented():
 
 def test_an_osm_document_maps_with_its_measured_shape():
     rows = sample(
-        route_id="osm-relation-74613",
+        route_id="vv2-0074613007461300-fwd",
         kind="osm_route",
         shape="circular",  # measured by export/shape.py, carried top-level
         matched_fraction=0.97,
@@ -215,7 +215,7 @@ def test_a_legacy_document_without_shape_falls_back():
     osm = build_document(
         **{
             **_base_kwargs(),
-            "route_id": "osm-relation-74613",
+            "route_id": "vv2-0074613007461300-fwd",
             "kind": "osm_route",
             "provenance": {
                 "run_id": "export-x",

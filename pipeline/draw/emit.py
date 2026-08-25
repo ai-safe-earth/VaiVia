@@ -250,6 +250,13 @@ def emit_generated() -> None:
                     "sources": SOURCES,
                 },
             )
+            # Same ground as a MAPPED route folds INTO it, mapped identity
+            # winning — the richer document stands, and the two emitters
+            # must never fight over one filename (each deletes what its
+            # manifest lists; a shared name would seesaw between runs).
+            if (OUT / f"{rid}.json").exists() and f"{rid}.json" not in owned:
+                print(f"  folded generated {rid} into the mapped document: same ground")
+                continue
             (OUT / f"{rid}.json").write_text(
                 json.dumps(document, indent=2, ensure_ascii=False),
                 encoding="utf-8",

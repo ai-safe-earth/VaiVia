@@ -5,7 +5,7 @@ never writes real rows); PostgresFavorites runs the same statements with the
 ownership in the SQL, verified against the live stack rather than here.
 """
 
-ROUTE_ID = "generated-abc123def4567890"
+ROUTE_ID = "vv2-abc123def4567890-fwd"
 
 ROW = {
     "id": ROUTE_ID,
@@ -99,7 +99,7 @@ def test_favorites_are_per_user(client, db):
 
 
 def test_the_list_is_newest_first(client, db):
-    first, second = ROUTE_ID, "generated-fedcba9876543210"
+    first, second = ROUTE_ID, "vv2-fedcba9876543210"
     db.when("route_exists", [{"id": first}])
     client.post(f"/routes/{first}/favorite", json={"on": True}, headers=USER)
     db.when("route_exists", [{"id": second}])

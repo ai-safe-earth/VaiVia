@@ -42,7 +42,13 @@ from collections.abc import Sequence
 
 Coord = tuple[float, float]
 
-#: ~1.1 m of longitude at 46°N. Inside geometry noise, outside any real reroute.
+#: One grid cell is 0.77 m east-west and 1.11 m north-south at 46°N — inside
+#: geometry noise, outside any real reroute. The honest caveat: rounding is a
+#: grid snap without hysteresis, so a repair that moves a vertex ACROSS a
+#: cell edge renames the route however small the move (the emit drift guard
+#: makes that loud, never silent). The upstream mitigation is for repairs to
+#: land welds ON the 1e-5 grid; until then a post-emission weld is treated
+#: as a supersession, not an identity.
 ROUND = 5
 
 PREFIX = "vv2"
@@ -53,35 +59,71 @@ PREFIX = "vv2"
 DIRECTED_SHAPES = frozenset({"loop", "circular", "linear"})
 
 
-def canonical_piece(coords: Sequence[Coord]) -> tuple[Coord, ...]:
-    """One line, rounded and direction-normalised.
-
-    Consecutive duplicates AFTER rounding are collapsed — two points 30 cm
-    apart become the same point at 5 decimals, and keeping both would make
-    the id depend on vertex density rather than on ground.
-    """
+def _rounded(coords: Sequence[Coord]) -> list[Coord]:
     rounded: list[Coord] = []
     for x, y in coords:
         point = (round(x, ROUND), round(y, ROUND))
         if not rounded or rounded[-1] != point:
             rounded.append(point)
+    return rounded
+
+
+def _ring_canonical(opened: list[Coord]) -> tuple[tuple[Coord, ...], bool]:
+    """The canonical cyclic form of an OPEN ring, and whether the stored
+    direction is the canonical one.
+
+    A closed way's starting vertex is an assembly artefact — ST_LineMerge
+    starts a pure ring wherever its input order lands, and a rebuild
+    reorders that input — so a ring is normalised over BOTH directions and
+    every rotation that starts at its minimal vertex. Without this, every
+    loop-shaped route renamed on rebuild (found live: five rotations of one
+    ring, five digests).
+    """
+
+    def best_rotation(seq: list[Coord]) -> tuple[Coord, ...]:
+        low = min(seq)
+        return min(tuple(seq[i:] + seq[:i]) for i, p in enumerate(seq) if p == low)
+
+    forward = best_rotation(opened)
+    backward = best_rotation(list(reversed(opened)))
+    if forward <= backward:
+        return forward, True
+    return backward, False
+
+
+def canonical_piece(coords: Sequence[Coord]) -> tuple[Coord, ...]:
+    """One line, rounded, direction-normalised — and rotation-normalised
+    when it is a closed ring.
+
+    Consecutive duplicates AFTER rounding are collapsed — two points 30 cm
+    apart become the same point at 5 decimals, and keeping both would make
+    the id depend on vertex density rather than on ground. A ring is
+    re-closed after normalisation, so open and closed lines can never
+    collide by construction.
+    """
+    rounded = _rounded(coords)
+    if len(rounded) > 2 and rounded[0] == rounded[-1]:
+        canon, _ = _ring_canonical(rounded[:-1])
+        return canon + (canon[0],)
     forward = tuple(rounded)
     backward = tuple(reversed(rounded))
     return min(forward, backward)
 
 
 def forward_is_stored(coords: Sequence[Coord]) -> bool:
-    """Is the STORED orientation the `:fwd` one?
+    """Is the STORED orientation the `-fwd` one?
 
-    True when the line as given reads as the canonical (lexicographic
-    minimum) orientation. A palindrome — a strict out-and-back's coordinate
-    list — reads True, harmlessly: its shapes carry no suffix.
+    For an open line: the given order reads as the lexicographic-minimum
+    orientation. For a closed ring: the given rotation's direction is the
+    canonical cycle's direction — the start vertex cancels out, so a
+    rebuild that re-opens the ring elsewhere cannot flip the sense. A
+    palindrome — a strict out-and-back's coordinate list — reads True,
+    harmlessly: its shapes carry no suffix.
     """
-    rounded: list[Coord] = []
-    for x, y in coords:
-        point = (round(x, ROUND), round(y, ROUND))
-        if not rounded or rounded[-1] != point:
-            rounded.append(point)
+    rounded = _rounded(coords)
+    if len(rounded) > 2 and rounded[0] == rounded[-1]:
+        _, stored_is_forward = _ring_canonical(rounded[:-1])
+        return stored_is_forward
     return tuple(rounded) <= tuple(reversed(rounded))
 
 
