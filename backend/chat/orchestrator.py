@@ -350,7 +350,7 @@ class ChatOrchestrator:
     async def _loops(self, intent: Any) -> tuple[list[dict[str, Any]], bool]:
         """Select from the precomputed catalogue; returns (rows, near_resolved).
 
-        Everything costly ran offline in scripts.build_routes, so this is a
+        Everything costly ran offline in the pipeline's generator, so this is a
         filter over (:Route) ordered by the score computed there.
 
         near_resolved is False only when the user named a place and the

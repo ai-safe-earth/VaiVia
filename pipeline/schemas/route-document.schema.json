@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-1.2.json",
+  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-2.0.json",
   "title": "VaiVia route document",
   "description": "The product: one route, as every reader consumes it. PostGIS holds the value; this is what is delivered. See docs/route-document.md for the reasoning behind each block. Readers outlive producers, so this is versioned and additive: a new field is a minor version, a removed or re-meaning field is a major one.",
   "type": "object",
@@ -16,6 +16,11 @@
     "surface",
     "difficulty",
     "continuity",
+    "direction",
+    "reverse_of",
+    "terminals",
+    "categories",
+    "divergence",
     "places",
     "quality",
     "provenance"
@@ -29,8 +34,8 @@
     },
     "id": {
       "type": "string",
-      "minLength": 1,
-      "description": "Stable across rebuilds. A comment or photo keys to this, so a route that regenerates to the same ground must keep its id, and a route that genuinely changes gets a new one rather than mutating. See docs/social-layer.md."
+      "pattern": "^vv2-[0-9a-f]{16}(:(fwd|rev))?$",
+      "description": "Stable across rebuilds: a 16-hex digest of the canonical ground (coordinates rounded to ~1.1 m, pieces individually direction-normalised and ordered), minted only by pipeline/ids.py. Shapes where direction is the walker's choice (loop, circular, linear) carry :fwd or :rev — one document per direction, sharing the digest; an out-and-back carries no suffix. Comments and photos key to this, so the digest survives any rebuild and the :fwd sense is fixed by geometry alone (the lexicographic-minimum orientation), never by edge or vertex ids, which rebuilds reassign. osm-relation-<n> retired to identity.osm_relation_id as provenance."
     },
     "kind": {
       "type": "string",
@@ -44,11 +49,12 @@
       "type": "string",
       "enum": [
         "loop",
+        "out_and_back",
         "destination",
         "circular",
         "linear"
       ],
-      "description": "What shape of outing this is, and how that is known. loop/destination are CONSTRUCTED (the generator drew them that way); circular/linear are MEASURED on a mapped route (endpoint gap against the calibrated ratio, or the mapper's roundtrip tag). The pairs stay distinct so a classifier bug can never impersonate generation intent."
+      "description": "What shape of outing this is, and how that is known. loop, out_and_back and destination are CONSTRUCTED (the generator drew them that way — out_and_back returns on exactly the outbound edges, destination returns by an alternative line where the ground allows); circular/linear are MEASURED on a mapped route (endpoint gap against the calibrated ratio, or the mapper's roundtrip tag). The pairs stay distinct so a classifier bug can never impersonate generation intent."
     },
     "identity": {
       "type": "object",
@@ -315,7 +321,8 @@
       "type": "object",
       "required": [
         "pieces",
-        "continuous"
+        "continuous",
+        "reason"
       ],
       "properties": {
         "pieces": {
@@ -324,38 +331,107 @@
         },
         "continuous": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "coverage_edge",
+            "network_gap",
+            "unknown",
+            null
+          ],
+          "description": "Why a route is in pieces: the break sits at our ingestion bbox (coverage_edge — a fact about our bounds, not the route) or inside coverage (network_gap — a real hole along a named route). unknown when nothing has judged the break yet; null when continuous. Carried, never filtered on: requiring continuity would delete 131 of 752 mapped routes for a clipping artefact."
         }
       }
     },
-    "start": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "description": "Where a walk on this route can begin. names is often empty because car parks are rarely named in OSM: a known gap, not a bug.",
-      "properties": {
-        "vertex_id": {
-          "type": "integer"
-        },
-        "names": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "terminals": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "vertex_id",
+          "point",
+          "names",
+          "start_classes",
+          "car_free",
+          "nearest_start_m",
+          "reachable",
+          "seasons"
+        ],
+        "properties": {
+          "vertex_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "point": {
+            "type": "object"
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "start_classes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Kinds of arrival at or near this terminal (anchors.start_class)."
+          },
+          "car_free": {
+            "type": "boolean"
+          },
+          "nearest_start_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "NETWORK metres over foot-legal edges to the nearest start vertex — never straight line, which crosses rivers and cliffs. null when nothing lies within the measured 1 km bound (the knee of the endpoint-to-start histogram)."
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "seasons": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "spring",
+              "summer",
+              "autumn",
+              "winter",
+              "unverified"
+            ],
+            "properties": {
+              "spring": {
+                "type": "boolean"
+              },
+              "summer": {
+                "type": "boolean"
+              },
+              "autumn": {
+                "type": "boolean"
+              },
+              "winter": {
+                "type": "boolean"
+              },
+              "unverified": {
+                "type": "boolean"
+              }
+            },
+            "description": "When the terminal is reachable. The default INVERTS the hazard rule: an unscoped way in is reachable in every season, because absence of a gate tag is evidence of no gate. A transit-only terminal takes its seasons from the feed's measured service span; unverified=true marks a span that ends at the feed's publication horizon rather than with the service (a GTFS feed ending in December is a horizon, not a closure)."
           }
-        },
-        "anchors": {
-          "type": "integer"
-        },
-        "nearest_m": {
-          "type": "number"
-        },
-        "car_free": {
-          "type": "boolean"
-        },
-        "point": {
-          "type": "object"
         }
-      }
+      },
+      "description": "Where a walker joins or leaves this route from the outside world — 1 for a loop/circular/out-and-back/destination, 2 for a linear traverse, each tested for reachability INDEPENDENTLY (the far end of a traverse ending at a roadless col is where our data stopped, not a terminal). Evaluated on the outermost endpoints of the merged geometry: a route in nine pieces has two terminals, not eighteen. Interest stays a property of a TURNAROUND (provenance.generation.destination), a different test on a different object."
     },
     "places": {
       "type": "array",
@@ -488,6 +564,70 @@
           }
         }
       }
+    },
+    "direction": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "fwd",
+        "rev",
+        null
+      ],
+      "description": "Which direction of travel this document describes, for shapes where that is the walker's choice; null for an out-and-back or destination route, whose single outing contains both directions. Difficulty differs by direction and directional tags invert, so a loop's two directions are two documents (start/end contract §5)."
+    },
+    "reverse_of": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The sibling direction's id, carried from day one so the :rev documents land as pure additions; null for undirected shapes."
+    },
+    "categories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "distance_class",
+        "climb_class",
+        "difficulty_class",
+        "surface_class"
+      ],
+      "properties": {
+        "distance_class": {
+          "type": "string"
+        },
+        "climb_class": {
+          "type": "string"
+        },
+        "difficulty_class": {
+          "type": "string"
+        },
+        "surface_class": {
+          "type": "string"
+        }
+      },
+      "description": "The class twins every styled field needs (leading digit so legends sort), carried IN the document so the map legend and the chat cannot describe the same route differently. Boundaries from the corpus's measured distributions (2026-08-25: distance quintiles 1.6/3.3/5.6/9.9 km -> cuts 3/6/10/15; ascent quintiles 88/200/375/709 m -> cuts 100/250/500/1000)."
+    },
+    "divergence": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "vertex_id",
+        "approach_m"
+      ],
+      "properties": {
+        "vertex_id": {
+          "type": "integer"
+        },
+        "approach_m": {
+          "type": "number"
+        }
+      },
+      "description": "Where this route leaves the corridor shared with its siblings from the same terminal, and how long that shared approach is. Measured as the normal case, not the edge case: median shared prefix 286 m, 493 pairs sharing a kilometre or more. A fact about the route, computed once at assembly against the sibling set; diversity ON it belongs to the query service. null when the route has no siblings or none share its first edge."
     }
   }
 }

@@ -131,6 +131,25 @@ def document_rows(document: dict) -> dict[str, Any]:
             # instead of serving another build's shape under this id.
             "schema_version": document["schema_version"],
             "doc_run_id": document.get("provenance", {}).get("run_id"),
+            # Schema 2.0 selection fields: which direction this document
+            # walks, its sibling, the corridor it shares with siblings from
+            # its terminal, why a broken route is broken, and the class
+            # twins the cards and legends style by.
+            "direction": document.get("direction"),
+            "reverse_of": document.get("reverse_of"),
+            "continuity_reason": (document.get("continuity") or {}).get("reason"),
+            "divergence_vertex": (document.get("divergence") or {}).get("vertex_id"),
+            "approach_m": (document.get("divergence") or {}).get("approach_m"),
+            "terminals_reachable": sum(
+                1 for term in document.get("terminals") or [] if term.get("reachable")
+            ),
+            "terminals_total": len(document.get("terminals") or []),
+            "distance_class": (document.get("categories") or {}).get("distance_class"),
+            "climb_class": (document.get("categories") or {}).get("climb_class"),
+            "difficulty_class": (document.get("categories") or {}).get(
+                "difficulty_class"
+            ),
+            "surface_class": (document.get("categories") or {}).get("surface_class"),
         },
     }
 
@@ -160,22 +179,34 @@ def document_rows(document: dict) -> dict[str, Any]:
             }
         )
 
-    start = document.get("start")
+    # Schema 2.0: `start` became `terminals` (1-2 per route, each carrying
+    # its own reachability and seasons). The selection surface anchors on the
+    # FIRST terminal — the one a loop leaves from, a traverse's A end — and
+    # carries the second's reachability as properties, not as a second
+    # :Start, until a query needs it.
+    terminals = document.get("terminals") or []
+    start = terminals[0] if terminals else None
     start_row = None
     start_link = None
-    if start:
+    if start and start.get("vertex_id") is not None:
         lon, lat = start["point"]["coordinates"]
         start_row = {
             "vertex_id": start["vertex_id"],
             "car_free": start["car_free"],
             "names": start.get("names") or [],
+            "start_classes": start.get("start_classes") or [],
+            "reachable_spring": start["seasons"]["spring"],
+            "reachable_summer": start["seasons"]["summer"],
+            "reachable_autumn": start["seasons"]["autumn"],
+            "reachable_winter": start["seasons"]["winter"],
+            "seasons_unverified": start["seasons"]["unverified"],
             "lon": lon,
             "lat": lat,
         }
         start_link = {
             "route_id": document["id"],
             "vertex_id": start["vertex_id"],
-            "nearest_m": start["nearest_m"],
+            "nearest_m": start["nearest_start_m"],
         }
 
     return {

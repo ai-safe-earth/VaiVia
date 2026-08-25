@@ -30,7 +30,15 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "2.0"
+
+# The category boundaries, measured over the 980-route corpus on 2026-08-25
+# (distance quintiles 1.6 / 3.3 / 5.6 / 9.9 km; ascent quintiles 88 / 200 /
+# 375 / 709 m) and cut at the nearest legible values. Carried IN the
+# document so the map legend and the chat cannot describe the same route
+# differently — the class twins rule, applied to the product itself.
+DISTANCE_CUTS_KM = (3.0, 6.0, 10.0, 15.0)
+CLIMB_CUTS_M = (100.0, 250.0, 500.0, 1000.0)
 
 # The share of length below which a grade is an incident rather than the
 # character of the route. Proven in backend/graph/graphhopper.py.
@@ -46,6 +54,82 @@ SAC_ORDER = [
     "demanding_alpine_hiking",
     "difficult_alpine_hiking",
 ]
+
+
+def distance_class(distance_m: float) -> str:
+    """The distance category, leading digit so a legend sorts."""
+    km = distance_m / 1000.0
+    if km < DISTANCE_CUTS_KM[0]:
+        return "0 short (<3 km)"
+    if km < DISTANCE_CUTS_KM[1]:
+        return "1 half-day (3-6 km)"
+    if km < DISTANCE_CUTS_KM[2]:
+        return "2 day (6-10 km)"
+    if km < DISTANCE_CUTS_KM[3]:
+        return "3 long (10-15 km)"
+    return "4 very long (>15 km)"
+
+
+def climb_class(ascent_m: float | None) -> str:
+    """The climb category. Unknown is its own bucket — absent is not zero."""
+    if ascent_m is None:
+        return "9 unknown"
+    if ascent_m < CLIMB_CUTS_M[0]:
+        return "0 gentle (<100 m)"
+    if ascent_m < CLIMB_CUTS_M[1]:
+        return "1 rolling (100-250 m)"
+    if ascent_m < CLIMB_CUTS_M[2]:
+        return "2 hilly (250-500 m)"
+    if ascent_m < CLIMB_CUTS_M[3]:
+        return "3 mountain (500-1000 m)"
+    return "4 alpine (>1000 m)"
+
+
+def difficulty_class(sac_max: str | None) -> str:
+    """The EXIGENT grade as a category — the safety promise, never the
+    character label (a T2 walk with a T4 move must read T4)."""
+    if sac_max is None:
+        return "8 ungraded"
+    try:
+        rank = SAC_ORDER.index(sac_max)
+    except ValueError:
+        return "9 invalid tag"
+    labels = (
+        "0 hiking (T1)",
+        "1 mountain hiking (T2)",
+        "2 demanding mountain (T3)",
+        "3 alpine (T4)",
+        "4 demanding alpine (T5)",
+        "5 difficult alpine (T6)",
+    )
+    return labels[rank]
+
+
+#: Dominant-surface groups, mirroring qa.surface_class in the store.
+_PAVED = {"asphalt", "paved", "concrete", "paving_stones", "sett"}
+_GRAVEL = {"gravel", "fine_gravel", "compacted", "pebblestone"}
+_GROUND = {"ground", "dirt", "earth", "grass", "sand", "mud", "rock", "unpaved"}
+
+
+def surface_class(dominant_surface: str | None) -> str:
+    if dominant_surface is None:
+        return "9 unknown"
+    if dominant_surface in _PAVED:
+        return "0 paved"
+    if dominant_surface in _GRAVEL:
+        return "1 gravel"
+    if dominant_surface in _GROUND:
+        return "2 ground"
+    return "9 unknown"
+
+
+def sibling_route_id(route_id: str) -> str | None:
+    """The other direction's id (delegates to pipeline/ids.py at the seam
+    where both modules must agree; re-exported here so document assembly
+    has one import)."""
+    from ids import sibling_id
+
+    return sibling_id(route_id)
 
 
 class Span(NamedTuple):
@@ -191,8 +275,11 @@ def build_document(
     edges_without_profile: int,
     matched_fraction: float | None,
     places: list[dict[str, Any]],
-    start: dict[str, Any] | None,
+    terminals: list[dict[str, Any]],
     provenance: dict[str, Any],
+    direction: str | None = None,
+    continuity_reason: str | None = None,
+    divergence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One route, as the artefact everything downstream reads.
 
@@ -234,8 +321,27 @@ def build_document(
             "rule": "sac_scale: hardest grade covering at least 5% of the "
             "length; sac_max: hardest graded metre, any length",
         },
-        "continuity": {"pieces": pieces, "continuous": pieces == 1},
-        "start": start,
+        "continuity": {
+            "pieces": pieces,
+            "continuous": pieces == 1,
+            # Why a broken route is broken: at our bbox (coverage_edge, a
+            # fact about our bounds) or inside coverage (network_gap). null
+            # when continuous. Carried, never filtered on.
+            "reason": None if pieces == 1 else (continuity_reason or "unknown"),
+        },
+        # Which direction of travel this document describes (start/end
+        # contract §5); its sibling's id from day one, so the :rev documents
+        # land as pure additions.
+        "direction": direction,
+        "reverse_of": sibling_route_id(route_id),
+        "terminals": terminals,
+        "categories": {
+            "distance_class": distance_class(distance_m),
+            "climb_class": climb_class(ascent_m),
+            "difficulty_class": difficulty_class(exigent_grade(sac_spans, SAC_ORDER)),
+            "surface_class": surface_class(dominant(surface)),
+        },
+        "divergence": divergence,
         "places": places,
         "quality": {
             "warnings": quality_warnings(

@@ -30,7 +30,8 @@ def validator() -> Draft202012Validator:
 
 def document(**overrides):
     base = {
-        "route_id": "osm-relation-74613",
+        "route_id": "vv2-00c0ffee00c0ffee:fwd",
+        "direction": "fwd",
         "kind": "osm_route",
         "shape": "linear",
         "identity": {
@@ -74,14 +75,40 @@ def document(**overrides):
                 "is_start": True,
             }
         ],
-        "start": {
-            "vertex_id": 1828,
-            "names": [],
-            "anchors": 1,
-            "nearest_m": 0.0,
-            "car_free": False,
-            "point": {"type": "Point", "coordinates": [9.3304428, 45.9276882]},
-        },
+        "terminals": [
+            {
+                "vertex_id": 1828,
+                "point": {"type": "Point", "coordinates": [9.3304428, 45.9276882]},
+                "names": [],
+                "start_classes": ["parking"],
+                "car_free": False,
+                "nearest_start_m": 0.0,
+                "reachable": True,
+                "seasons": {
+                    "spring": True,
+                    "summer": True,
+                    "autumn": True,
+                    "winter": True,
+                    "unverified": False,
+                },
+            },
+            {
+                "vertex_id": 2891,
+                "point": {"type": "Point", "coordinates": [9.387812, 45.942009]},
+                "names": [],
+                "start_classes": [],
+                "car_free": False,
+                "nearest_start_m": None,
+                "reachable": False,
+                "seasons": {
+                    "spring": False,
+                    "summer": False,
+                    "autumn": False,
+                    "winter": False,
+                    "unverified": False,
+                },
+            },
+        ],
         "provenance": {
             "run_id": "export-2e6f07a6",
             "producer": "pipeline/export/route_documents.py",
@@ -124,7 +151,24 @@ def test_a_route_with_nothing_known_still_validates(validator):
             surface_spans=[Span(None, 1000)],
             sac_spans=[Span(None, 1000)],
             places=[],
-            start=None,
+            terminals=[
+                {
+                    "vertex_id": None,
+                    "point": {"type": "Point", "coordinates": [9.33, 45.92]},
+                    "names": [],
+                    "start_classes": [],
+                    "car_free": False,
+                    "nearest_start_m": None,
+                    "reachable": False,
+                    "seasons": {
+                        "spring": False,
+                        "summer": False,
+                        "autumn": False,
+                        "winter": False,
+                        "unverified": False,
+                    },
+                }
+            ],
             edges_without_profile=3,
         )
     )
@@ -133,7 +177,9 @@ def test_a_route_with_nothing_known_still_validates(validator):
 def test_a_generated_route_validates_with_no_relation_to_match(validator):
     validator.validate(
         document(
-            route_id="generated-9f2c1ab4",
+            route_id="vv2-9f2c1ab49f2c1ab4",
+            direction=None,
+            shape="destination",
             kind="generated",
             identity={"name": "Loop from Ballabio", "regions": ["Lecco"]},
             matched_fraction=None,

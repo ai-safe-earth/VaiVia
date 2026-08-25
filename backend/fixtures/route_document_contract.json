@@ -1,0 +1,163 @@
+{
+  "schema_version": "2.0",
+  "id": "vv2-c0ffeec0ffeec0ff:fwd",
+  "kind": "osm_route",
+  "shape": "circular",
+  "identity": {
+    "name": "Anello del Contratto",
+    "ref": "42",
+    "activity": "hiking",
+    "network": "lwn",
+    "waymark": "red:red:white_stripe:42:black",
+    "from": null,
+    "to": null,
+    "operator": null,
+    "regions": [
+      "Bergamo"
+    ],
+    "osm_relation_id": 4242
+  },
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [
+      [
+        9.67,
+        45.7
+      ],
+      [
+        9.68,
+        45.71
+      ],
+      [
+        9.69,
+        45.7
+      ],
+      [
+        9.67,
+        45.7
+      ]
+    ]
+  },
+  "bbox": [
+    9.67,
+    45.7,
+    9.69,
+    45.71
+  ],
+  "measures": {
+    "distance_m": 9500.0,
+    "ascent_m": 620.0,
+    "descent_m": 620.0,
+    "lowest_m": 310.0,
+    "highest_m": 905.0
+  },
+  "profile": {
+    "distance_m": [
+      0.0,
+      4750.0,
+      9500.0
+    ],
+    "elevation_m": [
+      310.0,
+      905.0,
+      310.0
+    ]
+  },
+  "surface": {
+    "distribution": {
+      "gravel": 0.6316,
+      "paved": 0.2105,
+      "unknown": 0.1579
+    },
+    "dominant": "gravel"
+  },
+  "difficulty": {
+    "sac_scale": "mountain_hiking",
+    "sac_max": "mountain_hiking",
+    "graded_share": 1.0,
+    "distribution": {
+      "hiking": 0.3333,
+      "mountain_hiking": 0.6667
+    },
+    "rule": "sac_scale: hardest grade covering at least 5% of the length; sac_max: hardest graded metre, any length"
+  },
+  "continuity": {
+    "pieces": 1,
+    "continuous": true,
+    "reason": null
+  },
+  "direction": "fwd",
+  "reverse_of": "vv2-c0ffeec0ffeec0ff:rev",
+  "terminals": [
+    {
+      "vertex_id": 4242,
+      "point": {
+        "type": "Point",
+        "coordinates": [
+          9.67,
+          45.7
+        ]
+      },
+      "names": [
+        "Parcheggio del Contratto"
+      ],
+      "start_classes": [
+        "parking",
+        "station"
+      ],
+      "car_free": true,
+      "nearest_start_m": 0.0,
+      "reachable": true,
+      "seasons": {
+        "spring": true,
+        "summer": true,
+        "autumn": true,
+        "winter": true,
+        "unverified": false
+      }
+    }
+  ],
+  "categories": {
+    "distance_class": "2 day (6-10 km)",
+    "climb_class": "3 mountain (500-1000 m)",
+    "difficulty_class": "1 mountain hiking (T2)",
+    "surface_class": "1 gravel"
+  },
+  "divergence": {
+    "vertex_id": 4243,
+    "approach_m": 412.5
+  },
+  "places": [
+    {
+      "id": "n4242",
+      "kind": "peak",
+      "name": "Cima del Contratto",
+      "ele_m": 905.0,
+      "lon": 9.68,
+      "lat": 45.71,
+      "offset_m": 8.0,
+      "distance_along_m": 4750.0,
+      "is_start": false
+    }
+  ],
+  "quality": {
+    "warnings": [],
+    "matched_fraction": 0.97,
+    "edges_without_profile": 0
+  },
+  "provenance": {
+    "run_id": "export-contract",
+    "producer": "pipeline/emit_contract_fixture.py",
+    "sources": [
+      {
+        "name": "OpenStreetMap",
+        "licence": "ODbL 1.0",
+        "attribution": "© OpenStreetMap contributors",
+        "url": "https://www.openstreetmap.org/copyright",
+        "provides": [
+          "geometry"
+        ]
+      }
+    ]
+  }
+}

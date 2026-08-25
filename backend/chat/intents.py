@@ -44,7 +44,7 @@ class LoopSearchIntent(BaseModel):
 
     Distinct from TrailSearchIntent (a named trail with properties) and from
     RouteIntent (getting from one named place to another). It selects from the
-    precomputed catalogue built by scripts.build_routes, so no field here names
+    precomputed catalogue the pipeline exports, so no field here names
     a template, an id, or anything the model could steer the query with -- only
     what a walker would say out loud.
     """

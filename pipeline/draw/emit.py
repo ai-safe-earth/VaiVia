@@ -21,9 +21,13 @@ from pathlib import Path
 
 from core import connect
 from draw.assemble import assemble
+from draw.divergence import Step, divergence
 from draw.generate import walked_sequence
 from export.document import build_document
 from export.route_documents import PLACES_M, SOURCES
+from export.terminals import terminal_for_vertex
+from ids import DIRECTED_SHAPES, forward_is_stored
+from ids import route_id as v2_route_id
 
 OUT = Path(__file__).resolve().parents[2] / "review" / "routes"
 
@@ -37,7 +41,7 @@ ORDER BY r.route_id
 """
 
 SEQUENCE = """
-SELECT re.seq, re.edge_id, re.forward, e.source
+SELECT re.seq, re.edge_id, re.forward, e.source, e.target, e.length_m
 FROM catalogue.route_edge re
 JOIN source_map.edge e ON e.edge_id = re.edge_id
 WHERE re.route_id = %(route_id)s
@@ -65,19 +69,53 @@ WHERE ST_DWithin(ST_Transform(p.geom, 32632), ST_Transform(l.geom, 32632), %(rad
 ORDER BY along_m, offset_m
 """
 
-START = """
-SELECT s.vertex_id, s.names, s.anchors, s.nearest_m, s.car_free,
-       ST_AsGeoJSON(s.geom)
-FROM qa.v_start s WHERE s.vertex_id = %(vertex_id)s
+VERTEX_POINT = """
+SELECT ST_AsGeoJSON(geom) FROM source_map.vertex WHERE vertex_id = %(vertex_id)s
 """
 
 
 def emit_generated() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    # Ownership by manifest: both emitters write vv2-*.json now, so delete
+    # what the previous run of THIS emitter listed, plus the legacy pattern
+    # from before the id cutover.
+    manifest = OUT / ".generated_documents.json"
+    if manifest.exists():
+        for stale in json.loads(manifest.read_text(encoding="utf-8")):
+            (OUT / stale).unlink(missing_ok=True)
+    for stale in OUT.glob("generated-*.json"):
+        stale.unlink()
+
     written = 0
     features = []
+    owned: list[str] = []
     with connect() as conn:
         routes = conn.execute(ROUTES).fetchall()
+
+        # The shared-corridor pass: every walked sequence first, so each
+        # route's divergence is measured against its whole sibling set —
+        # same start, same activity (a bike and a hike from one trailhead
+        # are not near-duplicates of each other in any answer).
+        step_rows: dict[str, list] = {}
+        groups: dict[tuple[int, str], dict[str, list[Step]]] = {}
+        for row in routes:
+            rid, activity, start_vertex = row[0], row[1], row[7]
+            rows = conn.execute(SEQUENCE, {"route_id": rid}).fetchall()
+            step_rows[rid] = rows
+            walk = [
+                Step(
+                    edge_id,
+                    forward,
+                    float(length_m),
+                    target if forward else source,
+                )
+                for _seq, edge_id, forward, source, target, length_m in rows
+            ]
+            groups.setdefault((start_vertex, activity), {})[rid] = walk
+        parted: dict[str, tuple[int, float] | None] = {}
+        for siblings in groups.values():
+            parted.update(divergence(siblings))
+
         for (
             rid,
             activity,
@@ -96,9 +134,7 @@ def emit_generated() -> None:
         ) in routes:
             steps = [
                 (edge_id, forward)
-                for _seq, edge_id, forward, _source in conn.execute(
-                    SEQUENCE, {"route_id": rid}
-                )
+                for _seq, edge_id, forward, _source, _target, _length in step_rows[rid]
             ]
             sequence = walked_sequence(conn, steps)
             facts = assemble(sequence)
@@ -120,18 +156,24 @@ def emit_generated() -> None:
                     PLACES, {"route_id": rid, "radius": PLACES_M}
                 )
             ]
-            start_row = conn.execute(START, {"vertex_id": start_vertex}).fetchone()
-            start = None
-            if start_row:
-                vertex_id, names, anchors, nearest_m, car_free, point = start_row
-                start = {
-                    "vertex_id": vertex_id,
-                    "names": names or [],
-                    "anchors": anchors,
-                    "nearest_m": float(nearest_m),
-                    "car_free": car_free,
-                    "point": json.loads(point),
-                }
+            # The id is verified against the ground, never trusted from the
+            # table: rekey_v2.py and the generator both mint through
+            # pipeline/ids.py, and a drift here is a cutover bug surfacing.
+            coords = json.loads(geometry)["coordinates"]
+            direction = None
+            if shape in DIRECTED_SHAPES:
+                direction = "fwd" if forward_is_stored(coords) else "rev"
+            expected = v2_route_id([coords], shape, direction or "fwd")
+            if rid != expected:
+                raise SystemExit(
+                    f"catalogue.route {rid!r} does not match its ground "
+                    f"({expected!r}) — run rekey_v2.py before emitting"
+                )
+
+            (point,) = conn.execute(
+                VERTEX_POINT, {"vertex_id": start_vertex}
+            ).fetchone()
+            terminals = [terminal_for_vertex(conn, start_vertex, point)]
 
             surface_spans = [(e.surface, e.length_m) for e in sequence]
             sac_spans = [(e.sac_scale, e.length_m) for e in sequence]
@@ -142,6 +184,7 @@ def emit_generated() -> None:
                 # provenance.generation.shape stays too — that is history,
                 # where this is the reader contract.
                 shape=shape,
+                direction=direction,
                 identity={
                     "name": name,
                     "ref": None,
@@ -171,7 +214,15 @@ def emit_generated() -> None:
                 edges_without_profile=sum(1 for e in sequence if e.ascent_m is None),
                 matched_fraction=None,
                 places=places,
-                start=start,
+                terminals=terminals,
+                divergence=(
+                    {
+                        "vertex_id": parted[rid][0],
+                        "approach_m": parted[rid][1],
+                    }
+                    if parted.get(rid)
+                    else None
+                ),
                 provenance={
                     "run_id": run_id,
                     "producer": "pipeline/draw/emit.py",
@@ -203,6 +254,7 @@ def emit_generated() -> None:
                 json.dumps(document, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
+            owned.append(f"{rid}.json")
             written += 1
             features.append(
                 {
@@ -228,6 +280,7 @@ def emit_generated() -> None:
                 }
             )
 
+    manifest.write_text(json.dumps(sorted(owned), indent=1), encoding="utf-8")
     (OUT / "generated.geojson").write_text(
         json.dumps(
             {

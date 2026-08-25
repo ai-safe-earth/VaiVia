@@ -34,6 +34,8 @@ from pathlib import Path
 from core import connect
 from export.document import Span, build_document
 from export.shape import classify_osm_shape
+from export.terminals import endpoints_of, terminal_for_point
+from ids import DIRECTED_SHAPES, forward_is_stored, route_id
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -154,20 +156,6 @@ ORDER BY along_m NULLS LAST, offset_m
 """
 
 # The starts on this route's own vertices: where a walk on it can begin.
-START = """
-SELECT p.vertex_id, min(p.distance_m), count(*),
-       array_remove(array_agg(DISTINCT p.name), NULL),
-       bool_or(p.source = 'gtfs_stop' OR p.kind = 'station'),
-       ST_AsGeoJSON(v.geom)
-FROM (SELECT DISTINCT rel_id, edge_id FROM source_map.edge_route WHERE rel_id = %(rel)s) m
-JOIN source_map.edge e ON e.edge_id = m.edge_id
-JOIN source_map.place p ON p.vertex_id IN (e.source, e.target) AND p.is_start
-JOIN source_map.vertex v ON v.vertex_id = p.vertex_id
-GROUP BY p.vertex_id, v.geom
-ORDER BY min(p.distance_m)
-LIMIT 1
-"""
-
 PROFILE = """
 SELECT e.profile_m, e.length_m, er.member_index, e.piece_index
 FROM source_map.edge_route er
@@ -247,31 +235,41 @@ def emit(
         )
     ]
 
-    start_row = conn.execute(START, {"rel": rel_id}).fetchone()
-    start = None
-    if start_row:
-        vertex_id, nearest_m, anchors, names, car_free, point = start_row
-        start = {
-            "vertex_id": vertex_id,
-            "names": names,
-            "anchors": anchors,
-            "nearest_m": round(nearest_m, 1),
-            "car_free": car_free,
-            "point": json.loads(point),
-        }
-
     profile = build_profile(conn.execute(PROFILE, {"rel": rel_id}).fetchall())
 
+    geometry = json.loads(geojson)
+    # Measured, never declared: the mapper's roundtrip tag wins, then the
+    # merged-endpoint gap against the calibrated ratio (export/shape.py).
+    shape = classify_osm_shape(
+        None if endpoint_gap_m is None else float(endpoint_gap_m),
+        float(distance_m),
+        tags.get("roundtrip"),
+    )
+    coordinate_pieces = (
+        [geometry["coordinates"]]
+        if geometry["type"] == "LineString"
+        else geometry["coordinates"]
+    )
+    # This document describes the STORED orientation — whichever way the
+    # mapper drew it. Its direction label says which of the pair that is,
+    # from geometry alone; the sibling arrives as a pure addition later.
+    direction = None
+    if shape in DIRECTED_SHAPES:
+        direction = "fwd" if forward_is_stored(coordinate_pieces[0]) else "rev"
+    rid = route_id(coordinate_pieces, shape, direction or "fwd")
+
+    # One terminal for a circular route, the two outermost endpoints of the
+    # merged geometry for a traverse — each independently tested for network
+    # reachability (the far end of a traverse went untested for ever).
+    terminals = [
+        terminal_for_point(conn, lon, lat) for lon, lat in endpoints_of(geometry, shape)
+    ]
+
     return build_document(
-        route_id=f"osm-relation-{rel_id}",
+        route_id=rid,
         kind="osm_route",
-        # Measured, never declared: the mapper's roundtrip tag wins, then the
-        # merged-endpoint gap against the calibrated ratio (export/shape.py).
-        shape=classify_osm_shape(
-            None if endpoint_gap_m is None else float(endpoint_gap_m),
-            float(distance_m),
-            tags.get("roundtrip"),
-        ),
+        shape=shape,
+        direction=direction,
         identity={
             "name": tags.get("name"),
             "ref": tags.get("ref"),
@@ -284,7 +282,7 @@ def emit(
             "regions": regions,
             "osm_relation_id": rel_id,
         },
-        geometry=json.loads(geojson),
+        geometry=geometry,
         bbox=bbox,
         distance_m=float(distance_m),
         ascent_m=None if ascent_m is None else float(ascent_m),
@@ -298,7 +296,10 @@ def emit(
         edges_without_profile=without_profile,
         matched_fraction=None if matched_fraction is None else float(matched_fraction),
         places=places,
-        start=start,
+        terminals=terminals,
+        # Which breaks are our bbox and which are real holes is a judgement
+        # (the 131-route QGIS queue) — 'unknown' until judged, never guessed.
+        divergence=None,
         provenance={
             "run_id": run_id,
             "producer": "pipeline/export/route_documents.py",
@@ -315,9 +316,14 @@ def main() -> None:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    # Remove only what THIS emitter owns. Generated routes (draw/emit.py) share
-    # the directory, and an rmtree here would delete the other half of the
-    # catalogue — the same near-miss review_bundle.py already had.
+    # Remove only what THIS emitter owns. Both emitters write vv2-*.json now,
+    # so ownership lives in a manifest instead of the filename: delete what
+    # the previous run of THIS emitter listed, plus the legacy patterns from
+    # before the id cutover.
+    manifest = out / ".osm_documents.json"
+    if manifest.exists():
+        for stale in json.loads(manifest.read_text(encoding="utf-8")):
+            (out / stale).unlink(missing_ok=True)
     for stale in out.glob("osm-relation-*.json"):
         stale.unlink()
     (out / "routes.geojson").unlink(missing_ok=True)
@@ -344,12 +350,14 @@ def main() -> None:
 
         features = []
         warned = 0
+        owned: list[str] = []
         for rel_id, tags, regions, matched_fraction in relations:
             document = emit(conn, rel_id, tags, regions, matched_fraction, run_id)
             path = out / f"{document['id']}.json"
             path.write_text(
                 json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8"
             )
+            owned.append(path.name)
             if document["quality"]["warnings"]:
                 warned += 1
             # The map: one FeatureCollection of every route, for dropping onto a
@@ -375,6 +383,8 @@ def main() -> None:
                     },
                 }
             )
+
+        manifest.write_text(json.dumps(sorted(owned), indent=1), encoding="utf-8")
 
         collection = {
             "type": "FeatureCollection",
