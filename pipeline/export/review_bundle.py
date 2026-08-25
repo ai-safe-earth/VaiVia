@@ -146,10 +146,11 @@ LAYERS: list[Layer] = [
     ),
     Layer(
         "draw",
-        """SELECT route_id, start_vertex, target_km, km, ascent_m, sac_scale,
-                  mtb_rideable, off_road_share, retrace_share, score,
+        """SELECT route_id, direction, shape, start_vertex, target_km, km,
+                  ascent_m, sac_scale, mtb_rideable, off_road_share,
+                  retrace_share, urban_share, score,
                   difficulty_class, climb_class, offroad_class, shape_class,
-                  mtb_class, geom
+                  route_shape_class, urban_class, mtb_class, geom
            FROM qa.v_draw""",
         "The generated catalogue: bounded loops drawn from real starts over our "
         "own edges. Score is descriptive, never a filter.",
@@ -241,6 +242,8 @@ FIELD_NOTES: dict[str, str] = {
     "urban_class": "the bimodal cut: 0 open / 1 touches / 2 mostly / 3 urban / 9 not measured",
     "start_classes": "every kind of arrival this vertex offers (anchors.start_class)",
     "arrival_class": "the BEST arrival, digit-ordered: station beats bus stop beats parking...",
+    "route_shape_class": "loop / destination / strict out-and-back, as constructed",
+    "direction": "which direction this row walks (fwd/rev on the canonical sense); NULL for one-outing shapes",
     "edge_id": "the network edge; stable within one build, not across builds",
     "way_id": "provenance: the parent OSM way",
     "length_m": "geodesic length of this piece (WGS84 ellipsoid)",
@@ -266,7 +269,9 @@ FIELD_NOTES: dict[str, str] = {
     "network": "OSM network scope: lwn/rwn/nwn/iwn (walking), lcn/rcn/ncn (cycling)",
     "osmc_symbol": "the painted waymark, as OSM encodes it",
     "edges": "edges this route uses (distinct - a way listed twice counts once)",
-    "km": "route length; sums DISTINCT edges, so an out-and-back leg is not doubled",
+    "km": "route length. Mapped-route layers sum DISTINCT edges (a member "
+    "listed twice is not doubled); the draw layer's km is the WALK — a strict "
+    "out-and-back's return leg counts, which is what your legs think too",
     "pieces": "how many disconnected parts the route's edges merge into. 1 is continuous",
     "way_members": "way entries in the relation's member list, duplicates included",
     "distinct_way_members": "distinct member ways - the denominator of matched_fraction",

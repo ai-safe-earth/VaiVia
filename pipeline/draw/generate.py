@@ -5,7 +5,9 @@ sequence, score, keep the best distinct few. Every knob is a CLI argument with
 a bounded default, so the catalogue size is predictable before it runs
 (docs/route-pipeline.md: reviewable before a user sees it).
 
-pgRouting does the drawing (pgr_dijkstra over routable_foot edges, undirected).
+pgRouting does the drawing: pgr_dijkstra, DIRECTED, over the per-activity
+views (catalogue.v_edges_foot/bike — oneway and implied roundabout oneway
+honoured; mtb sees bike-legal edges only, so it is legal by construction).
 The second and third legs re-route with the already-walked edges cost-inflated
 — a soft penalty, not an exclusion: walking back the same valley is sometimes
 the only way home, and an impossible leg would kill loops a walker would
@@ -297,7 +299,14 @@ def draw_strict_out_and_back(
     out = conn.execute(
         LEG,
         {
-            "edges_sql": EDGES_BASE[activity] + " WHERE reverse_cost >= 0",
+            # BOTH costs non-negative: v_edges_bike encodes oneway=-1 as
+            # cost=-1/reverse_cost=length, and filtering reverse_cost alone
+            # let the outbound leg ride that reverse arc — which the strict
+            # return then flips into riding AGAINST the oneway. Zero live
+            # exposure today (no bike-routable oneway=-1 in either
+            # province), but one OSM refresh away. No-op for foot.
+            "edges_sql": EDGES_BASE[activity]
+            + " WHERE cost >= 0 AND reverse_cost >= 0",
             "from_vertex": start_vertex,
             "to_vertex": destination.vertex_id,
         },
@@ -328,11 +337,15 @@ def destination_pool(
     return [Destination(*row) for row in rows]
 
 
-#: The strict shape's product bands: one way 2-20 km, total 4-40 km.
-#: Enforced at persistence like the length gate — a hard product rule, so
-#: rejects are counted and reported, never silently absent.
+#: The product bands, exactly as stated: the strict shape carries a one-way
+#: band (2-20 km) and a total band, the loop family carries the total band
+#: (4-40 km) — and destination routes carry NONE, because none was ever
+#: stated for them and a gate nobody ratified is a product decision hiding
+#: in a build step. Enforced at persistence, rejects counted, reported AND
+#: persisted into the run's build_run counts.
 OUT_AND_BACK_ONE_WAY_M = (2000.0, 20000.0)
 TOTAL_BAND_M = (4000.0, 40000.0)
+TOTAL_BAND_SHAPES = frozenset({"out_and_back", "loop"})
 
 
 def _rejected(facts, args, rejections: dict[str, int]) -> bool:
@@ -373,7 +386,9 @@ def _rejected(facts, args, rejections: dict[str, int]) -> bool:
         one_way = facts.distance_m / 2.0
         if not (OUT_AND_BACK_ONE_WAY_M[0] <= one_way <= OUT_AND_BACK_ONE_WAY_M[1]):
             return count("one-way outside 2-20 km")
-    if not (TOTAL_BAND_M[0] <= facts.distance_m <= TOTAL_BAND_M[1]):
+    if args.shape in TOTAL_BAND_SHAPES and not (
+        TOTAL_BAND_M[0] <= facts.distance_m <= TOTAL_BAND_M[1]
+    ):
         return count("total outside 4-40 km")
     return False
 
@@ -395,7 +410,7 @@ def main() -> None:
         choices=("loop", "destination", "out_and_back"),
         default="loop",
         help="loops, destination routes with an alternative return, or "
-        "STRICT out-and-backs (same edges home, retrace 1.0 by construction)",
+        "STRICT out-and-backs (same edges home; the repeat measure reads 0.5)",
     )
     parser.add_argument(
         "--activity",
@@ -512,6 +527,10 @@ def main() -> None:
 
         kept_total: list[dict] = []
         rejections: dict[str, int] = {}
+        # The urban cap FAILS OPEN on an unmeasured share (absent is not
+        # zero: a candidate cannot be rejected on a number nobody computed)
+        # — counted here so the open door is visible, never silent.
+        unmeasured_urban = 0
         for vertex_id, lon, lat, _anchors, _car_free in starts:
             for target_m in targets:
                 candidates = []
@@ -541,6 +560,8 @@ def main() -> None:
                     if not sequence:
                         continue
                     facts = assemble(sequence)
+                    if facts.urban_share is None:
+                        unmeasured_urban += 1
                     if _rejected(facts, args, rejections):
                         continue
                     candidates.append(
@@ -571,6 +592,11 @@ def main() -> None:
             print("\nrejected by the stated limits (a drop is a coverage fact):")
             for reason, n in sorted(rejections.items(), key=lambda kv: -kv[1]):
                 print(f"  {n:>5}  {reason}")
+        if unmeasured_urban:
+            print(
+                f"  {unmeasured_urban:>5}  urban share unmeasured — the cap "
+                "fails OPEN on these (run curate.urban after any rebuild)"
+            )
 
         # Replace, not merge — PER (ACTIVITY, SHAPE): loops and destination
         # routes are siblings the same way foot and mtb are, and regenerating
@@ -674,6 +700,11 @@ def main() -> None:
             "starts": len(starts),
             "targets": targets,
         }
+        # The rejections travel INTO the ledger: runs are compared inside
+        # the database, and a family that looks thin six months on must be
+        # answerable from build_run, not from a terminal that scrolled away.
+        counts["rejections"] = rejections
+        counts["urban_unmeasured"] = unmeasured_urban
         conn.execute(
             "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),

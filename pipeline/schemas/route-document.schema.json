@@ -562,6 +562,13 @@
               }
             }
           }
+        },
+        "generation": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "How a generated route was drawn — activity, shape, destination, target, seed, score, the MTB verdict with its blocked metres, and the generation-time shares (off_road_share, retrace_share, urban_share). History of the drawing, not the reader contract: selection copies what it needs (the Neo4j loader lifts the shares onto :Route), and a mapped route carries no generation at all. Deliberately open — the generator records what it knew, and a new knob must not need a schema release to be remembered."
         }
       }
     },

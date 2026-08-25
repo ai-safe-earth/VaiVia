@@ -516,3 +516,23 @@ async def test_the_independent_blocks_of_a_turn_go_out_together(db):
     results, _ = await orchestrator._execute(plan)  # noqa: SLF001
     assert results["trails"] == [{"id": "t1"}]
     assert [r["id"] for r in results["loops"]] == ["th1:15000:0"]
+
+
+@pytest.mark.asyncio
+async def test_the_factory_params_are_supplied_and_deliberately_unmapped(db):
+    """The template carries $regions/$start_classes/$max_urban_share (the
+    factory's parameter surface, answerable at selection too); the driver
+    requires every parameter present, so the orchestrator must SUPPLY them —
+    and no intent field maps onto them yet, so they must be null: an
+    unstated filter filters nothing. When the standing plan or the cards
+    grow a mapping, this test is the one that changes on purpose.
+    """
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("search_loops", [])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    await orchestrator._loops(LoopSearchIntent())  # noqa: SLF001 — real path
+    _, params = next(c for c in db.calls if c[0] == "search_loops")
+    assert params["regions"] is None
+    assert params["start_classes"] is None
+    assert params["max_urban_share"] is None

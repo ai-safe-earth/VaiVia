@@ -167,7 +167,11 @@ def emit_generated() -> None:
             if rid != expected:
                 raise SystemExit(
                     f"catalogue.route {rid!r} does not match its ground "
-                    f"({expected!r}) — run rekey_v2.py before emitting"
+                    f"({expected!r}). INSPECT the row first — shape, "
+                    "direction, geometry: a well-formed row that moved with "
+                    "a repair is rekey_v2's job, but a malformed one (a "
+                    "corrupt shape once put urban floats here) must be "
+                    "deleted, and renaming it would only launder it"
                 )
 
             (point,) = conn.execute(
