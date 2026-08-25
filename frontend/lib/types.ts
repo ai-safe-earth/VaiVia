@@ -60,6 +60,10 @@ export interface Loop {
    *  forbids. null = unknown, which is not yes. */
   mtb_rideable: boolean | null;
   mtb_scale: string | null;
+  /** WHY a "no" is a no, in metres: 6 m of steps and 1.6 km of private road
+   *  must not read identically. null on mapped relations (no conjunction
+   *  ran) and on rideable routes. */
+  bike_blocked_m: number | null;
   /** Generation-time measure; OSM relations carry null, not 0. */
   off_road_share: number | null;
   score: number | null;
@@ -82,6 +86,7 @@ export interface RouteProfile {
  *  route document knows beyond the map shape. */
 export interface RouteDetail {
   route_id: string;
+  kind: string | null;
   shape: string | null;
   profile: RouteProfile | null;
   /** 'ok' = a true along-route measure; 'approximate' = stitched across the
@@ -97,6 +102,21 @@ export interface RouteDetail {
   };
   continuity: { pieces: number; continuous: boolean };
   surface: { distribution: Record<string, number>; dominant: string | null };
+  /** The document's difficulty block whole — both grades, the distribution,
+   *  and the RULE that produced the number, which ships with it. */
+  difficulty: {
+    sac_scale: string | null;
+    sac_max: string | null;
+    graded_share: number | null;
+    distribution?: Record<string, number>;
+    rule?: string;
+  } | null;
+  /** Carried, never filtered on. */
+  quality: {
+    warnings: string[];
+    matched_fraction: number | null;
+    edges_without_profile: number;
+  } | null;
   places: {
     id: string;
     kind: string;

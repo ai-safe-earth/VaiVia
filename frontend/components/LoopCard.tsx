@@ -32,7 +32,7 @@ interface Props {
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
 }
 
-/** SAC grades in catalogue order — index+1 is the rank the squares fill to. */
+/** SAC grades in catalogue order — index+1 is the 1..6 rank. */
 const SAC_ORDER = [
   'hiking',
   'mountain_hiking',
@@ -45,25 +45,40 @@ const SAC_ORDER = [
 /** sac_scale in words. The scale runs past what a route catalogue should be
  *  offering, so the top band is deliberately blunt. */
 const SAC_LABEL: Record<string, string> = {
-  hiking: 'Hiking',
-  mountain_hiking: 'Mountain hiking',
-  demanding_mountain_hiking: 'Demanding',
-  alpine_hiking: 'Alpine',
-  demanding_alpine_hiking: 'Alpine',
-  difficult_alpine_hiking: 'Alpine',
+  hiking: 'T1 hiking',
+  mountain_hiking: 'T2 mountain',
+  demanding_mountain_hiking: 'T3 demanding',
+  alpine_hiking: 'T4 alpine',
+  demanding_alpine_hiking: 'T5 alpine',
+  difficult_alpine_hiking: 'T6 alpine',
 };
 
-/** SAC T1–T6 as rotated squares, filled to the route's EXIGENT grade — the
- *  hardest metre walked, never the character label: on a card the grade is a
- *  safety promise, and "a T2 walk with a T4 move" must show T4. */
-function SacScale({ rank }: { rank: number }) {
-  return (
-    <div className="sac" role="img" aria-label={`SAC grade ${rank} of 6`}>
-      {[1, 2, 3, 4, 5, 6].map((step) => (
-        <i key={step} className={step <= rank ? 'on' : undefined} />
-      ))}
-    </div>
-  );
+function sacRank(grade: string | null): number {
+  return grade ? SAC_ORDER.indexOf(grade) + 1 : 0;
+}
+
+/** The three-valued bike state — the access conjunction along the walked
+ *  sequence, with the WHY in metres when it forbids. `null` is unknown,
+ *  which is not yes and must never render as silence. */
+export function bikeState(loop: Loop): string {
+  if (loop.activity === 'mtb' && loop.mtb_scale !== null) return `S${loop.mtb_scale}`;
+  if (loop.mtb_rideable === true) return 'Rideable';
+  if (loop.mtb_rideable === false) {
+    const blocked = loop.bike_blocked_m;
+    return blocked != null && blocked > 0
+      ? `Not rideable · ${blocked >= 1000 ? `${(blocked / 1000).toFixed(1)} km` : `${Math.round(blocked)} m`} blocked`
+      : 'Not rideable';
+  }
+  return 'Bike: unknown';
+}
+
+/** The exigent warning: only when the hardest metre exceeds the character
+ *  grade — "a T2 walk with a T4 move" must say T4 where the label says T2. */
+export function exigentWarning(loop: Loop): string | null {
+  const character = sacRank(loop.sac_scale);
+  const exigent = sacRank(loop.sac_max);
+  if (exigent === 0 || exigent <= character) return null;
+  return `${SAC_LABEL[loop.sac_max!].split(' ')[0]} move`;
 }
 
 export function LoopCard({
@@ -76,48 +91,33 @@ export function LoopCard({
   favorited = false,
   onToggleFavorite,
 }: Props) {
-  // Sources.tsx idiom: per-card state, stopPropagation on the toggle because
-  // the card body is the selection click target.
   const [open, setOpen] = useState(false);
   const length = distanceFigure(loop.distance_m);
   const climb = elevationFigure(loop.ascent_m);
-  // The exigent grade drives the display (owner rule 2026-08-20).
-  const sacRank = loop.sac_max ? SAC_ORDER.indexOf(loop.sac_max) + 1 : 0;
-  const grade =
-    loop.activity === 'mtb'
-      ? loop.mtb_scale !== null
-        ? `S${loop.mtb_scale}`
-        : loop.mtb_rideable
-          ? 'Rideable'
-          : null
-      : loop.sac_max
-        ? (SAC_LABEL[loop.sac_max] ?? null)
-        : null;
   // Destination routes carry their destination's name; OSM relations their
   // own. The rest genuinely have no name, so show what the route IS rather
   // than an id or a made-up label.
   const heading =
     loop.name ??
     (loop.ref ? `Sentiero ${loop.ref}` : `${distance(loop.distance_m)} ${loop.activity} loop`);
-  const startName = loop.start_names?.[0] ?? null;
 
-  // Which KIND of outing this is, said out loud (owner rule 2026-08-21): a
-  // trail ask can answer with loops, out-and-backs and named trails in one
-  // list, and the shapes must stay distinguishable at a glance. 'circular'
-  // and 'linear' are MEASURED on mapped routes (pipeline/export/shape.py);
-  // 'loop'/'destination' are constructed. 'Named route' survives only for
-  // pre-1.2 documents in stale transcripts.
+  // The CHARACTER grade — the label the route wears (hardest grade covering
+  // ≥5%). The exigent grade appears beside it only when it is harder, as a
+  // flare-accented warning: the safety fact must never hide inside the label.
+  const character = loop.sac_scale ? (SAC_LABEL[loop.sac_scale] ?? null) : null;
+  const warning = exigentWarning(loop);
+
   const shapeLabel =
     loop.shape === 'loop' || loop.shape === 'circular'
       ? 'Loop'
-      : loop.shape === 'destination'
-        ? 'Out & back'
-        : loop.shape === 'linear'
-          ? 'Linear'
-          : 'Named route';
+      : loop.shape === 'out_and_back'
+        ? 'There & back'
+        : loop.shape === 'destination'
+          ? 'Out & back'
+          : loop.shape === 'linear'
+            ? 'Linear'
+            : 'Named route';
 
-  // A div with button semantics, matching TrailCard, so the two lists behave
-  // identically to a keyboard and share the route-card styling.
   return (
     <div
       role="button"
@@ -151,11 +151,7 @@ export function LoopCard({
           </button>
         )}
       </div>
-      <h3 className="route-name vv-title">{heading}</h3>
 
-      {/* A line that could not be fetched is said out loud. The quiet
-          alternative was worse than silence: the map drew this card's
-          siblings, framed them, and wore this card's name. */}
       {line === 'missing' && (
         <p className="line-note vv-body-sm">
           No map line — this route has left the catalogue.
@@ -167,90 +163,63 @@ export function LoopCard({
         </p>
       )}
 
-      <div className="figures">
-        <div className="figure">
-          <span className="vv-figure vv-figure-key">{length.value}</span>
-          <span className="unit vv-label">{length.unit}</span>
-        </div>
+      {/* Line 1: what it is and how big — name, distance, ascent. */}
+      <div className="route-line1">
+        <h3 className="route-name vv-title">{heading}</h3>
+        <span className="route-figure vv-figure vv-figure-key">
+          {length.value}
+          <i className="unit vv-label">{length.unit}</i>
+        </span>
         {climb && (
-          <div className="figure">
-            <span className="vv-figure">{climb.value}</span>
-            <span className="unit vv-label">{climb.unit}</span>
-          </div>
-        )}
-        {(sacRank > 0 || grade) && (
-          <div className="figure grade">
-            {loop.activity !== 'mtb' && sacRank > 0 ? (
-              <SacScale rank={sacRank} />
-            ) : (
-              <span className="vv-subtitle">{grade}</span>
-            )}
-            <span className="unit vv-label">{grade ?? 'grade'}</span>
-          </div>
+          <span className="route-figure vv-figure">
+            {climb.value}
+            <i className="unit vv-label">{climb.unit}</i>
+          </span>
         )}
       </div>
 
-      {(loop.pois.length > 0 || startName || loop.car_free) && (
-        <div className="key-facts">
-          {(startName || loop.car_free) && (
-            <div>
-              <span className="vv-label">Starts at</span>
-              <p className="fact vv-body-sm">
-                {startName ?? 'an unnamed trailhead'}
-                {loop.car_free ? ' · reachable by train' : ''}
-              </p>
-            </div>
-          )}
-          {loop.pois.length > 0 && (
-            <div>
-              <span className="vv-label">Along the way</span>
-              <div className="poi-list">
-                {loop.pois
-                  .filter((poi) => poi.name)
-                  .slice(0, 3)
-                  // The index is in the key because a route can pass the same
-                  // place twice — an out-and-back does it by definition, and
-                  // two peaks can share a name. Name+type alone collides.
-                  .map((poi, index) => (
-                    <span
-                      className="poi vv-body-sm"
-                      key={`${poi.name}-${poi.type}-${index}`}
-                    >
-                      {poi.name}
-                    </span>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      <button
-        type="button"
-        className="detail-toggle"
-        aria-expanded={open}
-        onClick={(event) => {
-          event.stopPropagation();
-          const next = !open;
-          setOpen(next);
-          if (next) onExpand?.(loop);
-        }}
-      >
-        <span>{open ? 'Less' : 'Full card'}</span>
-        <span className="sign" aria-hidden="true">
-          {open ? '−' : '+'}
-        </span>
-      </button>
+      {/* Line 2: how it will treat you — a calibrated duration when one
+          exists (none does yet: the slot renders only with a real figure,
+          never an uncalibrated guess), the character grade, the exigent
+          warning, the bike state, and the expand affordance. */}
+      <div className="route-line2">
+        {character && <span className="vv-body-sm">{character}</span>}
+        {warning && (
+          <span
+            className="exigent vv-label"
+            title="The hardest metre walked exceeds the route's character grade — what you must be able to handle, whatever the label says."
+          >
+            ⚠ {warning}
+          </span>
+        )}
+        <span className="vv-body-sm">{bikeState(loop)}</span>
+        <button
+          type="button"
+          className="detail-toggle"
+          aria-expanded={open}
+          onClick={(event) => {
+            event.stopPropagation();
+            const next = !open;
+            setOpen(next);
+            if (next) onExpand?.(loop);
+          }}
+        >
+          <span>{open ? 'Less' : 'Full card'}</span>
+          <span className="sign" aria-hidden="true">
+            {open ? '−' : '+'}
+          </span>
+        </button>
+      </div>
 
       {open && <LoopDetail loop={loop} detail={detail} />}
-
-      <Sources id={loop.id} />
     </div>
   );
 }
 
-/** The expanded half: the figures the row already carries, every named place,
- *  and the altitude profile once the document detail arrives. */
+/** The expanded half: the figures, the difficulty told whole, the surface
+ *  as a distribution, every place with how far off the line it sits, the
+ *  quality warnings carried (never filtered), the altitude profile, and the
+ *  document's real attribution. */
 function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null }) {
   const profile = detail ? profileFromDetail(detail) : undefined;
   const descent = elevationFigure(loop.descent_m);
@@ -262,16 +231,21 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
       value: `${Math.round(loop.lowest_m)}–${Math.round(loop.highest_m)} m`,
     });
   }
-  if (loop.surface_dominant) {
-    extended.push({ label: 'mostly', value: loop.surface_dominant.replace('_', ' ') });
-  }
   if (loop.off_road_share !== null) {
     extended.push({
       label: 'off-road',
       value: `${Math.round(loop.off_road_share * 100)}%`,
     });
   }
+  const startName = loop.start_names?.[0] ?? null;
   const namedPois = loop.pois.filter((poi) => poi.name);
+  const difficulty = detail?.difficulty as
+    | { sac_scale?: string; sac_max?: string; graded_share?: number; rule?: string }
+    | undefined
+    | null;
+  const surfaceRows = surfaceDistribution(detail);
+  const warnings =
+    (detail?.quality as { warnings?: string[] } | undefined | null)?.warnings ?? [];
 
   return (
     <div className="route-detail">
@@ -286,8 +260,48 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
         </div>
       )}
 
-      {/* A route the network holds in pieces says so, before anyone plans
-          around a line that is not continuous on the ground. */}
+      {(startName || loop.car_free) && (
+        <div className="detail-block">
+          <span className="vv-label">Starts at</span>
+          <p className="fact vv-body-sm">
+            {startName ?? 'an unnamed trailhead'}
+            {loop.car_free ? ' · reachable by train' : ''}
+          </p>
+        </div>
+      )}
+
+      {/* The difficulty block WHOLE: both grades, how much of the route is
+          graded at all, and the rule that produced the number — the rule
+          ships with the figure so nobody has to guess how it was derived. */}
+      {difficulty && (difficulty.sac_scale || difficulty.sac_max) && (
+        <div className="detail-block">
+          <span className="vv-label">Difficulty</span>
+          <p className="fact vv-body-sm">
+            {difficulty.sac_scale
+              ? `character ${SAC_LABEL[difficulty.sac_scale] ?? difficulty.sac_scale}`
+              : 'ungraded character'}
+            {difficulty.sac_max
+              ? ` · hardest metre ${SAC_LABEL[difficulty.sac_max] ?? difficulty.sac_max}`
+              : ''}
+            {typeof difficulty.graded_share === 'number'
+              ? ` · graded on ${Math.round(difficulty.graded_share * 100)}% of its length`
+              : ''}
+          </p>
+          {difficulty.rule && (
+            <p className="detail-note vv-body-sm">{difficulty.rule}</p>
+          )}
+        </div>
+      )}
+
+      {/* "62% unpaved" is a fact; "unpaved" alone is a claim. Untagged length
+          reports as unknown rather than being renormalised away. */}
+      {surfaceRows.length > 0 && (
+        <div className="detail-block">
+          <span className="vv-label">Underfoot</span>
+          <p className="fact vv-body-sm">{surfaceRows.join(' · ')}</p>
+        </div>
+      )}
+
       {loop.continuous === false && loop.pieces !== null && (
         <p className="detail-note vv-body-sm">
           Mapped in {loop.pieces} pieces — the route exists, our network has
@@ -295,11 +309,44 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
         </p>
       )}
 
-      {namedPois.length > 3 && (
+      {warnings.length > 0 && (
+        <div className="detail-block">
+          <span className="vv-label vv-label-hazard">Quality notes</span>
+          {warnings.map((warning) => (
+            <p key={warning} className="detail-note vv-body-sm">
+              {warning}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Places from the DOCUMENT when the detail has arrived — each with how
+          far off the line it sits, which is the fact the card's chip list
+          could never carry. The loop row's unpositioned chips are the
+          fallback while the detail loads. */}
+      {detail?.places?.length ? (
         <div className="detail-pois">
-          <span className="vv-label">Everything it passes</span>
+          <span className="vv-label">Along the way</span>
           <div className="poi-list">
-            {namedPois.map((poi, index) => (
+            {detail.places
+              .filter((place) => place.name)
+              .slice(0, 12)
+              .map((place, index) => (
+                <span
+                  className="poi vv-body-sm"
+                  key={`${place.id}-${index}`}
+                  title={`${Math.round(Number(place.offset_m))} m off the line`}
+                >
+                  {String(place.name)}
+                </span>
+              ))}
+          </div>
+        </div>
+      ) : namedPois.length > 0 ? (
+        <div className="detail-pois">
+          <span className="vv-label">Along the way</span>
+          <div className="poi-list">
+            {namedPois.slice(0, 8).map((poi, index) => (
               <span
                 className="poi vv-body-sm"
                 key={`${poi.name}-${poi.type}-${index}`}
@@ -309,7 +356,7 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
       {profile ? (
         <div className="detail-profile">
@@ -327,6 +374,25 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
           No altitude profile for this route — absent is not zero.
         </p>
       )}
+
+      <Sources id={loop.id} attribution={detail?.attribution} />
     </div>
   );
+}
+
+/** Top surface shares as readable rows, unknown kept visible. Exported for
+ *  the tests: the rendering rule, not a re-implementation of it. */
+export function surfaceDistribution(detail: RouteDetail | null | undefined): string[] {
+  const distributionRaw = (
+    detail?.surface as { distribution?: Record<string, number> } | undefined
+  )?.distribution;
+  if (!distributionRaw) return [];
+  return Object.entries(distributionRaw)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 4)
+    .filter(([, share]) => share >= 0.01)
+    .map(
+      ([surface, share]) =>
+        `${Math.round(share * 100)}% ${surface === 'unknown' ? 'untagged' : surface.replace('_', ' ')}`,
+    );
 }

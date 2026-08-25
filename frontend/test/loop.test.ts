@@ -36,6 +36,7 @@ function loop(overrides: Partial<Loop> = {}): Loop {
     sac_max: 'demanding_mountain_hiking',
     mtb_rideable: false,
     mtb_scale: null,
+    bike_blocked_m: null,
     off_road_share: 0.72,
     score: 0.91,
     start_vertex_id: 43128,
@@ -90,6 +91,7 @@ describe('the profile the expanded card draws', () => {
   function detail(overrides: Partial<RouteDetail> = {}): RouteDetail {
     return {
       route_id: loop().id,
+      kind: 'generated',
       shape: 'loop',
       profile: {
         distance_m: [0, 5500, 11000],
@@ -105,6 +107,8 @@ describe('the profile the expanded card draws', () => {
       },
       continuity: { pieces: 1, continuous: true },
       surface: { distribution: { unpaved: 0.8 }, dominant: 'unpaved' },
+      difficulty: null,
+      quality: null,
       places: [],
       attribution: '© OpenStreetMap contributors',
       ...overrides,
