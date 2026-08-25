@@ -83,8 +83,8 @@ CREATE TEMP TABLE route_line ON COMMIT DROP AS
 SELECT er.rel_id,
        ST_LineMerge(ST_Collect(e.geom)) AS geom,
        ST_Transform(ST_LineMerge(ST_Collect(e.geom)), 32632) AS utm
-FROM (SELECT DISTINCT rel_id, edge_id FROM curated.edge_route) er
-JOIN curated.edge e ON e.edge_id = er.edge_id
+FROM (SELECT DISTINCT rel_id, edge_id FROM source_map.edge_route) er
+JOIN source_map.edge e ON e.edge_id = er.edge_id
 GROUP BY er.rel_id
 """
 
@@ -93,10 +93,10 @@ ROUTE_LINES_INDEX = "CREATE INDEX ON route_line (rel_id)"
 # One statement per route, reading the stored line.
 ROUTE = """
 WITH member AS (
-    SELECT DISTINCT rel_id, edge_id FROM curated.edge_route WHERE rel_id = %(rel)s
+    SELECT DISTINCT rel_id, edge_id FROM source_map.edge_route WHERE rel_id = %(rel)s
 ),
 edges AS (
-    SELECT e.* FROM member m JOIN curated.edge e ON e.edge_id = m.edge_id
+    SELECT e.* FROM member m JOIN source_map.edge e ON e.edge_id = m.edge_id
 ),
 line AS (
     SELECT geom FROM route_line WHERE rel_id = %(rel)s
@@ -125,8 +125,8 @@ SELECT
 
 SPANS = """
 SELECT e.tags ->> 'surface', e.tags ->> 'sac_scale', e.length_m
-FROM (SELECT DISTINCT rel_id, edge_id FROM curated.edge_route WHERE rel_id = %(rel)s) m
-JOIN curated.edge e ON e.edge_id = m.edge_id
+FROM (SELECT DISTINCT rel_id, edge_id FROM source_map.edge_route WHERE rel_id = %(rel)s) m
+JOIN source_map.edge e ON e.edge_id = m.edge_id
 """
 
 # Position along the MERGED line, which is what metadata-rules.md specifies and
@@ -148,7 +148,7 @@ SELECT p.source_id, p.kind, p.name, p.ele_m,
             THEN ST_LineLocatePoint(s.geom, p.geom) * ST_Length(s.geom::geography)
        END AS along_m,
        p.is_start
-FROM line l, single s, curated.place p
+FROM line l, single s, source_map.place p
 WHERE ST_DWithin(ST_Transform(p.geom, 32632), l.utm, %(radius)s)
 ORDER BY along_m NULLS LAST, offset_m
 """
@@ -159,10 +159,10 @@ SELECT p.vertex_id, min(p.distance_m), count(*),
        array_remove(array_agg(DISTINCT p.name), NULL),
        bool_or(p.source = 'gtfs_stop' OR p.kind = 'station'),
        ST_AsGeoJSON(v.geom)
-FROM (SELECT DISTINCT rel_id, edge_id FROM curated.edge_route WHERE rel_id = %(rel)s) m
-JOIN curated.edge e ON e.edge_id = m.edge_id
-JOIN curated.place p ON p.vertex_id IN (e.source, e.target) AND p.is_start
-JOIN curated.vertex v ON v.vertex_id = p.vertex_id
+FROM (SELECT DISTINCT rel_id, edge_id FROM source_map.edge_route WHERE rel_id = %(rel)s) m
+JOIN source_map.edge e ON e.edge_id = m.edge_id
+JOIN source_map.place p ON p.vertex_id IN (e.source, e.target) AND p.is_start
+JOIN source_map.vertex v ON v.vertex_id = p.vertex_id
 GROUP BY p.vertex_id, v.geom
 ORDER BY min(p.distance_m)
 LIMIT 1
@@ -170,8 +170,8 @@ LIMIT 1
 
 PROFILE = """
 SELECT e.profile_m, e.length_m, er.member_index, e.piece_index
-FROM curated.edge_route er
-JOIN curated.edge e ON e.edge_id = er.edge_id
+FROM source_map.edge_route er
+JOIN source_map.edge e ON e.edge_id = er.edge_id
 WHERE er.rel_id = %(rel)s
 ORDER BY er.member_index, e.piece_index
 """
@@ -180,7 +180,7 @@ RELATIONS = """
 SELECT r.rel_id, r.tags, r.regions, c.matched_fraction
 FROM staging.osm_relation r
 JOIN qa.v_route_coverage c ON c.rel_id = r.rel_id
-WHERE EXISTS (SELECT 1 FROM curated.edge_route er WHERE er.rel_id = r.rel_id)
+WHERE EXISTS (SELECT 1 FROM source_map.edge_route er WHERE er.rel_id = r.rel_id)
 ORDER BY r.rel_id
 """
 
@@ -325,7 +325,7 @@ def main() -> None:
     run_id = f"export-{uuid.uuid4().hex[:8]}"
     with connect() as conn:
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters) VALUES (%s, 'export', %s)",
+            "INSERT INTO provenance.build_run (run_id, stage, parameters) VALUES (%s, 'export', %s)",
             (
                 run_id,
                 json.dumps(
@@ -387,7 +387,7 @@ def main() -> None:
 
         counts = {"routes": len(relations), "with_warnings": warned}
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
 

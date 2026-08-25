@@ -55,7 +55,7 @@ def main() -> None:
 
     with connect() as conn:
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters) VALUES (%s, 'load', %s)",
+            "INSERT INTO provenance.build_run (run_id, stage, parameters) VALUES (%s, 'load', %s)",
             (run_id, json.dumps({"source": path.name, "loader": "dem"})),
         )
         conn.execute(CREATE)
@@ -76,7 +76,7 @@ def main() -> None:
             ).fetchone(),
         )
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps({"tiles": tiles, "min_ele": mn, "max_ele": mx}), run_id),
         )
         print(f"{path.name}: {tiles} tiles, elevation range {mn:.0f}..{mx:.0f} m")

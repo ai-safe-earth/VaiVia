@@ -1,7 +1,7 @@
-"""Join route relations onto the network: curated.edge_route.
+"""Join route relations onto the network: source_map.edge_route.
 
 752 relations have sat in staging since they were loaded, read by nothing. Their
-members are OSM way ids and curated.edge.way_id is the same id, so this is the
+members are OSM way ids and source_map.edge.way_id is the same id, so this is the
 one piece of metadata that costs a join rather than an algorithm -- and it is
 what turns 101,951 anonymous edges into named sentieri.
 
@@ -36,30 +36,30 @@ from curate.route_links import expand_members
 RELATIONS = "SELECT rel_id, tags, members FROM staging.osm_relation ORDER BY rel_id"
 
 PIECES = (
-    "SELECT way_id, edge_id, piece_index FROM curated.edge ORDER BY way_id, piece_index"
+    "SELECT way_id, edge_id, piece_index FROM source_map.edge ORDER BY way_id, piece_index"
 )
 
-NETWORK_RUNS = "SELECT DISTINCT run_id FROM curated.edge"
+NETWORK_RUNS = "SELECT DISTINCT run_id FROM source_map.edge"
 
 LINKED = """
 SELECT count(*) AS links,
        count(DISTINCT edge_id) AS edges,
        count(DISTINCT rel_id) AS routes
-FROM curated.edge_route
+FROM source_map.edge_route
 """
 
 LINKED_KM = """
 SELECT coalesce(sum(e.length_m), 0) / 1000
-FROM curated.edge e
-WHERE EXISTS (SELECT 1 FROM curated.edge_route er WHERE er.edge_id = e.edge_id)
+FROM source_map.edge e
+WHERE EXISTS (SELECT 1 FROM source_map.edge_route er WHERE er.edge_id = e.edge_id)
 """
 
 # What the join is for, stated as a number: edges that carry no name of their
 # own and now carry a route's.
 NAMED = """
 SELECT count(DISTINCT er.edge_id)
-FROM curated.edge_route er
-JOIN curated.edge e ON e.edge_id = er.edge_id
+FROM source_map.edge_route er
+JOIN source_map.edge e ON e.edge_id = er.edge_id
 JOIN staging.osm_relation r ON r.rel_id = er.rel_id
 WHERE NOT (e.tags ? 'name') AND (r.tags ? 'name' OR r.tags ? 'ref')
 """
@@ -68,7 +68,7 @@ WHERE NOT (e.tags ? 'name') AND (r.tags ? 'name' OR r.tags ? 'ref')
 def network_runs_of(conn, run_id: str) -> list[str]:
     """The network run ids a given curate run recorded itself as built against."""
     row = conn.execute(
-        "SELECT parameters -> 'network_run_id' FROM build_run WHERE run_id = %s",
+        "SELECT parameters -> 'network_run_id' FROM provenance.build_run WHERE run_id = %s",
         (run_id,),
     ).fetchone()
     if not row or row[0] is None:
@@ -78,13 +78,13 @@ def network_runs_of(conn, run_id: str) -> list[str]:
 
 def check(conn) -> int:
     """Report whether the stored link still describes the network. 0 = current."""
-    (links,) = conn.execute("SELECT count(*) FROM curated.edge_route").fetchone()
+    (links,) = conn.execute("SELECT count(*) FROM source_map.edge_route").fetchone()
     if links == 0:
-        print("curated.edge_route is empty - run `python -m curate.routes`")
+        print("source_map.edge_route is empty - run `python -m curate.routes`")
         return 1
 
     built_against: set[str] = set()
-    for (run_id,) in conn.execute("SELECT DISTINCT run_id FROM curated.edge_route"):
+    for (run_id,) in conn.execute("SELECT DISTINCT run_id FROM source_map.edge_route"):
         built_against.update(network_runs_of(conn, run_id))
 
     network = {r for (r,) in conn.execute(NETWORK_RUNS)}
@@ -92,7 +92,7 @@ def check(conn) -> int:
     if unseen:
         print(
             f"STALE: {links:,} links were built against {sorted(built_against)}, "
-            f"but curated.edge now holds edges from {sorted(unseen)}.\n"
+            f"but source_map.edge now holds edges from {sorted(unseen)}.\n"
             "Re-run `python -m curate.routes`."
         )
         return 2
@@ -123,7 +123,7 @@ def main() -> None:
         for way_id, edge_id, piece_index in conn.execute(PIECES):
             pieces[way_id].append((edge_id, piece_index))
         if not pieces:
-            raise SystemExit("curated.edge is empty - build the network first")
+            raise SystemExit("source_map.edge is empty - build the network first")
         network = sorted(r for (r,) in conn.execute(NETWORK_RUNS))
         print(
             f"network: {sum(len(v) for v in pieces.values()):,} edges over "
@@ -172,7 +172,7 @@ def main() -> None:
 
         run_id = f"curate-{uuid.uuid4().hex[:8]}"
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters) VALUES (%s, 'curate', %s)",
+            "INSERT INTO provenance.build_run (run_id, stage, parameters) VALUES (%s, 'curate', %s)",
             (
                 run_id,
                 json.dumps(
@@ -187,11 +187,11 @@ def main() -> None:
         )
 
         # Replace, not merge: see the module docstring.
-        conn.execute("TRUNCATE curated.edge_route")
+        conn.execute("TRUNCATE source_map.edge_route")
         with (
             conn.cursor() as cur,
             cur.copy(
-                "COPY curated.edge_route (edge_id, rel_id, member_index,"
+                "COPY source_map.edge_route (edge_id, rel_id, member_index,"
                 " piece_index, role, run_id) FROM STDIN"
             ) as copy,
         ):
@@ -212,7 +212,7 @@ def main() -> None:
             "nested_relations_skipped": skipped_relations,
         }
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
 

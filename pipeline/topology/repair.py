@@ -77,10 +77,10 @@ ORDER BY f.finding_id
 # Recomputed after any repair: welds and drops both change connectivity, and a
 # stale component_id is what seeds a route on an island.
 COMPONENTS = """
-UPDATE curated.vertex v
+UPDATE source_map.vertex v
 SET component_id = c.component
 FROM pgr_connectedComponents(
-    'SELECT edge_id AS id, source, target, length_m AS cost FROM curated.edge'
+    'SELECT edge_id AS id, source, target, length_m AS cost FROM source_map.edge'
 ) c
 WHERE v.vertex_id = c.node
 """
@@ -197,7 +197,7 @@ def _fix(conn, run_id, rule, target, before, after, note: dict) -> None:
 
 def _coords(conn, edge_id: int) -> tuple[list[Coord], bytes]:
     geom = conn.execute(
-        "SELECT ST_AsBinary(geom) FROM curated.edge WHERE edge_id = %s", (edge_id,)
+        "SELECT ST_AsBinary(geom) FROM source_map.edge WHERE edge_id = %s", (edge_id,)
     ).fetchone()[0]
     line = shapely_wkb.loads(bytes(geom))
     return [(x, y) for x, y in line.coords], geom
@@ -205,7 +205,7 @@ def _coords(conn, edge_id: int) -> tuple[list[Coord], bytes]:
 
 def _vertex(conn, vertex_id: int) -> Coord | None:
     row = conn.execute(
-        "SELECT ST_X(geom), ST_Y(geom) FROM curated.vertex WHERE vertex_id = %s",
+        "SELECT ST_X(geom), ST_Y(geom) FROM source_map.vertex WHERE vertex_id = %s",
         (vertex_id,),
     ).fetchone()
     return (float(row[0]), float(row[1])) if row else None
@@ -213,7 +213,7 @@ def _vertex(conn, vertex_id: int) -> Coord | None:
 
 def _write_geom(conn, edge_id: int, coords: list[Coord]) -> None:
     conn.execute(
-        "UPDATE curated.edge SET geom = %s, length_m = %s WHERE edge_id = %s",
+        "UPDATE source_map.edge SET geom = %s, length_m = %s WHERE edge_id = %s",
         (ewkb4326(LineString(coords).wkb_hex), line_length_m(coords), edge_id),
     )
 
@@ -231,7 +231,7 @@ def _weld(conn, run_id: str, rule: str, moving_id: int, fixed_id: int) -> bool:
         return False
 
     edges = conn.execute(
-        "SELECT edge_id FROM curated.edge WHERE source = %s OR target = %s",
+        "SELECT edge_id FROM source_map.edge WHERE source = %s OR target = %s",
         (moving_id, moving_id),
     ).fetchall()
 
@@ -242,14 +242,14 @@ def _weld(conn, run_id: str, rule: str, moving_id: int, fixed_id: int) -> bool:
             continue
         _write_geom(conn, edge_id, snapped)
         conn.execute(
-            "UPDATE curated.edge"
+            "UPDATE source_map.edge"
             "   SET source = CASE WHEN source = %(moving)s THEN %(fixed)s ELSE source END,"
             "       target = CASE WHEN target = %(moving)s THEN %(fixed)s ELSE target END"
             " WHERE edge_id = %(edge)s",
             {"moving": moving_id, "fixed": fixed_id, "edge": edge_id},
         )
         after = conn.execute(
-            "SELECT ST_AsBinary(geom) FROM curated.edge WHERE edge_id = %s", (edge_id,)
+            "SELECT ST_AsBinary(geom) FROM source_map.edge WHERE edge_id = %s", (edge_id,)
         ).fetchone()[0]
         _fix(
             conn,
@@ -261,7 +261,7 @@ def _weld(conn, run_id: str, rule: str, moving_id: int, fixed_id: int) -> bool:
             {"welded_vertex": moving_id, "onto_vertex": fixed_id},
         )
 
-    conn.execute("DELETE FROM curated.vertex WHERE vertex_id = %s", (moving_id,))
+    conn.execute("DELETE FROM source_map.vertex WHERE vertex_id = %s", (moving_id,))
     return True
 
 
@@ -320,7 +320,7 @@ def repair_edge(conn, run_id: str, dry_run: bool) -> int:
         dangle = _vertex(conn, vertex_id)
         target_row = conn.execute(
             "SELECT way_id, target, tags, routable_foot, routable_bike, regions, run_id"
-            " FROM curated.edge WHERE edge_id = %s",
+            " FROM source_map.edge WHERE edge_id = %s",
             (edge_id,),
         ).fetchone()
         if dangle is None or target_row is None:
@@ -334,18 +334,18 @@ def repair_edge(conn, run_id: str, dry_run: bool) -> int:
         first, second = halves
 
         next_index = conn.execute(
-            "SELECT coalesce(max(piece_index), 0) + 1 FROM curated.edge"
+            "SELECT coalesce(max(piece_index), 0) + 1 FROM source_map.edge"
             " WHERE way_id = %s",
             (way_id,),
         ).fetchone()[0]
 
         _write_geom(conn, edge_id, first)
         conn.execute(
-            "UPDATE curated.edge SET target = %s WHERE edge_id = %s",
+            "UPDATE source_map.edge SET target = %s WHERE edge_id = %s",
             (vertex_id, edge_id),
         )
         new_id = conn.execute(
-            "INSERT INTO curated.edge (way_id, piece_index, source, target, geom,"
+            "INSERT INTO source_map.edge (way_id, piece_index, source, target, geom,"
             " length_m, tags, routable_foot, routable_bike, regions, run_id)"
             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
             " RETURNING edge_id",
@@ -365,7 +365,7 @@ def repair_edge(conn, run_id: str, dry_run: bool) -> int:
         ).fetchone()[0]
 
         after = conn.execute(
-            "SELECT ST_AsBinary(geom) FROM curated.edge WHERE edge_id = %s", (edge_id,)
+            "SELECT ST_AsBinary(geom) FROM source_map.edge WHERE edge_id = %s", (edge_id,)
         ).fetchone()[0]
         _fix(
             conn,
@@ -399,7 +399,7 @@ def _delete_edge(conn, run_id: str, edge_id: int, why: str) -> None:
     row = conn.execute(
         "SELECT ST_AsBinary(geom), way_id, piece_index, source, target, tags,"
         "       routable_foot, routable_bike, regions, length_m"
-        " FROM curated.edge WHERE edge_id = %s",
+        " FROM source_map.edge WHERE edge_id = %s",
         (edge_id,),
     ).fetchone()
     if row is None:
@@ -428,14 +428,14 @@ def _delete_edge(conn, run_id: str, edge_id: int, why: str) -> None:
             },
         },
     )
-    conn.execute("DELETE FROM curated.edge WHERE edge_id = %s", (edge_id,))
+    conn.execute("DELETE FROM source_map.edge WHERE edge_id = %s", (edge_id,))
 
 
 def _split_ring_edge(conn, run_id: str, edge_id: int) -> bool:
     """Halve a self-loop so routing can enter it. Keeps every metre."""
     row = conn.execute(
         "SELECT way_id, source, tags, routable_foot, routable_bike, regions, run_id"
-        " FROM curated.edge WHERE edge_id = %s",
+        " FROM source_map.edge WHERE edge_id = %s",
         (edge_id,),
     ).fetchone()
     if row is None:
@@ -452,23 +452,23 @@ def _split_ring_edge(conn, run_id: str, edge_id: int) -> bool:
     # network, so a midpoint landing on an existing vertex must reuse it rather
     # than fail — ON CONFLICT DO UPDATE returns the row, DO NOTHING would not.
     mid_id = conn.execute(
-        "INSERT INTO curated.vertex (geom, run_id) VALUES (%s, %s)"
-        " ON CONFLICT (geom) DO UPDATE SET run_id = curated.vertex.run_id"
+        "INSERT INTO source_map.vertex (geom, run_id) VALUES (%s, %s)"
+        " ON CONFLICT (geom) DO UPDATE SET run_id = source_map.vertex.run_id"
         " RETURNING vertex_id",
         (ewkb4326(Point(midpoint).wkb_hex), run_id),
     ).fetchone()[0]
 
     next_index = conn.execute(
-        "SELECT coalesce(max(piece_index), 0) + 1 FROM curated.edge WHERE way_id = %s",
+        "SELECT coalesce(max(piece_index), 0) + 1 FROM source_map.edge WHERE way_id = %s",
         (way_id,),
     ).fetchone()[0]
 
     _write_geom(conn, edge_id, first)
     conn.execute(
-        "UPDATE curated.edge SET target = %s WHERE edge_id = %s", (mid_id, edge_id)
+        "UPDATE source_map.edge SET target = %s WHERE edge_id = %s", (mid_id, edge_id)
     )
     new_id = conn.execute(
-        "INSERT INTO curated.edge (way_id, piece_index, source, target, geom,"
+        "INSERT INTO source_map.edge (way_id, piece_index, source, target, geom,"
         " length_m, tags, routable_foot, routable_bike, regions, run_id)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING edge_id",
         (
@@ -487,7 +487,7 @@ def _split_ring_edge(conn, run_id: str, edge_id: int) -> bool:
     ).fetchone()[0]
 
     after = conn.execute(
-        "SELECT ST_AsBinary(geom) FROM curated.edge WHERE edge_id = %s", (edge_id,)
+        "SELECT ST_AsBinary(geom) FROM source_map.edge WHERE edge_id = %s", (edge_id,)
     ).fetchone()[0]
     _fix(
         conn,
@@ -524,7 +524,7 @@ def repair_degenerate(conn, run_id: str, dry_run: bool, min_length_m: float) -> 
     """
     select = (
         "SELECT edge_id, length_m, source = target AS self_loop, source, target"
-        " FROM curated.edge WHERE length_m < %s OR source = target ORDER BY edge_id"
+        " FROM source_map.edge WHERE length_m < %s OR source = target ORDER BY edge_id"
     )
     if dry_run:
         return len(conn.execute(select, (min_length_m,)).fetchall())
@@ -557,8 +557,8 @@ def repair_degenerate(conn, run_id: str, dry_run: bool, min_length_m: float) -> 
         if changed == 0:
             break
     orphans = conn.execute(
-        "DELETE FROM curated.vertex v WHERE NOT EXISTS ("
-        "  SELECT 1 FROM curated.edge e"
+        "DELETE FROM source_map.vertex v WHERE NOT EXISTS ("
+        "  SELECT 1 FROM source_map.edge e"
         "   WHERE e.source = v.vertex_id OR e.target = v.vertex_id)"
         " RETURNING vertex_id"
     ).fetchall()
@@ -600,7 +600,7 @@ def main() -> None:
 
         if not args.dry_run:
             conn.execute(
-                "INSERT INTO build_run (run_id, stage, parameters)"
+                "INSERT INTO provenance.build_run (run_id, stage, parameters)"
                 " VALUES (%s, 'topology', %s)",
                 (
                     run_id,
@@ -633,17 +633,17 @@ def main() -> None:
             return
 
         print("refreshing vertex degree and connected components...")
-        conn.execute("REFRESH MATERIALIZED VIEW curated.vertex_degree")
+        conn.execute("REFRESH MATERIALIZED VIEW source_map.vertex_degree")
         conn.execute(COMPONENTS)
 
-        # A repair splits edges and deletes them, so curated.edge_route now
+        # A repair splits edges and deletes them, so source_map.edge_route now
         # describes a network that has moved: the deleted edges' links went with
         # them (ON DELETE CASCADE) and each new half of a split edge has no link
         # at all. A partly-true link table is worse than an absent one — this is
         # vertex_degree's lesson — so it is cleared and said out loud.
-        (links,) = conn.execute("SELECT count(*) FROM curated.edge_route").fetchone()
+        (links,) = conn.execute("SELECT count(*) FROM source_map.edge_route").fetchone()
         if links:
-            conn.execute("TRUNCATE curated.edge_route")
+            conn.execute("TRUNCATE source_map.edge_route")
             print(
                 f"cleared {links:,} route links — they described the pre-repair "
                 "network. Re-run `python -m curate.routes`."
@@ -652,9 +652,9 @@ def main() -> None:
         # Generated routes hold edge sequences, so a repair that splits or
         # deletes an edge leaves them describing a network that moved. Same
         # rule as everything derived: cleared, and said out loud.
-        (routes,) = conn.execute("SELECT count(*) FROM curated.route").fetchone()
+        (routes,) = conn.execute("SELECT count(*) FROM catalogue.route").fetchone()
         if routes:
-            conn.execute("TRUNCATE curated.route_edge, curated.route")
+            conn.execute("TRUNCATE catalogue.route_edge, catalogue.route")
             print(
                 f"cleared {routes:,} generated routes — they walked the "
                 "pre-repair edges. Re-run `python -m draw.generate`."
@@ -664,9 +664,9 @@ def main() -> None:
         # deletes the ones it merged away, so a place can be left pointing at a
         # vertex that no longer exists (the FK takes it with it) or, worse, at
         # one that survived while the lane end it meant moved 2 m.
-        (places,) = conn.execute("SELECT count(*) FROM curated.place").fetchone()
+        (places,) = conn.execute("SELECT count(*) FROM source_map.place").fetchone()
         if places:
-            conn.execute("TRUNCATE curated.place")
+            conn.execute("TRUNCATE source_map.place")
             print(
                 f"cleared {places:,} places — they were snapped to the pre-repair "
                 "vertices. Re-run `python -m curate.places`."
@@ -677,21 +677,21 @@ def main() -> None:
         # the line the edge used to be. A split edge keeps a profile of the
         # whole; a welded end keeps a height for a point that moved.
         (profiled,) = conn.execute(
-            "SELECT count(*) FROM curated.edge WHERE profile_m IS NOT NULL"
+            "SELECT count(*) FROM source_map.edge WHERE profile_m IS NOT NULL"
         ).fetchone()
         if profiled:
             conn.execute(
-                "UPDATE curated.edge SET profile_m = NULL, ascent_m = NULL,"
+                "UPDATE source_map.edge SET profile_m = NULL, ascent_m = NULL,"
                 " descent_m = NULL"
             )
-            conn.execute("UPDATE curated.vertex SET elevation_m = NULL")
+            conn.execute("UPDATE source_map.vertex SET elevation_m = NULL")
             print(
                 f"cleared elevation on {profiled:,} edges — the profiles were "
                 "aligned to the pre-repair geometry. Re-run "
                 "`python -m curate.elevation`."
             )
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
         print(f"\nrun: {run_id}. Re-run topology.qa to see what is left.")

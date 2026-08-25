@@ -275,7 +275,7 @@ def load(collector: Collector, run_id: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     with connect() as conn:
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters) VALUES (%s, 'load', %s)",
+            "INSERT INTO provenance.build_run (run_id, stage, parameters) VALUES (%s, 'load', %s)",
             (run_id, json.dumps({"source": "geofabrik nord-ovest", "loader": "osm"})),
         )
         # Staging is raw: a reload replaces it whole rather than merging.
@@ -351,7 +351,7 @@ def load(collector: Collector, run_id: str) -> dict[str, int]:
             "ways_fully_excluded": sum(collector.excluded.values()),
         }
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
     return counts

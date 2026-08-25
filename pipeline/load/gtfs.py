@@ -68,7 +68,7 @@ def main() -> None:
 
     with connect() as conn:
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters) VALUES (%s, 'load', %s)",
+            "INSERT INTO provenance.build_run (run_id, stage, parameters) VALUES (%s, 'load', %s)",
             (run_id, json.dumps({"feed": args.feed, "loader": "gtfs"})),
         )
         conn.execute("DELETE FROM staging.gtfs_stop WHERE feed = %s", (args.feed,))
@@ -94,7 +94,7 @@ def main() -> None:
         served = sum(1 for r in rows if r["n_trips"] > 0)
         counts = {"stops_in_region": len(rows), "with_service": served}
         conn.execute(
-            "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+            "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
 

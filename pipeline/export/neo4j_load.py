@@ -295,7 +295,7 @@ def main() -> None:
 
     with connect() as conn:
         conn.execute(
-            "INSERT INTO build_run (run_id, stage, parameters, counts, finished_at)"
+            "INSERT INTO provenance.build_run (run_id, stage, parameters, counts, finished_at)"
             " VALUES (%s, 'export', %s, %s, now())",
             (
                 run_id,

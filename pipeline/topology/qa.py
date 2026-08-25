@@ -51,7 +51,7 @@ from core import connect
 # distance rather than degrees.
 
 GAP_DANGLE_PAIR = """
--- Joined against curated.vertex_degree directly, NOT through a CTE: a CTE has
+-- Joined against source_map.vertex_degree directly, NOT through a CTE: a CTE has
 -- no indexes, so `FROM dangles a JOIN dangles b ON ST_DWithin(...)` degrades to
 -- a nested loop over every pair of loose ends (14,769^2 geography distances,
 -- which ran for ten minutes before being killed). Filtering on degree inside
@@ -61,8 +61,8 @@ SELECT ST_MakeLine(a.geom, b.geom) AS geom,
            'a', a.vertex_id, 'b', b.vertex_id,
            'distance_m', round(ST_Distance(a.geom::geography, b.geom::geography)::numeric, 2)
        )::text AS note
-FROM curated.vertex_degree a
-JOIN curated.vertex_degree b
+FROM source_map.vertex_degree a
+JOIN source_map.vertex_degree b
   ON a.vertex_id < b.vertex_id
  AND b.degree = 1
  AND ST_DWithin(a.geom::geography, b.geom::geography, %(tol)s)
@@ -75,8 +75,8 @@ SELECT ST_ShortestLine(d.geom, e.geom) AS geom,
            'vertex', d.vertex_id, 'edge', e.edge_id,
            'distance_m', round(ST_Distance(d.geom::geography, e.geom::geography)::numeric, 2)
        )::text AS note
-FROM curated.vertex_degree d
-JOIN curated.edge e
+FROM source_map.vertex_degree d
+JOIN source_map.edge e
   ON ST_DWithin(d.geom::geography, e.geom::geography, %(tol)s)
  AND e.source <> d.vertex_id AND e.target <> d.vertex_id
 -- The dangle must be near the edge's INTERIOR: near an endpoint is either the
@@ -101,14 +101,14 @@ SELECT ST_MakeLine(d.geom, j.geom) AS geom,
            'vertex', d.vertex_id, 'junction', j.vertex_id,
            'distance_m', round(ST_Distance(d.geom::geography, j.geom::geography)::numeric, 2)
        )::text AS note
-FROM curated.vertex_degree d
-JOIN curated.vertex_degree j
+FROM source_map.vertex_degree d
+JOIN source_map.vertex_degree j
   ON j.degree >= 2
  AND j.vertex_id <> d.vertex_id
  AND ST_DWithin(d.geom::geography, j.geom::geography, %(tol)s)
 WHERE d.degree = 1
   AND NOT EXISTS (
-      SELECT 1 FROM curated.edge e
+      SELECT 1 FROM source_map.edge e
       WHERE (e.source = d.vertex_id AND e.target = j.vertex_id)
          OR (e.target = d.vertex_id AND e.source = j.vertex_id)
   )
@@ -116,13 +116,13 @@ WHERE d.degree = 1
 
 ISLAND = """
 WITH sizes AS (
-    SELECT component_id, count(*) AS n FROM curated.vertex
+    SELECT component_id, count(*) AS n FROM source_map.vertex
     WHERE component_id IS NOT NULL GROUP BY component_id
 )
 SELECT ST_ConvexHull(ST_Collect(v.geom)) AS geom,
        json_build_object('component_id', s.component_id, 'vertices', s.n)::text AS note
 FROM sizes s
-JOIN curated.vertex v ON v.component_id = s.component_id
+JOIN source_map.vertex v ON v.component_id = s.component_id
 WHERE s.n < %(min_vertices)s
 GROUP BY s.component_id, s.n
 """
@@ -133,7 +133,7 @@ SELECT geom,
            'edge_id', edge_id, 'length_m', round(length_m::numeric, 2),
            'self_loop', source = target
        )::text AS note
-FROM curated.edge
+FROM source_map.edge
 WHERE length_m < %(min_length_m)s OR source = target
 """
 
@@ -151,8 +151,8 @@ FROM (
     SELECT a.edge_id AS a_id, b.edge_id AS b_id,
            ST_Intersection(a.geom, b.geom) AS shared,
            ST_Length(ST_Intersection(a.geom, b.geom)::geography) AS m
-    FROM curated.edge a
-    JOIN curated.edge b
+    FROM source_map.edge a
+    JOIN source_map.edge b
       ON a.edge_id < b.edge_id
      AND a.way_id <> b.way_id
      AND a.geom && b.geom
@@ -174,13 +174,13 @@ DETECTORS: list[tuple[str, str, str]] = [
 NEAR_MISS_DISTANCES = """
 SELECT (
     SELECT round(ST_Distance(d.geom::geography, e.geom::geography)::numeric, 2)
-    FROM curated.edge e
+    FROM source_map.edge e
     WHERE e.source <> d.vertex_id AND e.target <> d.vertex_id
       AND ST_DWithin(d.geom::geography, e.geom::geography, %(max_m)s)
     ORDER BY d.geom <-> e.geom
     LIMIT 1
 ) AS nearest_m
-FROM curated.vertex_degree d
+FROM source_map.vertex_degree d
 WHERE d.degree = 1
 """
 
@@ -222,14 +222,14 @@ def assert_degrees_fresh(conn) -> None:
     cheapest possible detection of it.
     """
     vertices, degrees = conn.execute(
-        "SELECT (SELECT count(*) FROM curated.vertex),"
-        "       (SELECT count(*) FROM curated.vertex_degree)"
+        "SELECT (SELECT count(*) FROM source_map.vertex),"
+        "       (SELECT count(*) FROM source_map.vertex_degree)"
     ).fetchone()
     if vertices != degrees:
         raise SystemExit(
-            f"curated.vertex_degree is stale ({degrees:,} rows against "
+            f"source_map.vertex_degree is stale ({degrees:,} rows against "
             f"{vertices:,} vertices). Run:\n"
-            "  psql -c 'REFRESH MATERIALIZED VIEW curated.vertex_degree'\n"
+            "  psql -c 'REFRESH MATERIALIZED VIEW source_map.vertex_degree'\n"
             "or rebuild with `python -m topology.build_network`, which refreshes it."
         )
 
@@ -277,7 +277,7 @@ def main() -> None:
     with connect() as conn:
         if not args.dry_run:
             conn.execute(
-                "INSERT INTO build_run (run_id, stage, parameters) "
+                "INSERT INTO provenance.build_run (run_id, stage, parameters) "
                 "VALUES (%s, 'topology', %s)",
                 (run_id, json.dumps({"detector": "qa", **params})),
             )
@@ -298,7 +298,7 @@ def main() -> None:
             print(f"  {rule:<18} {n:>7,}")
         if not args.dry_run:
             conn.execute(
-                "UPDATE build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
+                "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
                 (json.dumps(counts), run_id),
             )
             print(f"\nwrote findings as run {run_id}")
