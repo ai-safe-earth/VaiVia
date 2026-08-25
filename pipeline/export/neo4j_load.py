@@ -125,6 +125,12 @@ def document_rows(document: dict) -> dict[str, Any]:
             "warnings": len(quality["warnings"]),
             "places": len(document["places"]),
             "bbox": document["bbox"],
+            # The cross-layer contract fields (docs/route-document.md): the
+            # API compares these against the document it serves, so a :Route
+            # from export N wearing a file from export N-1 fails visibly
+            # instead of serving another build's shape under this id.
+            "schema_version": document["schema_version"],
+            "doc_run_id": document.get("provenance", {}).get("run_id"),
         },
     }
 

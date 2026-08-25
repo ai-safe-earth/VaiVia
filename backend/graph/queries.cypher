@@ -569,7 +569,26 @@ RETURN total, rows
 // reaches the screen as a full card, past the filter every search applies.
 MATCH (r:Route {route_id: $route_id})
 WHERE r.warnings = 0
-RETURN r.route_id AS id
+RETURN r.route_id AS id,
+       // Which export's document this node was loaded from, so the API can
+       // refuse a file from another build instead of serving it silently.
+       // Null on a graph loaded before the field existed; the check skips.
+       r.doc_run_id AS doc_run_id
+
+// name: catalogue_audit_index
+// The audit surface (scripts.audit_catalogue_documents): EVERY catalogue
+// row, quarantined ones included -- deliberately no `warnings = 0` here,
+// because the audit's job is to compare the graph against the document
+// store, and a desynced quarantined row is still a desync. This template
+// never answers a user; the four answer surfaces keep the quarantine (see
+// the guard test that enumerates them).
+MATCH (r:Route)
+RETURN r.route_id AS route_id,
+       r.run_id AS load_run_id,
+       r.doc_run_id AS doc_run_id,
+       r.schema_version AS schema_version,
+       r.warnings AS warnings
+ORDER BY r.route_id
 
 // name: healthcheck
 RETURN 1 AS ok

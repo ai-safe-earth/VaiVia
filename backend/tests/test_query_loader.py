@@ -29,6 +29,10 @@ EXPECTED = {
     "route_exists",
     "routes_by_ids",
     "intersection_locations",
+    # The audit surface for scripts.audit_catalogue_documents — every
+    # catalogue row, quarantined included, so the graph and the document
+    # store can be compared whole.
+    "catalogue_audit_index",
     # The graph's own extent, shared by every script that projects it into
     # GDS. It lives here rather than as a string in three scripts because
     # settings.default_bbox kept being used for it instead
@@ -114,6 +118,7 @@ def test_fragments_are_not_runnable_templates():
     appear in query_names() and must raise on a get."""
     assert "loop_candidates" not in query_loader.query_names()
     assert "loop_poi_conjunction" not in query_loader.query_names()
+    assert "route_card" not in query_loader.query_names()
     with pytest.raises(KeyError):
         query_loader.get_query("loop_candidates")
 

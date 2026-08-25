@@ -32,7 +32,7 @@ from api.models import (
     RouteResponse,
 )
 from core.config import get_settings
-from core.geo import bounds_of, expand_bounds_m
+from core.geo import bounds_of, expand_bounds_m, polyline_length_m
 from core.text import lucene_escape
 
 logger = logging.getLogger(__name__)
@@ -167,13 +167,60 @@ async def _route_via_gds(
     }
 
 
+#: Document schema versions this reader understands. An unknown version is
+#: refused visibly rather than served on the guess that the fields line up —
+#: the day schema 2.0 renames a block, an old backend must say so, not 500
+#: halfway through a response. Extend deliberately, with the reader.
+SUPPORTED_SCHEMA_VERSIONS = {"1.1", "1.2"}
+
+
+def _verify_document(document: dict, route_id: str, row: dict) -> None:
+    """The contract checks between the catalogue row and the file it names.
+
+    The filename used to be the whole contract: the API opened
+    `{route_id}.json` and trusted every field in it, so a stale, renamed or
+    hand-edited file was served verbatim under the requested id — the
+    card's name from one build, the line from another. Mismatched builds
+    must fail visibly, never display another route.
+    """
+    document_id = document.get("id")
+    if document_id != route_id:
+        raise HTTPException(
+            status_code=503,
+            detail=f"document_mismatch: the file for {route_id!r} carries id "
+            f"{document_id!r} — the store and the catalogue disagree; "
+            "re-emit the documents and reload the catalogue",
+        )
+    version = document.get("schema_version")
+    if version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise HTTPException(
+            status_code=503,
+            detail=f"unsupported schema_version {version!r} on route "
+            f"{route_id!r}; this reader understands "
+            f"{sorted(SUPPORTED_SCHEMA_VERSIONS)}",
+        )
+    document_run = document.get("provenance", {}).get("run_id")
+    catalogue_run = row.get("doc_run_id")
+    # Null means the graph predates the field (loaded before the loader
+    # stamped it): nothing to compare, so nothing to refuse. The audit
+    # script reports that state; a reload closes it.
+    if catalogue_run is not None and document_run != catalogue_run:
+        raise HTTPException(
+            status_code=503,
+            detail=f"build_mismatch: route {route_id!r} was catalogued from "
+            f"export {catalogue_run!r} but the document on disk is from "
+            f"{document_run!r}; re-emit and reload together",
+        )
+
+
 async def _load_route_document(route_id: str, db: DbDep) -> dict:
     """The 404/503 ladder every document-backed endpoint shares.
 
     The graph answers only "does this route exist", so an unknown id 404s
     before the filesystem is touched; a catalogue route whose document store
     is missing or unconfigured is a 503, never an empty answer — the
-    semantic-search degradation rule.
+    semantic-search degradation rule. What it finds is then VERIFIED against
+    the catalogue row before anything is served (_verify_document).
     """
     rows = await db.run_named("route_exists", route_id=route_id)
     if not rows:
@@ -195,7 +242,9 @@ async def _load_route_document(route_id: str, db: DbDep) -> dict:
             detail=f"route {route_id!r} is in the catalogue but its document is "
             "missing from the store — re-emit the documents",
         ) from None
-    return _read_document(str(document_path), stat.st_mtime_ns, stat.st_size)
+    document = _read_document(str(document_path), stat.st_mtime_ns, stat.st_size)
+    _verify_document(document, route_id, rows[0])
+    return document
 
 
 #: How many parsed route documents to hold. Selecting one card asks for its
@@ -215,6 +264,11 @@ def _read_document(path: str, mtime_ns: int, size: int) -> dict:
     exactly why the path alone would not be enough.
     """
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _piece_length_m(coordinates: list[list[float]]) -> float:
+    """Geodesic length of one [lon, lat] piece of a MultiLineString."""
+    return polyline_length_m([(point[1], point[0]) for point in coordinates])
 
 
 def _attribution(document: dict) -> str:
@@ -237,15 +291,26 @@ async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
     if geometry["type"] != "LineString":
         # A route held in pieces is a MultiLineString; the response model is a
         # LineString. Serve the longest piece rather than a line across gaps,
-        # and say so — the document remains the honest source.
-        parts = sorted(geometry["coordinates"], key=len, reverse=True)
+        # and say so — the document remains the honest source. Longest in
+        # METRES: sorting by point count served the densest-vertex piece,
+        # which on OSM data measures mapper enthusiasm, not length.
+        parts = sorted(geometry["coordinates"], key=_piece_length_m, reverse=True)
         coordinates = parts[0]
+        pieces_total = len(parts)
         note = f"multi-part route: longest of {len(parts)} pieces shown"
     else:
         coordinates = geometry["coordinates"]
+        pieces_total = 1
         note = None
     properties = {
         "route_id": route_id,
+        # What the client is looking at, said on the payload: without kind
+        # and shape here, a holder of a route_id could not tell a mapped
+        # relation from a generated loop, and a truncated multi-piece line
+        # read as the whole route.
+        "kind": document.get("kind"),
+        "shape": document.get("shape"),
+        "pieces_total": pieces_total,
         "point_count": len(coordinates),
         "attribution": _attribution(document),
     }

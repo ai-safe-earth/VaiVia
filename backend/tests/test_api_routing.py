@@ -206,9 +206,18 @@ def _documents_dir(tmp_path, monkeypatch, document: dict | None):
     return tmp_path
 
 
+# Contract-complete: id, schema_version and provenance.run_id are what the
+# API now verifies before serving anything (docs/route-document.md).
 DOCUMENT = {
+    "id": ROUTE_ID,
+    "schema_version": "1.2",
+    "kind": "generated",
+    "shape": "loop",
     "geometry": {"type": "LineString", "coordinates": [[9.4, 45.9], [9.41, 45.91]]},
-    "provenance": {"sources": [{"attribution": "© OpenStreetMap contributors"}]},
+    "provenance": {
+        "run_id": "export-t1",
+        "sources": [{"attribution": "© OpenStreetMap contributors"}],
+    },
 }
 
 
@@ -261,6 +270,9 @@ def test_route_geojson_serves_the_longest_piece_of_a_multipart_route(
     The map endpoint shows the longest piece and says so, never a straight line
     across the gaps (metadata-rules.md: a broken route is never drawn whole)."""
     document = {
+        **DOCUMENT,
+        "kind": "osm_route",
+        "shape": "linear",
         "geometry": {
             "type": "MultiLineString",
             "coordinates": [
@@ -268,18 +280,105 @@ def test_route_geojson_serves_the_longest_piece_of_a_multipart_route(
                 [[9.5, 45.95], [9.51, 45.96]],
             ],
         },
-        "provenance": {"sources": [{"attribution": "©"}]},
     }
     _documents_dir(tmp_path, monkeypatch, document)
     db.when("route_exists", [{"id": ROUTE_ID}])
     body = client.get(f"/routes/{ROUTE_ID}/geojson").json()
     assert len(body["geometry"]["coordinates"]) == 3
     assert "pieces" in body["properties"]["note"]
+    assert body["properties"]["pieces_total"] == 2
+    assert body["properties"]["kind"] == "osm_route"
+    assert body["properties"]["shape"] == "linear"
+
+
+def test_the_longest_piece_is_measured_in_metres_not_points(
+    client, db, tmp_path, monkeypatch
+):
+    """'Longest piece' must mean distance on the ground.
+
+    Sorting by len() picked the piece with the most POINTS — on OSM data a
+    function of how enthusiastically a mapper clicked, not of length. Here
+    the sparse piece spans ~1.4 km in two points and the dense one ~30 m in
+    five; the map must show the kilometre, not the doorstep.
+    """
+    document = {
+        **DOCUMENT,
+        "geometry": {
+            "type": "MultiLineString",
+            "coordinates": [
+                [[9.4, 45.9], [9.41, 45.91]],
+                [
+                    [9.5, 45.95],
+                    [9.5001, 45.9501],
+                    [9.5002, 45.9501],
+                    [9.5002, 45.9502],
+                    [9.5003, 45.9502],
+                ],
+            ],
+        },
+    }
+    _documents_dir(tmp_path, monkeypatch, document)
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    body = client.get(f"/routes/{ROUTE_ID}/geojson").json()
+    assert body["geometry"]["coordinates"] == [[9.4, 45.9], [9.41, 45.91]]
+
+
+def test_a_document_wearing_another_id_is_a_visible_failure(
+    client, db, tmp_path, monkeypatch
+):
+    """The filename used to be the whole contract: a file at this path was
+    served verbatim whatever its id said. A store desynced from the
+    catalogue must fail loudly, never display another route."""
+    _documents_dir(
+        tmp_path, monkeypatch, {**DOCUMENT, "id": "generated-somebodyelse00"}
+    )
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    response = client.get(f"/routes/{ROUTE_ID}/geojson")
+    assert response.status_code == 503
+    assert "document_mismatch" in response.json()["detail"]
+
+
+def test_an_unknown_schema_version_is_refused(client, db, tmp_path, monkeypatch):
+    """A reader that does not know a version must say so, not serve it on
+    the guess that the fields still line up."""
+    _documents_dir(tmp_path, monkeypatch, {**DOCUMENT, "schema_version": "9.9"})
+    db.when("route_exists", [{"id": ROUTE_ID}])
+    response = client.get(f"/routes/{ROUTE_ID}/geojson")
+    assert response.status_code == 503
+    assert "schema_version" in response.json()["detail"]
+
+
+def test_a_document_from_another_build_is_refused(client, db, tmp_path, monkeypatch):
+    """A :Route from export N serving a file from export N-1 was a
+    perfectly silent 200 — the name from one build, the line from another,
+    which is the card/map defect at the data layer."""
+    _documents_dir(tmp_path, monkeypatch, DOCUMENT)  # provenance.run_id export-t1
+    db.when("route_exists", [{"id": ROUTE_ID, "doc_run_id": "export-t2"}])
+    response = client.get(f"/routes/{ROUTE_ID}/geojson")
+    assert response.status_code == 503
+    assert "build_mismatch" in response.json()["detail"]
+
+
+def test_matching_builds_serve_and_a_graph_without_the_field_still_serves(
+    client, db, tmp_path, monkeypatch
+):
+    """Agreement passes; a graph loaded before doc_run_id existed carries
+    null, which is 'nothing to compare', not 'wrong' — the audit script
+    names that state and a reload closes it."""
+    _documents_dir(tmp_path, monkeypatch, DOCUMENT)
+    db.when("route_exists", [{"id": ROUTE_ID, "doc_run_id": "export-t1"}])
+    assert client.get(f"/routes/{ROUTE_ID}/geojson").status_code == 200
+
+    db.when("route_exists", [{"id": ROUTE_ID, "doc_run_id": None}])
+    assert client.get(f"/routes/{ROUTE_ID}/geojson").status_code == 200
 
 
 # ── /routes/{id}/detail: the expandable card's payload ──────────────────────
 
 DETAIL_DOCUMENT = {
+    "id": ROUTE_ID,
+    "schema_version": "1.2",
+    "kind": "osm_route",
     "shape": "circular",
     "geometry": {"type": "LineString", "coordinates": [[9.4, 45.9], [9.41, 45.91]]},
     "measures": {
@@ -296,7 +395,10 @@ DETAIL_DOCUMENT = {
     "continuity": {"pieces": 1, "continuous": True},
     "surface": {"distribution": {"unpaved": 0.8, "paved": 0.2}, "dominant": "unpaved"},
     "places": [{"id": "n1", "kind": "peak", "name": "Corno", "offset_m": 12.0}],
-    "provenance": {"sources": [{"attribution": "© OpenStreetMap contributors"}]},
+    "provenance": {
+        "run_id": "export-t1",
+        "sources": [{"attribution": "© OpenStreetMap contributors"}],
+    },
 }
 
 
