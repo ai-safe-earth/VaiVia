@@ -100,7 +100,8 @@ def main() -> None:
         print("after: ", after)
         if before != after:
             raise SystemExit(
-                "conversion moved data, which a rename cannot do — restore the dump: "
+                "conversion moved data, which a rename cannot do — the "
+                "transaction rolled back, the store is unchanged: "
                 f"{ {k: (before[k], after[k]) for k in before if before[k] != after[k]} }"
             )
         # Views tracked the rename by OID; prove one from each family answers.

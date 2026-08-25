@@ -64,7 +64,8 @@ LAYERS: list[Layer] = [
         """SELECT edge_id, way_id, length_m, highway, surface, sac_scale, name,
                   routable_foot, routable_bike, ascent_m, descent_m, net_m, gradient,
                   steepness_class, difficulty_class, surface_class, route_class,
-                  access_class, profile_class, profile_points, start_m, end_m, geom
+                  access_class, urban_m, urban_share, urban_class,
+                  profile_class, profile_points, start_m, end_m, geom
            FROM qa.v_network""",
         "The whole network with every derived attribute on it - tags, climb, "
         "steepness, whether it carries a named route. Open this first.",
@@ -123,7 +124,8 @@ LAYERS: list[Layer] = [
     Layer(
         "start",
         """SELECT vertex_id, component_id, degree, anchors, nearest_m, trips,
-                  car_free, access_class, reachability_class, naming_class, geom
+                  car_free, access_class, start_classes, arrival_class,
+                  reachability_class, naming_class, geom
            FROM qa.v_start""",
         "Where a walk can begin: one point per vertex, with what makes it a start.",
         style_by="reachability_class",
@@ -234,6 +236,11 @@ WHERE f.rule IN ('gap_dangle_pair', 'gap_dangle_edge', 'gap_dangle_junction',
 
 # The only hand-maintained part of the README. Everything else is queried.
 FIELD_NOTES: dict[str, str] = {
+    "urban_m": "metres of the edge inside residential fabric (curate.urban; NULL = not measured for this build)",
+    "urban_share": "urban_m / length_m; the distribution is bimodal - an edge is in town or it is not",
+    "urban_class": "the bimodal cut: 0 open / 1 touches / 2 mostly / 3 urban / 9 not measured",
+    "start_classes": "every kind of arrival this vertex offers (anchors.start_class)",
+    "arrival_class": "the BEST arrival, digit-ordered: station beats bus stop beats parking...",
     "edge_id": "the network edge; stable within one build, not across builds",
     "way_id": "provenance: the parent OSM way",
     "length_m": "geodesic length of this piece (WGS84 ellipsoid)",
@@ -448,8 +455,9 @@ ISSUES = [
         "edges with no altitude profile",
         "SELECT count(*) FROM source_map.edge WHERE ascent_m IS NULL",
         (
-            "North of 46.0001, where the single GLO-30 tile ends. Their climb is NULL "
-            "rather than a partial sum. Fetching tile N46 E009 closes it."
+            "Climb is NULL rather than a partial sum wherever the DEM does not "
+            "cover. Zero since tile N46 E009 joined N45 (2026-08-25); nonzero "
+            "again means coverage moved past the loaded tiles."
         ),
     ),
     (
@@ -654,7 +662,7 @@ def write_readme(path: Path, conn, exported: list[tuple[Layer, pd.DataFrame]]) -
         add(f"| `{builder}` | {when} | `{run_id}` |")
     add("")
     add(
-        "Every curated row carries the `run_id` that produced it, and `build_run` holds"
+        "Every source_map row carries the `run_id` that produced it, and `provenance.build_run` holds"
     )
     add(
         "each run's parameters and counts — so two runs are compared inside the database"

@@ -104,6 +104,13 @@ def poi_verdict(poi_type: str) -> Verdict:
     return Verdict(False, f"{poi_type} is not classified as a starting point")
 
 
+#: Feeds whose stops are RAIL. A new feed classifies itself the day it is
+#: loaded: in here it reads station, otherwise bus_stop. The Bergamo basin
+#: bus feeds belong outside this set (data-sources.md licence caveat governs
+#: their loading at all).
+RAIL_FEEDS = frozenset({"trenord"})
+
+
 def start_class(source: str, kind: str, source_id: str) -> str:
     """What KIND of arrival this place is — the class the route factory
     filters starts by, and the document's terminals will carry.
@@ -120,7 +127,8 @@ def start_class(source: str, kind: str, source_id: str) -> str:
     if source == "settlement":
         return "settlement"
     if source == "gtfs_stop":
-        return "station" if source_id.startswith("trenord") else "bus_stop"
+        feed = source_id.split(":", 1)[0]
+        return "station" if feed in RAIL_FEEDS else "bus_stop"
     return kind if kind in ("parking", "station", "campsite") else "other"
 
 

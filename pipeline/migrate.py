@@ -75,6 +75,13 @@ def main() -> None:
                 "chain stamp). Run `uv run python convert_v2.py` once — the "
                 "in-place rename to the v2 layout — and then this script."
             )
+        # store_state's SELECTs opened the connection's implicit transaction;
+        # left open, every per-file transaction() below would be a SAVEPOINT
+        # inside it and nothing would commit until exit — making the per-file
+        # "applied" lines a lie on any later failure. Close it, so each file
+        # commits as its line prints, which is the contract the docstring
+        # states.
+        conn.rollback()
 
         for path in files:
             with conn.transaction():

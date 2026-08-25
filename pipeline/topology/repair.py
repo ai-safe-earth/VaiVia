@@ -586,7 +586,7 @@ def repair_degenerate(conn, run_id: str, dry_run: bool, min_length_m: float) -> 
                 moving, fixed = (
                     (source, target) if source > target else (target, source)
                 )
-                if _weld(conn, run_id, "degenerate", moving, fixed):
+                if _weld(conn, run_id, "degenerate", moving, fixed) == "welded":
                     _delete_edge(conn, run_id, edge_id, "collapsed to a point")
                     changed += 1
             else:
@@ -729,6 +729,20 @@ def main() -> None:
                 "aligned to the pre-repair geometry. Re-run "
                 "`python -m curate.elevation`."
             )
+        # The urban measure is geometry-derived too: a split edge's retained
+        # half keeps the WHOLE edge's urban metres (urban_share > 1), the new
+        # half gets NULL, and a welded end moves ground the measure described.
+        # Cleared like elevation, and said out loud.
+        (urbaned,) = conn.execute(
+            "SELECT count(*) FROM source_map.edge WHERE urban_m IS NOT NULL"
+        ).fetchone()
+        if urbaned:
+            conn.execute("UPDATE source_map.edge SET urban_m = NULL")
+            print(
+                f"cleared urban_m on {urbaned:,} edges — the measure described "
+                "the pre-repair geometry. Re-run `python -m curate.urban`."
+            )
+
         conn.execute(
             "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),

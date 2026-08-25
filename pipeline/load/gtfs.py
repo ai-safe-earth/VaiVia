@@ -60,8 +60,22 @@ def main() -> None:
     trips = read(z, "trips.txt")
     calendar = read(z, "calendar.txt")
     calendar_dates = read(z, "calendar_dates.txt")
+    weekdays = (
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    )
     service_span: dict[str, tuple[str, str]] = {
-        c["service_id"]: (c["start_date"], c["end_date"]) for c in calendar
+        c["service_id"]: (c["start_date"], c["end_date"])
+        for c in calendar
+        # A row with every weekday flag 0 defines NO running days — the
+        # service exists only through calendar_dates exceptions, so its
+        # date range alone must not widen a stop's span.
+        if any(c.get(day) == "1" for day in weekdays)
     }
     for cd in calendar_dates:
         if cd.get("exception_type") != "1":

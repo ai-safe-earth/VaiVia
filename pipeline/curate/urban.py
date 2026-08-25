@@ -61,6 +61,13 @@ def main() -> None:
             "SELECT count(*) FROM staging.settlement WHERE kind = 'residential'"
         ).fetchone()
         print(f"residential polygons: {polygons:,}")
+        if not polygons:
+            # Absent is not zero: with nothing staged, writing 0.0 across the
+            # network would turn a missing source into a clean measurement.
+            raise SystemExit(
+                "no residential polygons in staging.settlement — load the "
+                "settlements before measuring urban fabric"
+            )
         if args.dry_run:
             print("--dry-run: nothing written")
             return

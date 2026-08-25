@@ -41,7 +41,7 @@ import argparse
 import json
 import uuid
 
-from core import connect
+from core import REGIONS, connect
 
 # Detectors are (rule, severity, SQL). Each SQL returns (geom, note); the
 # runner stamps run_id and rule. Keeping them declarative means a new rule is a
@@ -319,6 +319,10 @@ def main() -> None:
     with connect() as conn:
         assert_degrees_fresh(conn)
 
+    if args.region and args.region not in REGIONS:
+        raise SystemExit(
+            f"unknown region {args.region!r}; configured: {sorted(REGIONS)}"
+        )
     if args.measure:
         measure(args.tolerance_m, args.max_measure_m, args.region)
         return

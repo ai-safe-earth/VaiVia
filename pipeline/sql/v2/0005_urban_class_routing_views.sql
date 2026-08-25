@@ -49,14 +49,18 @@ SELECT e.edge_id, e.way_id, e.geom, e.length_m,
        e.profile_m[array_length(e.profile_m, 1)] AS end_m
 FROM source_map.edge e;
 
--- The factory's edges, oneway made real. pgr_dijkstra was called with
--- directed := false, which is a claim (`oneway is never read`) wearing a
--- default's clothes. These views give it cost/reverse_cost pairs instead:
--- a way a cyclist may ride only one direction costs -1 backwards (pgRouting's
--- "no such arc"), and the generator flips to directed := true reading them.
--- Foot ignores vehicular oneway (a walker walks a one-way street both ways);
--- oneway:foot exists in the wild but not in these two provinces today, so
--- the day it appears this view is where it lands.
+-- The factory's edges, oneway made real. pgr_dijkstra is called with
+-- directed := false today, which is a claim (`oneway is never read`) wearing
+-- a default's clothes. These views carry the cost/reverse_cost pairs the
+-- generator WILL read when the out-and-back package wires it to them with
+-- directed := true — a way a cyclist may ride only one direction costs -1
+-- backwards (pgRouting's "no such arc"). Until that wiring lands, mtb
+-- drawing still ignores oneway; the views make the fix a query swap, not a
+-- schema change. Foot ignores vehicular oneway (a walker walks a one-way
+-- street both ways); oneway:foot exists in the wild but not in these two
+-- provinces today, so the day it appears this view is where it lands.
+-- junction=roundabout implies oneway=yes in OSM without the tag; honoured
+-- below, still overridable by oneway:bicycle (contraflow lanes).
 
 DROP VIEW IF EXISTS catalogue.v_edges_foot;
 CREATE VIEW catalogue.v_edges_foot AS
@@ -74,12 +78,19 @@ SELECT edge_id  AS id,
        source, target,
        -- oneway=yes forbids riding AGAINST the stored direction;
        -- oneway=-1 forbids riding WITH it. oneway:bicycle overrides either
-       -- way (cycleways contraflow one-way streets all over these towns).
-       CASE WHEN coalesce(tags ->> 'oneway:bicycle', tags ->> 'oneway', 'no')
+       -- way (cycleways contraflow one-way streets all over these towns),
+       -- and a roundabout is oneway=yes whether or not anyone tagged it.
+       CASE WHEN coalesce(tags ->> 'oneway:bicycle', tags ->> 'oneway',
+                          CASE WHEN tags ->> 'junction'
+                                    IN ('roundabout', 'circular')
+                               THEN 'yes' ELSE 'no' END)
                  = '-1'
             THEN -1.0
             ELSE length_m END AS cost,
-       CASE WHEN coalesce(tags ->> 'oneway:bicycle', tags ->> 'oneway', 'no')
+       CASE WHEN coalesce(tags ->> 'oneway:bicycle', tags ->> 'oneway',
+                          CASE WHEN tags ->> 'junction'
+                                    IN ('roundabout', 'circular')
+                               THEN 'yes' ELSE 'no' END)
                  IN ('yes', 'true', '1')
             THEN -1.0
             ELSE length_m END AS reverse_cost,

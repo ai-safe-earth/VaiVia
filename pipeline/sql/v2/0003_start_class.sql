@@ -47,7 +47,10 @@ SELECT p.vertex_id,
            WHEN 'settlement' THEN '3 settlement'
            WHEN 'urban_exit' THEN '4 urban exit'
            WHEN 'campsite'   THEN '5 campsite'
-           ELSE                   '6 other' END)      AS arrival_class,
+           WHEN 'other'      THEN '6 other'
+           -- NULL is a row places.py has not rewritten since the column
+           -- landed — unclassified, which must never read as 'other'.
+           ELSE                   '9 unclassified' END) AS arrival_class,
        CASE WHEN v.component_id = (SELECT component_id FROM source_map.vertex
                                    GROUP BY component_id
                                    ORDER BY count(*) DESC LIMIT 1)
