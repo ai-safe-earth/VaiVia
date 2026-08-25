@@ -167,7 +167,11 @@ def emit_generated() -> None:
             if rid != expected:
                 raise SystemExit(
                     f"catalogue.route {rid!r} does not match its ground "
-                    f"({expected!r}) — run rekey_v2.py before emitting"
+                    f"({expected!r}). INSPECT the row first — shape, "
+                    "direction, geometry: a well-formed row that moved with "
+                    "a repair is rekey_v2's job, but a malformed one (a "
+                    "corrupt shape once put urban floats here) must be "
+                    "deleted, and renaming it would only launder it"
                 )
 
             (point,) = conn.execute(
@@ -246,6 +250,11 @@ def emit_generated() -> None:
                         "bike_blocked_m": round(facts.bike_blocked_m, 1),
                         "off_road_share": round(facts.off_road_share, 3),
                         "retrace_share": round(facts.retrace_share, 3),
+                        "urban_share": (
+                            None
+                            if facts.urban_share is None
+                            else round(facts.urban_share, 3)
+                        ),
                     },
                     "sources": SOURCES,
                 },

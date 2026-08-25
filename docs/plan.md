@@ -179,8 +179,16 @@ Phase 2 only.
   divergence, continuity.reason), same-ground relations folded out loud
   (one pair: 14910465/14910466), Neo4j reloaded, favorites reset, the
   cross-layer contract fixture pinned in both suites; audit 979/979 clean.
-- [ ] P4 `feat/draw-out-and-back` — strict out-and-back, the parameter
-  surface, the urban-exposure rule with its measured threshold.
+- [x] P4 `feat/draw-out-and-back` — strict out-and-back (same edges home
+  by construction, one-way 2–20 km enforced with rejects reported); legs
+  run directed over the oneway-honest views; the parameter surface
+  (start-class, region, exigent ceiling, ascent, retrace, urban cap);
+  urban_share measured (p95 0.66, tail to 0.92) with the cap at 0.8;
+  catalogue regenerated over both provinces — 1,371 routes (751 mapped +
+  620 generated across six families), audit clean. The enum CHECK
+  constraints landed after a parameter-order slip corrupted a run's shapes
+  and the emit drift-guard caught it downstream — the constraint now fails
+  the first row at the moment of the mistake.
 - [ ] P5 `feat/compact-card` — the two-line card; exigent warning; three-
   valued bike state; surface distribution, places, real provenance and QA
   warnings on expand.
