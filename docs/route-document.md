@@ -63,7 +63,7 @@ The contract is `pipeline/schemas/route-document.schema.json`; this is the reaso
 | `surface` | length-weighted distribution, plus a dominant | "62% unpaved" is a fact; "unpaved" alone is a claim |
 | `difficulty` | SAC grade, the distribution, **and the rule that produced it** | The rule ships with the number so nobody has to guess how it was derived |
 | `continuity` | pieces, continuous | A route in nine pieces is honest about it rather than drawn as one line across the holes |
-| `start` | vertex, names, anchor count, car-free | From `curated.place`. `names` is often empty, and that is a known gap, not a bug. **There is no matching `end`** — see "The start/end contract" below, which proposes replacing this with `terminals` |
+| `start` | vertex, names, anchor count, car-free | From `source_map.place`. `names` is often empty, and that is a known gap, not a bug. **There is no matching `end`** — see "The start/end contract" below, which proposes replacing this with `terminals` |
 | `places` | what the route passes, each with `offset_m` and `distance_along_m` | Computed **here**, against the merged line — see below |
 | `quality` | warnings, matched fraction, edges without a profile | Carried, never filtered on |
 | `provenance` | run id, producer, sources with licence and attribution | Every row in PostGIS carries its `run_id`; the document carries it out |
@@ -80,7 +80,7 @@ empty list.
 
 **Places are positioned at assembly.** `metadata-rules.md` specifies `ST_LineLocatePoint`
 against the *merged* line, which does not exist until the route does. This is why
-`curated.place` snaps to a vertex and there is deliberately no precomputed place-to-edge
+`source_map.place` snaps to a vertex and there is deliberately no precomputed place-to-edge
 table: that would have answered "what does this route pass" with a radius nobody chose.
 The one bound here is **100 m**, which is where `qa.distance_band` already puts "near"
 (measured: median 7 places per route, p90 34; against 12 and 59 at 250 m). Every place
@@ -190,7 +190,7 @@ get here by bus" is precisely the claim a user would strand themselves on.
 **The measure is network distance over foot-legal edges**, never straight line.
 Straight line crosses rivers, cliffs and private land, and 1 km along a trunk road
 is not an approach — it is a reason not to come. The connecting way is itself a
-piece of route: it must exist in `curated.edge`, pass `load/legality.py` on foot,
+piece of route: it must exist in `source_map.edge`, pass `load/legality.py` on foot,
 and be recorded, so a reader can see what the approach actually is.
 
 **The 1 km bound is measured, not chosen.** All 1,504 endpoints of the 752 mapped
@@ -359,7 +359,7 @@ single measure along a line that is not one line.
    `poi_verdict`, with `DESTINATION_NOT_START` derived from `INTEREST` so the two
    tables cannot drift.
 3. A routed connector: network distance from a terminal to its anchor over
-   foot-legal edges, replacing the geodesic `curated.place.distance_m` **in the
+   foot-legal edges, replacing the geodesic `source_map.place.distance_m` **in the
    reachability test only** — the snap distance stays what it is.
 4. `load/gtfs.py` reads `calendar.txt` and `calendar_dates.txt`, so GTFS terminals
    stop claiming a year-round service they have never been checked for.

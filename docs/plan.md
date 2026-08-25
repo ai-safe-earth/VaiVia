@@ -145,3 +145,45 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - Phases 2–3: end-to-end curl through gateway → backend → Neo4j on compose; auth/limit contract tests.
 - Phase 4: golden set of ~20 NL queries → expected intents (snapshot tests); adversarial set never produces a write.
 - Phase 5: Playwright smoke — sign in, ask "easy trail near a lake", see result cards + map polyline.
+
+### Phase 7 — The Bergamo refactor (plan approved 2026-08-25)
+
+A trustworthy end-to-end route system on the configured Bergamo bbox, per the
+approved implementation plan (owner-ratified this session; PR #32's start/end
+contract ratified with one amendment — the `:fwd` sense comes from canonical
+geometry, never `edge_id`, which rebuilds reassign). Locked decisions:
+geometry-derived ids for every route kind with favorites reset at cutover;
+full physical schema rename via a v2 baseline; custom routes publish into the
+shared catalogue after automated checks; chat scope is the query-loop plan's
+Phase 2 only.
+
+- [x] P0 `fix/card-map-races` — a card click draws its own answer or says its
+  line failed; per-card line status; payload identity verified; component
+  tests + the e2e asserts drawn id == clicked id (PR #34).
+- [x] P1 `fix/document-contract-checks` — the API verifies a document against
+  its catalogue row (id / schema_version / build run) with typed 503s;
+  `scripts.audit_catalogue_documents` swept 980/980 clean live; the loader
+  stamps `doc_run_id`; the catalogue wipe stays under the transaction
+  timeout (PR #35).
+- [ ] P2 `feat/pipeline-v2-schema` — schemas renamed to their jobs
+  (source_map / catalogue / provenance) via conversion + v2 baseline;
+  regions on the degree matview with the Bergamo tolerance gate measured
+  (2 m holds: 0.6% at 2 m); the weld level-guard; `start_class`; `urban_m`
+  (bimodal, class cuts in the valleys); oneway-honest pgRouting views; GTFS
+  calendar read (trenord is NOT year-round: runs to 2026-12-12); DEM N46
+  tile loaded.
+- [ ] P3 `feat/route-id-v2` — the id cutover (`vv2-<digest>[:fwd|:rev]`),
+  schema 2.0 documents (terminals, categories, divergence,
+  continuity.reason), atomic Neo4j reload, favorites truncate, the
+  cross-layer contract fixture.
+- [ ] P4 `feat/draw-out-and-back` — strict out-and-back, the parameter
+  surface, the urban-exposure rule with its measured threshold.
+- [ ] P5 `feat/compact-card` — the two-line card; exigent warning; three-
+  valued bike state; surface distribution, places, real provenance and QA
+  warnings on expand.
+- [ ] P6 `feat/chat-standing-plan` — persisted standing plan (query-loop
+  Phase 2); resume rehydrates cards from result_refs.
+- [ ] P7 `feat/custom-route-jobs` — Supabase 0004, pipeline-side worker,
+  atomic publication, gateway quota on the creating POST.
+- [ ] P8 `feat/direction-documents` — the `:rev` siblings and `reverse_of`
+  (additions, never renames — the id rule landed in P3).

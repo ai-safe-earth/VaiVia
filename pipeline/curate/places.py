@@ -33,6 +33,7 @@ from curate.anchors import (
     EXIT_ONTO_TRAIL,
     poi_verdict,
     settlement_verdict,
+    start_class,
     stop_verdict,
     urban_exit_verdict,
 )
@@ -252,6 +253,7 @@ def main() -> None:
                         distance_m,
                         verdict.is_start,
                         verdict.note,
+                        start_class(source, kind, key),
                         n_trips,
                         regions,
                         geom,
@@ -292,7 +294,8 @@ def main() -> None:
             conn.cursor() as cur,
             cur.copy(
                 "COPY source_map.place (source, source_id, kind, name, ele_m, vertex_id,"
-                " distance_m, is_start, start_note, n_trips, regions, geom, run_id)"
+                " distance_m, is_start, start_note, start_class, n_trips, regions,"
+                " geom, run_id)"
                 " FROM STDIN"
             ) as copy,
         ):

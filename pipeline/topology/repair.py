@@ -63,6 +63,7 @@ from shapely.ops import substring
 from core import connect
 from load.osm import ewkb4326
 from topology.build_network import line_length_m
+from topology.levels import level_of, levels_compatible
 from topology.split import Coord
 
 # Findings to act on: the latest QA run's, so the review and the repair see the
@@ -218,17 +219,32 @@ def _write_geom(conn, edge_id: int, coords: list[Coord]) -> None:
     )
 
 
-def _weld(conn, run_id: str, rule: str, moving_id: int, fixed_id: int) -> bool:
+def _levels_at(conn, vertex_id: int) -> list:
+    """The levels of every edge meeting this vertex, for the weld guard."""
+    rows = conn.execute(
+        "SELECT tags FROM source_map.edge WHERE source = %s OR target = %s",
+        (vertex_id, vertex_id),
+    ).fetchall()
+    return [level_of(tags) for (tags,) in rows]
+
+
+def _weld(conn, run_id: str, rule: str, moving_id: int, fixed_id: int) -> str:
     """Move vertex `moving_id` onto `fixed_id`, dragging its edges' ends with it.
 
-    False when the weld no longer applies — an earlier finding in the same pass
-    may already have welded one of the two away, and a finding set is a snapshot
-    of a network the pass is changing underneath it.
+    'stale' when the weld no longer applies — an earlier finding in the same
+    pass may already have welded one of the two away, and a finding set is a
+    snapshot of a network the pass is changing underneath it. 'refused' when
+    the two ends run at different vertical levels (topology/levels.py): a
+    bridge deck 2 m above a road is a grade separation, not a gap, and it
+    stays in the finding queue for judgement rather than being welded into
+    a walk through the air.
     """
     moving = _vertex(conn, moving_id)
     fixed = _vertex(conn, fixed_id)
     if moving is None or fixed is None or moving == fixed:
-        return False
+        return "stale"
+    if not levels_compatible(_levels_at(conn, moving_id), _levels_at(conn, fixed_id)):
+        return "refused"
 
     edges = conn.execute(
         "SELECT edge_id FROM source_map.edge WHERE source = %s OR target = %s",
@@ -263,7 +279,7 @@ def _weld(conn, run_id: str, rule: str, moving_id: int, fixed_id: int) -> bool:
         )
 
     conn.execute("DELETE FROM source_map.vertex WHERE vertex_id = %s", (moving_id,))
-    return True
+    return "welded"
 
 
 # ── One function per rule ─────────────────────────────────────────────────────
@@ -276,12 +292,16 @@ def repair_pair(conn, run_id: str, dry_run: bool) -> int:
     rows = conn.execute(FINDINGS, {"rule": "gap_dangle_pair"}).fetchall()
     if dry_run:
         return len(rows)
-    done = 0
+    done = refused = 0
     for _, note in rows:
         payload = json.loads(note)
         a, b = int(payload["a"]), int(payload["b"])
         moving, fixed = (a, b) if a > b else (b, a)
-        done += _weld(conn, run_id, "gap_dangle_pair", moving, fixed)
+        status = _weld(conn, run_id, "gap_dangle_pair", moving, fixed)
+        done += status == "welded"
+        refused += status == "refused"
+    if refused:
+        print(f"    {refused} refused: the two ends run at different levels")
     return done
 
 
@@ -290,15 +310,21 @@ def repair_junction(conn, run_id: str, dry_run: bool) -> int:
     rows = conn.execute(FINDINGS, {"rule": "gap_dangle_junction"}).fetchall()
     if dry_run:
         return len(rows)
-    done = 0
+    done = refused = 0
     for _, note in rows:
         payload = json.loads(note)
-        done += _weld(
+        status = _weld(
             conn,
             run_id,
             "gap_dangle_junction",
             int(payload["vertex"]),
             int(payload["junction"]),
+        )
+        done += status == "welded"
+        refused += status == "refused"
+    if refused:
+        print(
+            f"    {refused} refused: the loose end and the junction run at different levels"
         )
     return done
 
@@ -314,7 +340,7 @@ def repair_edge(conn, run_id: str, dry_run: bool) -> int:
     rows = conn.execute(FINDINGS, {"rule": "gap_dangle_edge"}).fetchall()
     if dry_run:
         return len(rows)
-    done = 0
+    done = refused = 0
     for _, note in rows:
         payload = json.loads(note)
         vertex_id, edge_id = int(payload["vertex"]), int(payload["edge"])
@@ -327,6 +353,13 @@ def repair_edge(conn, run_id: str, dry_run: bool) -> int:
         if dangle is None or target_row is None:
             continue  # an earlier repair moved or removed one of them
         way_id, old_target, tags, foot, bike, regions, edge_run = target_row
+
+        # The grade-separation guard: joining a loose end INTO an edge is a
+        # weld too, and a path ending under a viaduct must not become a stair
+        # into its deck. The dangle's own edges against the target edge.
+        if not levels_compatible(_levels_at(conn, vertex_id), [level_of(tags)]):
+            refused += 1
+            continue
 
         coords, before = _coords(conn, edge_id)
         halves = split_at_point(coords, dangle)
@@ -388,6 +421,10 @@ def repair_edge(conn, run_id: str, dry_run: bool) -> int:
             {"split_at_vertex": vertex_id, "from_edge": edge_id, "half": "second"},
         )
         done += 1
+    if refused:
+        print(
+            f"    {refused} refused: the loose end and the edge run at different levels"
+        )
     return done
 
 
