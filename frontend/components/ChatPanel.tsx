@@ -8,7 +8,17 @@ import {
   fetchTrailGeoJson,
   sendChat,
 } from '@/lib/api';
-import { isStillSelected, mayDraw, planReveal } from '@/lib/mapTurn';
+import {
+  drawableFeatures,
+  isStillSelected,
+  mayDraw,
+  needsFetch,
+  planReveal,
+  planSelect,
+  recordLine,
+  type LineEntry,
+  type LineStatus,
+} from '@/lib/mapTurn';
 import { isAuthConfigured } from '@/lib/supabaseClient';
 import type { ChatMessage, Loop, RouteDetail, Trail } from '@/lib/types';
 import { useRouteDetails } from '@/lib/useRouteDetails';
@@ -76,12 +86,26 @@ export function ChatPanel({
   const [selectedTrail, setSelectedTrail] = useState<string | null>(null);
   // Loop geometries are fetched once per results event and kept, so
   // clicking between loops restyles what is already drawn instead of
-  // refetching and making the map flicker.
-  const loopFeatures = useRef<Map<string, GeoJSON.Feature>>(new Map());
+  // refetching and making the map flicker. Each entry keeps its fetch
+  // OUTCOME too: a failed line must read as "unavailable" on the card, not
+  // as an id silently absent from the map.
+  const loopFeatures = useRef<Map<string, LineEntry>>(new Map());
+  // The same statuses as React state, so the cards re-render when a line
+  // arrives or fails - the ref alone repaints nothing.
+  const [lineStatus, setLineStatus] = useState<Record<string, LineStatus>>({});
   // Which ANSWER those features belong to. The drawn set is one answer's, and
   // "show more" under an older one used to merge its routes into the current
   // answer's map — a picture belonging to neither turn.
   const drawnTurn = useRef<number | null>(null);
+  // How far each answer's fold has been revealed. FoldedCards keeps the
+  // count as its own state; this mirror is what lets a click-takeover
+  // restore every card the user can SEE, not just the fold — without it,
+  // cards revealed before another answer took the map over came back
+  // line-less, and no later "show more" could heal them.
+  const revealed = useRef<Map<number, number>>(new Map());
+  // Route lines currently being fetched, so a click during the initial
+  // batch does not dispatch the same GET twice.
+  const linesInFlight = useRef<Set<string>>(new Set());
   // Route documents' detail (profile, measures), fetched once per route on
   // first expand or selection — asked once, null on failure, and only painted
   // if its card is still the selected one. Shared with the saved-routes view,
@@ -121,6 +145,11 @@ export function ChatPanel({
     // than showing the previous route's profile under a trail's name.
     emitDetail(null);
     loopFeatures.current.clear();
+    setLineStatus({});
+    // No answer owns the map now. Leaving the old turn here made a later
+    // same-turn "show more" append into a cache this clear just emptied -
+    // a partial answer drawn as if it were whole.
+    drawnTurn.current = null;
     // A trail whose geometry will not come (gone, or the session expired) is
     // a blank map, not an unhandled rejection out of a void-ed handler.
     const geometry = await fetchTrailGeoJson(trail.id).catch(() => null);
@@ -131,26 +160,43 @@ export function ChatPanel({
 
   /** Every loop drawn at once, with `selected` marking the one to highlight.
    *  MapView styles and fits on that property, so switching selection is a
-   *  restyle rather than a refetch. */
+   *  restyle rather than a refetch. The rule for WHAT may draw - including
+   *  "a selection whose line is unavailable clears the map rather than
+   *  framing its siblings" - lives in lib/mapTurn.ts, tested. */
   function drawLoops(selectedId: string | null) {
-    const features = [...loopFeatures.current.entries()].map(([id, feature]) => ({
-      ...feature,
-      properties: { ...(feature.properties ?? {}), id, selected: id === selectedId },
-    }));
-    // An answer whose geometry all failed draws NOTHING rather than leaving
-    // the previous answer's routes on screen under it.
-    emitGeometry(features.length ? { type: 'FeatureCollection', features } : null);
+    const features = drawableFeatures(loopFeatures.current, selectedId);
+    emitGeometry(features ? { type: 'FeatureCollection', features } : null);
   }
 
-  function selectLoop(loop: Loop) {
+  /** A card click. The one entry point that had no turn guard: older
+   *  answers' cards stay clickable in the transcript, and clicking one drew
+   *  whatever answer owned the cache. Now it is planReveal's rule applied to
+   *  clicks - same answer restyles (retrying a failed line), any other
+   *  answer takes the map over, drawn through to the clicked card. */
+  async function selectLoop(loop: Loop, turn: number, loops: Loop[], fold: number) {
     setSelectedTrail(loop.id);
     routes.select(loop.id);
-    drawLoops(loop.id);
     void routes.load(loop.id);
+    const clickedIndex = loops.findIndex((candidate) => candidate.id === loop.id);
+    // A takeover restores everything this answer had on show: its revealed
+    // reach when that is known, never less than the fold or the clicked card.
+    const reach = Math.max(fold, revealed.current.get(turn) ?? 0);
+    const plan = planSelect(drawnTurn.current, turn, reach, clickedIndex);
+    drawnTurn.current = plan.drawnTurn;
+    if (plan.takeover) {
+      await loadLoopGeometry(loops.slice(...plan.slice), turn);
+      return;
+    }
+    if (needsFetch(loopFeatures.current.get(loop.id))) {
+      await appendLoopGeometry([loop], turn);
+      return;
+    }
+    drawLoops(loop.id);
   }
 
   async function loadLoopGeometry(loops: Loop[], turn: number) {
     loopFeatures.current.clear();
+    setLineStatus({});
     await appendLoopGeometry(loops, turn);
   }
 
@@ -179,19 +225,35 @@ export function ChatPanel({
    *  just revealed. Settled, not all: one route missing its geometry must not
    *  stop the others being drawn. */
   async function appendLoopGeometry(loops: Loop[], turn: number) {
-    const missing = loops.filter((loop) => !loopFeatures.current.has(loop.id));
-    const results = await Promise.allSettled(
-      missing.map((loop) => fetchRouteGeoJson(loop.id)),
+    // Errors are retried on the next ask; ok and missing (404) are settled;
+    // a line already on the wire is not asked for again.
+    const wanted = loops.filter(
+      (loop) =>
+        needsFetch(loopFeatures.current.get(loop.id)) &&
+        !linesInFlight.current.has(loop.id),
     );
+    wanted.forEach((loop) => linesInFlight.current.add(loop.id));
+    const results = await Promise.allSettled(
+      wanted.map((loop) => fetchRouteGeoJson(loop.id)),
+    ).finally(() => wanted.forEach((loop) => linesInFlight.current.delete(loop.id)));
     // The drawn set belongs to ONE answer, and this fetch was slow enough that
     // another answer may own it now. Guarding only the dispatch left the
     // continuation free to merge an older turn's routes into the new set.
     if (!mayDraw(drawnTurn.current, turn)) return;
     results.forEach((result, index) => {
-      if (result.status === 'fulfilled' && result.value) {
-        loopFeatures.current.set(missing[index].id, result.value);
-      }
+      const id = wanted[index].id;
+      // recordLine also verifies the payload IS this route: a response whose
+      // own route_id disagrees is recorded as an error, never drawn.
+      loopFeatures.current.set(
+        id,
+        result.status === 'fulfilled' ? recordLine(result.value, id) : { status: 'error' },
+      );
     });
+    setLineStatus(
+      Object.fromEntries(
+        [...loopFeatures.current.entries()].map(([id, entry]) => [id, entry.status]),
+      ),
+    );
     drawLoops(routes.current());
   }
 
@@ -237,6 +299,15 @@ export function ChatPanel({
             if (event.results.loops?.length) {
               const fold = event.results.answered_count ?? DEFAULT_FOLD;
               drawnTurn.current = turnIndex;
+              // The new answer owns the SELECTION as well as the map —
+              // revealLoops' takeover resets both, and this path must too:
+              // a selected id from the previous answer is never in the
+              // fresh cache, and drawableFeatures rightly draws nothing for
+              // a selection it cannot show. Without the reset, every answer
+              // after a card click arrived to a blank map.
+              routes.select(null);
+              setSelectedTrail(null);
+              emitDetail(null);
               void loadLoopGeometry(event.results.loops.slice(0, fold), turnIndex);
               break;
             }
@@ -358,17 +429,33 @@ export function ChatPanel({
             {message.results?.loops && message.results.loops.length > 0 && (
               <FoldedCards
                 fold={message.results.answered_count ?? DEFAULT_FOLD}
-                onReveal={(from, to) =>
-                  void revealLoops(index, message.results?.loops ?? [], from, to)
-                }
+                onReveal={(from, to) => {
+                  revealed.current.set(index, to);
+                  void revealLoops(index, message.results?.loops ?? [], from, to);
+                }}
               >
                 {message.results.loops.map((loop) => (
                   <LoopCard
                     key={loop.id}
                     loop={loop}
                     selected={selectedTrail === loop.id}
-                    onSelect={selectLoop}
-                    onExpand={selectLoop}
+                    onSelect={(picked) =>
+                      void selectLoop(
+                        picked,
+                        index,
+                        message.results?.loops ?? [],
+                        message.results?.answered_count ?? DEFAULT_FOLD,
+                      )
+                    }
+                    onExpand={(picked) =>
+                      void selectLoop(
+                        picked,
+                        index,
+                        message.results?.loops ?? [],
+                        message.results?.answered_count ?? DEFAULT_FOLD,
+                      )
+                    }
+                    line={lineStatus[loop.id]}
                     detail={routes.details[loop.id]}
                     favorited={favorites?.has(loop.id) ?? false}
                     onToggleFavorite={onToggleFavorite}

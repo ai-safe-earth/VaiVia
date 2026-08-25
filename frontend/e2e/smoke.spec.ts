@@ -106,9 +106,18 @@ test.describe('VaiVia smoke', () => {
     await expect(card.locator('.route-name')).not.toBeEmpty();
     await expect(card.getByText('km')).toBeVisible();
 
-    // Selecting it draws the route document's geometry on the map.
+    // Selecting it draws THAT route's geometry on the map — asserted by id,
+    // not by the empty-state text disappearing: the "any card shows any map"
+    // defect drew a different answer's routes and still passed that check.
+    // MapView surfaces the focused route id as a data attribute for exactly
+    // this assertion.
+    const clickedId = await card.getAttribute('data-route-id');
     await card.click();
     await expect(page.getByText('Pick a trail to see it drawn here.')).toBeHidden();
+    await expect(page.locator('[data-selected-route]')).toHaveAttribute(
+      'data-selected-route',
+      clickedId!,
+    );
 
     // The answer prose carries no links (fragilities.md #14): the model used
     // to invent trailforks.com links onto OSM-derived routes, and the strip

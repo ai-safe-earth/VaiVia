@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 import { distance, distanceFigure, elevationFigure } from '@/lib/format';
+import type { LineStatus } from '@/lib/mapTurn';
 import { profileFromDetail } from '@/lib/profile';
 import type { Loop, RouteDetail } from '@/lib/types';
 
@@ -20,6 +21,11 @@ interface Props {
   /** Fired when the card opens, so the parent can fetch the detail and focus
    *  the map on this route. */
   onExpand?: (loop: Loop) => void;
+  /** This card's map line: undefined = not asked yet, 'ok' = drawn on
+   *  select, 'missing' = the route left the catalogue (settled), 'error' =
+   *  the fetch failed and a click retries. Said on the card, because the
+   *  silent alternative was drawing the SIBLINGS under this card's name. */
+  line?: LineStatus;
   /** Saved state + toggle. Absent when signed out — favorites are account
    *  data, so the mark only exists with an account. */
   favorited?: boolean;
@@ -66,6 +72,7 @@ export function LoopCard({
   onSelect,
   detail,
   onExpand,
+  line,
   favorited = false,
   onToggleFavorite,
 }: Props) {
@@ -116,6 +123,7 @@ export function LoopCard({
       role="button"
       tabIndex={0}
       className="route-card"
+      data-route-id={loop.id}
       aria-pressed={selected}
       onClick={() => onSelect(loop)}
       onKeyDown={(event) => {
@@ -144,6 +152,20 @@ export function LoopCard({
         )}
       </div>
       <h3 className="route-name vv-title">{heading}</h3>
+
+      {/* A line that could not be fetched is said out loud. The quiet
+          alternative was worse than silence: the map drew this card's
+          siblings, framed them, and wore this card's name. */}
+      {line === 'missing' && (
+        <p className="line-note vv-body-sm">
+          No map line — this route has left the catalogue.
+        </p>
+      )}
+      {line === 'error' && (
+        <p className="line-note line-note-retry vv-body-sm">
+          Map line unavailable — select the card to retry.
+        </p>
+      )}
 
       <div className="figures">
         <div className="figure">
