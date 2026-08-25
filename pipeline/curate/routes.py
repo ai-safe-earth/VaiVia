@@ -35,9 +35,7 @@ from curate.route_links import expand_members
 # definitions drift apart.
 RELATIONS = "SELECT rel_id, tags, members FROM staging.osm_relation ORDER BY rel_id"
 
-PIECES = (
-    "SELECT way_id, edge_id, piece_index FROM source_map.edge ORDER BY way_id, piece_index"
-)
+PIECES = "SELECT way_id, edge_id, piece_index FROM source_map.edge ORDER BY way_id, piece_index"
 
 NETWORK_RUNS = "SELECT DISTINCT run_id FROM source_map.edge"
 

@@ -249,7 +249,8 @@ def _weld(conn, run_id: str, rule: str, moving_id: int, fixed_id: int) -> bool:
             {"moving": moving_id, "fixed": fixed_id, "edge": edge_id},
         )
         after = conn.execute(
-            "SELECT ST_AsBinary(geom) FROM source_map.edge WHERE edge_id = %s", (edge_id,)
+            "SELECT ST_AsBinary(geom) FROM source_map.edge WHERE edge_id = %s",
+            (edge_id,),
         ).fetchone()[0]
         _fix(
             conn,
@@ -365,7 +366,8 @@ def repair_edge(conn, run_id: str, dry_run: bool) -> int:
         ).fetchone()[0]
 
         after = conn.execute(
-            "SELECT ST_AsBinary(geom) FROM source_map.edge WHERE edge_id = %s", (edge_id,)
+            "SELECT ST_AsBinary(geom) FROM source_map.edge WHERE edge_id = %s",
+            (edge_id,),
         ).fetchone()[0]
         _fix(
             conn,
