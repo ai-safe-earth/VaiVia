@@ -35,8 +35,10 @@ def main() -> None:
     with connect() as conn:
         rows = conn.execute(ROWS).fetchall()
         mapping: list[tuple[str, str, str | None]] = []
+        already: set[str] = set()
         for old_id, shape, geojson in rows:
             if re.fullmatch(r"vv2-[0-9a-f]{16}(-(fwd|rev))?", old_id):
+                already.add(old_id)
                 continue
             coords = json.loads(geojson)["coordinates"]
             direction = None
@@ -47,7 +49,11 @@ def main() -> None:
             )
 
         print(f"{len(rows)} routes, {len(mapping)} to rekey")
-        collisions = len(mapping) - len({new for _old, new, _d in mapping})
+        new_ids = {new for _old, new, _d in mapping}
+        # Collisions among the renames AND against rows already in v2 form:
+        # a rename landing on an existing key would violate the PK and, on a
+        # partially-rekeyed table, silently merge two grounds.
+        collisions = (len(mapping) - len(new_ids)) + len(new_ids & already)
         if collisions:
             raise SystemExit(
                 f"{collisions} ground collisions — two rows hash to one id; "

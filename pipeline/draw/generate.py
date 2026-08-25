@@ -36,7 +36,7 @@ from core import connect
 from draw.assemble import WalkedEdge, assemble, score
 from draw.destinations import Destination, crow_band, rank, route_name
 from draw.loops import keep_distinct, ring_points
-from draw.route_id import route_id
+from ids import DIRECTED_SHAPES, forward_is_stored, route_id
 
 # The starts worth drawing from, best first: on the main component (a start on
 # an island goes nowhere), preferring many anchors (a real trailhead, not a
@@ -416,7 +416,12 @@ def main() -> None:
         inserted = 0
         for candidate in kept_total:
             facts = candidate["facts"]
-            rid = route_id(facts.coords)
+            # The v2 mint: directed shapes carry the direction this walk
+            # was drawn in, sense fixed by geometry alone (pipeline/ids.py).
+            direction = None
+            if args.shape in DIRECTED_SHAPES:
+                direction = "fwd" if forward_is_stored(facts.coords) else "rev"
+            rid = route_id([facts.coords], args.shape, direction or "fwd")
             # The same ground can win from two nearby starts — one row speaks.
             # It can also already exist as the OTHER activity's loop (a fully
             # bike-legal foot loop IS the mtb loop over the same ground): the
@@ -430,14 +435,14 @@ def main() -> None:
             conn.execute(
                 """
                 INSERT INTO catalogue.route
-                    (route_id, kind, activity, shape, name,
+                    (route_id, direction, kind, activity, shape, name,
                      destination_id, destination_kind, destination_name,
                      start_vertex, target_m, distance_m,
                      ascent_m, descent_m, sac_scale, sac_max, graded_share,
                      mtb_rideable, mtb_scale, bike_blocked_m,
                      surface, off_road_share, retrace_share, score, seed,
                      geom, run_id)
-                VALUES (%s, 'generated', %s, %s, %s,
+                VALUES (%s, %s, 'generated', %s, %s, %s,
                         %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s,
@@ -445,6 +450,7 @@ def main() -> None:
                 """,
                 (
                     rid,
+                    direction,
                     args.activity,
                     args.shape,
                     (
