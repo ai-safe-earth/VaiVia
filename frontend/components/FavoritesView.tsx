@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { fetchFavorites, fetchRouteGeoJson, type FavoritesList } from '@/lib/api';
+import { needsFetch, recordLine, type LineEntry, type LineStatus } from '@/lib/mapTurn';
 import type { Loop, RouteDetail } from '@/lib/types';
 import { useRouteDetails } from '@/lib/useRouteDetails';
 
@@ -43,9 +44,11 @@ export function FavoritesView({
   const [selected, setSelected] = useState<string | null>(null);
   // The same detail loading the chat cards use, guards included.
   const routeDetails = useRouteDetails(onDetail);
-  // Geometry, kept per route: clicking between saved cards re-drew the map by
-  // re-fetching the same GeoJSON every time.
-  const geometries = useRef<Map<string, GeoJSON.Feature | null>>(new Map());
+  // Geometry, kept per route with its fetch OUTCOME — the same discipline
+  // as the chat cards: a failed line says so on the card and retries, a 404
+  // is settled, and neither is a silently blank map.
+  const geometries = useRef<Map<string, LineEntry>>(new Map());
+  const [lineStatus, setLineStatus] = useState<Record<string, LineStatus>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -70,33 +73,38 @@ export function FavoritesView({
 
   /** Draw the route and load its profile.
    *
-   *  Everything that can fail is awaited defensively: the geometry fetch sat
-   *  outside the try once, so a 503 from the documents store threw past an
-   *  un-caught `void select(...)` and left the expanded card saying
-   *  "Fetching the altitude profile…" for ever.
+   *  The chat cards' rules, applied here too (this copy is where they went
+   *  missing once before): every fetch outcome is RECORDED — recordLine
+   *  verifies the payload is this route, a 404 is settled, an error retries
+   *  on the next select — and a card whose line is unavailable says so and
+   *  clears the map instead of leaving whatever was drawn before.
    */
   async function select(loop: Loop) {
     setSelected(loop.id);
     routeDetails.select(loop.id);
-    if (!geometries.current.has(loop.id)) {
-      geometries.current.set(
-        loop.id,
-        await fetchRouteGeoJson(loop.id).catch(() => null),
-      );
+    if (needsFetch(geometries.current.get(loop.id))) {
+      let entry: LineEntry;
+      try {
+        entry = recordLine(await fetchRouteGeoJson(loop.id), loop.id);
+      } catch {
+        entry = { status: 'error' };
+      }
+      geometries.current.set(loop.id, entry);
+      setLineStatus((current) => ({ ...current, [loop.id]: entry.status }));
     }
     // Late geometry for a card the user has already moved off must not
     // repaint the map under the one they are looking at now.
     if (routeDetails.current() !== loop.id) return;
-    const feature = geometries.current.get(loop.id) ?? null;
+    const entry = geometries.current.get(loop.id);
     // Marked selected: a saved route IS the picked one, and a bare feature
     // rendered at the unselected 2px/0.55 — a cosmetic drift from the chat
     // cards that made the same route render differently by point of entry.
     onGeometry(
-      feature
+      entry?.status === 'ok'
         ? {
-            ...feature,
+            ...entry.feature,
             properties: {
-              ...(feature.properties ?? {}),
+              ...(entry.feature.properties ?? {}),
               id: loop.id,
               selected: true,
             },
@@ -133,6 +141,7 @@ export function FavoritesView({
             selected={selected === loop.id}
             onSelect={(picked) => void select(picked)}
             onExpand={(picked) => void select(picked)}
+            line={lineStatus[loop.id]}
             detail={routeDetails.details[loop.id]}
             favorited={favorites.has(loop.id)}
             onToggleFavorite={onToggleFavorite}

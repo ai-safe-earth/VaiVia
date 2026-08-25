@@ -97,6 +97,15 @@ export function ChatPanel({
   // "show more" under an older one used to merge its routes into the current
   // answer's map — a picture belonging to neither turn.
   const drawnTurn = useRef<number | null>(null);
+  // How far each answer's fold has been revealed. FoldedCards keeps the
+  // count as its own state; this mirror is what lets a click-takeover
+  // restore every card the user can SEE, not just the fold — without it,
+  // cards revealed before another answer took the map over came back
+  // line-less, and no later "show more" could heal them.
+  const revealed = useRef<Map<number, number>>(new Map());
+  // Route lines currently being fetched, so a click during the initial
+  // batch does not dispatch the same GET twice.
+  const linesInFlight = useRef<Set<string>>(new Set());
   // Route documents' detail (profile, measures), fetched once per route on
   // first expand or selection — asked once, null on failure, and only painted
   // if its card is still the selected one. Shared with the saved-routes view,
@@ -169,7 +178,10 @@ export function ChatPanel({
     routes.select(loop.id);
     void routes.load(loop.id);
     const clickedIndex = loops.findIndex((candidate) => candidate.id === loop.id);
-    const plan = planSelect(drawnTurn.current, turn, fold, clickedIndex);
+    // A takeover restores everything this answer had on show: its revealed
+    // reach when that is known, never less than the fold or the clicked card.
+    const reach = Math.max(fold, revealed.current.get(turn) ?? 0);
+    const plan = planSelect(drawnTurn.current, turn, reach, clickedIndex);
     drawnTurn.current = plan.drawnTurn;
     if (plan.takeover) {
       await loadLoopGeometry(loops.slice(...plan.slice), turn);
@@ -213,11 +225,17 @@ export function ChatPanel({
    *  just revealed. Settled, not all: one route missing its geometry must not
    *  stop the others being drawn. */
   async function appendLoopGeometry(loops: Loop[], turn: number) {
-    // Errors are retried on the next ask; ok and missing (404) are settled.
-    const wanted = loops.filter((loop) => needsFetch(loopFeatures.current.get(loop.id)));
+    // Errors are retried on the next ask; ok and missing (404) are settled;
+    // a line already on the wire is not asked for again.
+    const wanted = loops.filter(
+      (loop) =>
+        needsFetch(loopFeatures.current.get(loop.id)) &&
+        !linesInFlight.current.has(loop.id),
+    );
+    wanted.forEach((loop) => linesInFlight.current.add(loop.id));
     const results = await Promise.allSettled(
       wanted.map((loop) => fetchRouteGeoJson(loop.id)),
-    );
+    ).finally(() => wanted.forEach((loop) => linesInFlight.current.delete(loop.id)));
     // The drawn set belongs to ONE answer, and this fetch was slow enough that
     // another answer may own it now. Guarding only the dispatch left the
     // continuation free to merge an older turn's routes into the new set.
@@ -281,6 +299,15 @@ export function ChatPanel({
             if (event.results.loops?.length) {
               const fold = event.results.answered_count ?? DEFAULT_FOLD;
               drawnTurn.current = turnIndex;
+              // The new answer owns the SELECTION as well as the map —
+              // revealLoops' takeover resets both, and this path must too:
+              // a selected id from the previous answer is never in the
+              // fresh cache, and drawableFeatures rightly draws nothing for
+              // a selection it cannot show. Without the reset, every answer
+              // after a card click arrived to a blank map.
+              routes.select(null);
+              setSelectedTrail(null);
+              emitDetail(null);
               void loadLoopGeometry(event.results.loops.slice(0, fold), turnIndex);
               break;
             }
@@ -402,9 +429,10 @@ export function ChatPanel({
             {message.results?.loops && message.results.loops.length > 0 && (
               <FoldedCards
                 fold={message.results.answered_count ?? DEFAULT_FOLD}
-                onReveal={(from, to) =>
-                  void revealLoops(index, message.results?.loops ?? [], from, to)
-                }
+                onReveal={(from, to) => {
+                  revealed.current.set(index, to);
+                  void revealLoops(index, message.results?.loops ?? [], from, to);
+                }}
               >
                 {message.results.loops.map((loop) => (
                   <LoopCard

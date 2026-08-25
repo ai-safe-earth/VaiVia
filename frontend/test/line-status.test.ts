@@ -86,9 +86,11 @@ describe('a fetched line proves it is the requested route', () => {
     expect(recordLine(line('b'), 'a')).toEqual({ status: 'error' });
   });
 
-  it('tolerates a payload that carries no route_id at all', () => {
+  it('rejects a payload that carries no route_id at all', () => {
+    // Verification must not be opt-in: the malformed payloads it exists for
+    // are exactly the ones that would omit the id.
     const bare: GeoJSON.Feature = { ...line('a'), properties: {} };
-    expect(recordLine(bare, 'a').status).toBe('ok');
+    expect(recordLine(bare, 'a')).toEqual({ status: 'error' });
   });
 
   it('retries errors, holds ok and unknown-not-asked is fetched', () => {

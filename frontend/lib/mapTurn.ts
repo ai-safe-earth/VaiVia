@@ -26,17 +26,18 @@ export interface RevealPlan {
  * Revealing cards of the answer already drawn ADDS to it. From any other
  * answer it is a change of subject: that answer takes the map over, drawn
  * from its first card, so what is shown is one answer whole and never a mix.
+ *
+ * The slice runs from 0 in BOTH cases: the fetch behind it skips lines it
+ * already holds, so on the drawn answer this costs nothing extra — and it
+ * backfills any hole an earlier click-takeover left behind the fold.
  */
 export function planReveal(
   drawnTurn: number | null,
   turn: number,
-  from: number,
+  _from: number,
   to: number,
 ): RevealPlan {
-  if (drawnTurn === turn) {
-    return { clear: false, slice: [from, to], drawnTurn: turn };
-  }
-  return { clear: true, slice: [0, to], drawnTurn: turn };
+  return { clear: drawnTurn !== turn, slice: [0, to], drawnTurn: turn };
 }
 
 /**
@@ -109,14 +110,15 @@ export type LineStatus = LineEntry['status'];
 
 /**
  * Record a geometry fetch's outcome — verifying that the payload IS the
- * requested route. The backend stamps properties.route_id; a response whose
- * id disagrees with the id it was fetched for must never be drawn under
- * that card's name, whatever crossed the wires to produce it.
+ * requested route. The backend stamps properties.route_id on every route
+ * response; one that disagrees with the id it was fetched for — or carries
+ * none at all — must never be drawn under that card's name, whatever
+ * crossed the wires to produce it. Tolerating an absent id would make the
+ * verification opt-in for exactly the malformed payloads it exists for.
  */
 export function recordLine(feature: GeoJSON.Feature | null, routeId: string): LineEntry {
   if (feature === null) return { status: 'missing' };
-  const returned = feature.properties?.route_id;
-  if (typeof returned === 'string' && returned !== routeId) return { status: 'error' };
+  if (feature.properties?.route_id !== routeId) return { status: 'error' };
   return { status: 'ok', feature };
 }
 
@@ -155,16 +157,16 @@ export function drawableFeatures(
   return features.length ? features : null;
 }
 
-/** The selected feature of a collection, if any — else a sole feature. */
+/** The selected feature of a collection, if any — else a bare Feature (a
+ *  trail, a saved route). An UNSELECTED collection is unfocused whatever its
+ *  size: a 1-element fallback made the focus depend on how many siblings
+ *  happened to load, which is a count, not a choice. */
 function focusOf(
   geometry: GeoJSON.Feature | GeoJSON.FeatureCollection | GeoJSON.Geometry | null,
 ): GeoJSON.Feature | null {
   if (!geometry || !('type' in geometry)) return null;
   if (geometry.type === 'FeatureCollection') {
-    return (
-      geometry.features.find((f) => f.properties?.selected) ??
-      (geometry.features.length === 1 ? geometry.features[0]! : null)
-    );
+    return geometry.features.find((f) => f.properties?.selected) ?? null;
   }
   if (geometry.type === 'Feature') return geometry;
   return null;

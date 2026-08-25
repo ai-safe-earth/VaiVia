@@ -17,9 +17,13 @@ const KNOWN = {} as unknown as RouteDetail;
 
 describe('the map shows one answer', () => {
   it('adds to the drawn set when the reveal is from the answer already drawn', () => {
+    // The slice runs from 0: the fetch behind it skips lines already held,
+    // and starting at the reveal point left holes a click-takeover made
+    // (cards 5-9 revealed, takeover redrew 0-4, "show more" fetched 10-11
+    // and 5-9 stayed line-less for ever).
     expect(planReveal(3, 3, 5, 10)).toEqual({
       clear: false,
-      slice: [5, 10],
+      slice: [0, 10],
       drawnTurn: 3,
     });
   });
