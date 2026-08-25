@@ -125,6 +125,12 @@ def document_rows(document: dict) -> dict[str, Any]:
             "warnings": len(quality["warnings"]),
             "places": len(document["places"]),
             "bbox": document["bbox"],
+            # The cross-layer contract fields (docs/route-document.md): the
+            # API compares these against the document it serves, so a :Route
+            # from export N wearing a file from export N-1 fails visibly
+            # instead of serving another build's shape under this id.
+            "schema_version": document["schema_version"],
+            "doc_run_id": document.get("provenance", {}).get("run_id"),
         },
     }
 
@@ -242,7 +248,10 @@ def main() -> None:
             session.run(cypher[name])
 
         owned = session.run(cypher["count_owned"]).single()["owned"]
-        session.run(cypher["wipe_owned"])
+        # Bounded bites, each its own auto-commit transaction, so the wipe
+        # stays under the server's 10s transaction timeout on any cache.
+        while session.run(cypher["wipe_owned_batch"], limit=1000).single()["deleted"]:
+            pass
         print(f"replaced {owned:,} previously exported/legacy catalogue nodes")
 
         for batch in batches(routes):

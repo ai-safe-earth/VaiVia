@@ -35,12 +35,18 @@ MATCH (n)
 WHERE n:Route OR n:Place OR n:Start
 RETURN count(n) AS owned
 
-// name: wipe_owned
+// name: wipe_owned_batch
+// One bounded bite of the wipe, called in a loop until it returns 0. The
+// CALL ... IN TRANSACTIONS form ran the whole wipe under ONE outer query,
+// which the server's 10s db.transaction.timeout killed partway on a cold
+// cache — leaving a half-wiped catalogue, which is worse than either a full
+// one or none. A script with genuinely large work has to bound itself: a
+// client cannot raise a server ceiling, only stay under it.
 MATCH (n)
 WHERE n:Route OR n:Place OR n:Start
-CALL (n) {
-  DETACH DELETE n
-} IN TRANSACTIONS OF 1000 ROWS
+WITH n LIMIT $limit
+DETACH DELETE n
+RETURN count(n) AS deleted
 
 // name: load_routes
 UNWIND $rows AS row

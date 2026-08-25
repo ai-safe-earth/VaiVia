@@ -6,7 +6,7 @@ carries and what it deliberately leaves behind.
 
 from __future__ import annotations
 
-from export.document import Span, build_document
+from export.document import SCHEMA_VERSION, Span, build_document
 from export.neo4j_load import document_rows, templates
 
 
@@ -106,6 +106,10 @@ def test_selection_properties_travel_and_geometry_does_not():
     assert props["sac_max_rank"] == 4
     assert props["mtb_rideable"] is True
     assert props["destination_name"] == "Rifugio Elisa"
+    # The contract fields the API verifies before serving the document: a
+    # :Route from export N wearing a file from export N-1 must fail visibly.
+    assert props["schema_version"] == SCHEMA_VERSION
+    assert props["doc_run_id"] == "draw-x"
     assert props["bbox"] == [9.33, 45.92, 9.35, 45.94]
     # The document stays canonical for these; Neo4j must not grow a second copy.
     assert "geometry" not in props
@@ -220,7 +224,7 @@ def test_every_template_the_loader_runs_exists_and_is_parameterised():
         "constraints_place",
         "constraints_start",
         "count_owned",
-        "wipe_owned",
+        "wipe_owned_batch",
         "load_routes",
         "load_places",
         "load_starts",
