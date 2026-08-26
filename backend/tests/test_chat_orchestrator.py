@@ -632,3 +632,76 @@ async def test_first_turn_has_no_standing_and_runs_unchanged(db):
     await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
     assert llm.standing_seen == [None]
     assert last_params(db, "search_loops")["max_distance_m"] == 15000
+
+
+async def test_reset_discards_the_standing_plan(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 20000}],
+                "reset": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(
+        orchestrator,
+        user_id="u1",
+        message="delete all constraints, a loop under 20 km",
+        conversation_id=cid,
+    )
+    params = last_params(db, "search_loops")
+    assert params["max_distance_m"] == 20000
+    # The old plan's activity did NOT survive the reset: no filter at all,
+    # where a carried "hike" would have pinned ["hiking", "foot"].
+    assert params["activities"] is None
+
+
+async def test_reset_beats_a_stray_refine_flag(db):
+    db.when("search_loops", [])
+    orchestrator, _, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 20000}],
+                "reset": True,
+                "refine": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(
+        orchestrator, user_id="u1", message="start over, 20k", conversation_id=cid
+    )
+    # refine had nothing to merge onto: the plan is the delta alone.
+    params = last_params(db, "search_loops")
+    assert params["max_distance_m"] == 20000
+
+
+async def test_a_bare_reset_clears_the_memory_for_the_next_turn(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {"subqueries": [], "reset": True},  # "start over" -> clarify turn
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 9000}],
+                "refine": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(orchestrator, user_id="u1", message="start over", conversation_id=cid)
+    await collect(orchestrator, user_id="u1", message="shorter", conversation_id=cid)
+    # The clarify after the reset carried NOTHING forward: the model was
+    # shown no plan and the refine had nothing to merge onto.
+    assert llm.standing_seen[2] is None
+    assert last_params(db, "search_loops")["max_distance_m"] == 9000

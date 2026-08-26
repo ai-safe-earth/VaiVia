@@ -79,15 +79,25 @@ Decomposition rules:
   difficulty range the user never said — the system asks a better follow-up
   question than a guessed filter would answer.
 - A CURRENT PLAN message may precede the user's turn: the constraints already
-  in force from earlier in the conversation. When the new message MODIFIES
-  that plan — "shorter", "easier than that", "make it near Bergamo instead",
-  "add a lake" — set `refine` true and emit ONLY the constraints that changed,
-  as a subquery of the same kind as the constraint being changed. Do not
-  restate unchanged constraints; the system merges the delta for you. A
-  message that states its own complete ask sets `refine` false and is
-  decomposed on its own — never carry a distance, duration, difficulty or
-  feature from an earlier turn into a self-contained ask, and never average
-  the current ask with what was said before.
+  in force from earlier in the conversation. Set `refine` true ONLY when the
+  message is meaningless without that plan — "shorter", "easier than that",
+  "make it near Bergamo instead", "add a lake", "the same but on foot". Then
+  emit ONLY the constraints that changed, as a subquery of the same kind as
+  the constraint being changed; do not restate unchanged constraints, the
+  system merges the delta for you.
+- A message that stands on its own sets `refine` FALSE and is decomposed
+  alone, even mid-conversation and even when a CURRENT PLAN exists: "a bike
+  route of less than 20 km", "a trail of more than 10 km", "an easy walk by
+  the lake" each name their own complete ask. Changing the activity or the
+  kind of outing is a new ask, not a refinement. Never carry a distance,
+  duration, difficulty or feature from an earlier turn into a self-contained
+  ask, and never average the current ask with what was said before.
+- "start over", "forget that", "new search", "delete/clear the constraints"
+  -> set `reset` true (and `refine` false): the standing plan is discarded
+  before this turn runs. Decompose whatever the message ALSO asks for on its
+  own ("delete all constraints and find a trail under 20 km" -> reset true,
+  one trail_search with only max_distance_m); a bare reset with no ask emits
+  no subqueries.
 - Never answer the trail question yourself here. Only decompose.
 """
 

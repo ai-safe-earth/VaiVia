@@ -183,6 +183,12 @@ class ChatOrchestrator:
         )
         subqueries = plan_result.envelope.subqueries
         plan = compose(subqueries)
+        # reset discards the plan in force BEFORE refine is considered: it is
+        # the only way to clear a constraint (a delta can change one but not
+        # unset it), and it must also stop a clarify turn carrying the old
+        # plan forward below.
+        if plan_result.envelope.reset:
+            standing_raw = None
         refined = False
         if plan_result.envelope.refine and not plan.is_clarify:
             standing = standing_load(standing_raw)
@@ -197,6 +203,7 @@ class ChatOrchestrator:
                 "subqueries": len(subqueries),
                 "clarify": plan.is_clarify,
                 "refined": refined,
+                "reset": plan_result.envelope.reset,
                 "routes": len(plan.routes),
                 "theme": bool(plan.theme),
             },

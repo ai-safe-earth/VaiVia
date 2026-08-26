@@ -414,6 +414,22 @@ def test_theme_delta_replaces_the_theme_and_keeps_the_search():
     assert merged.search.max_distance_m == 12000.0
 
 
+def test_standing_routes_are_never_carried_into_a_refinement():
+    # A route is a one-shot answer, not a constraint in force: carrying it
+    # re-ran "Lecco to Bergamo" under every later ask (owner session,
+    # 2026-08-26, via dump_conversation).
+    standing = ComposedPlan(
+        search=TrailSearchIntent(max_distance_m=15000.0),
+        routes=[RouteIntent(start="Lecco", end="Bergamo")],
+    )
+    merged = apply_delta(
+        standing, ComposedPlan(search=TrailSearchIntent(max_distance_m=10000.0))
+    )
+    assert merged.routes == []
+    assert merged.search is not None
+    assert merged.search.max_distance_m == 10000.0
+
+
 def test_a_route_only_delta_is_a_change_of_subject():
     merged = apply_delta(
         _standing_loop(),

@@ -129,6 +129,11 @@ class PlanEnvelope(BaseModel):
 
     subqueries: list[Intent] = Field(default_factory=list)
     refine: bool = False
+    #: "start over", "forget that", "delete the constraints": the standing
+    #: plan is DISCARDED before this turn is considered. The counterpart of
+    #: refine, and the only way to clear a constraint (a delta can change one
+    #: but not unset it — apply_delta's known ceiling).
+    reset: bool = False
 
 
 def to_strict_schema(model: type[BaseModel]) -> dict[str, Any]:

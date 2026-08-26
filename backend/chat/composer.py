@@ -451,6 +451,10 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
     (a clarify poisons the turn before it gets here). A route ask with nothing
     else is a change of subject — "now route me from A to B" — and starts
     fresh even under a stray refine flag.
+
+    Standing ROUTES are never carried: a route is a one-shot answer, not a
+    constraint in force, and carrying it re-ran "Lecco to Bergamo" under
+    every later ask of the conversation (owner session, 2026-08-26).
     """
     if standing.is_clarify:
         return delta
@@ -460,7 +464,6 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
     merged = ComposedPlan(
         search=standing.search,
         theme=standing.theme,
-        routes=list(standing.routes),
         loop=standing.loop,
     )
     if delta.search is not None:

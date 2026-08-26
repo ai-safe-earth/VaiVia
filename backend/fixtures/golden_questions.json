@@ -318,5 +318,41 @@
   "expect": {
    "routes": 1
   }
+ },
+ {
+  "id": "g32",
+  "turns": [
+   "a 15 km mtb loop near Bergamo past a peak",
+   "a bike route of less than 20 km"
+  ],
+  "expect": {
+   "search.max_distance_m": 20000,
+   "search.region": null
+  }
+ },
+ {
+  "id": "g33",
+  "turns": [
+   "a hard mtb loop near Bergamo in summer",
+   "delete all constraints and search for a trail of less than 20 km"
+  ],
+  "expect": {
+   "search.max_distance_m": 20000,
+   "search.region": null,
+   "search.season": null
+  }
+ },
+ {
+  "id": "g34",
+  "turns": [
+   "how do I get from Lecco to Abbadia?",
+   "a 10 km loop"
+  ],
+  "expect": {
+   "routes": 0,
+   "loop.max_distance_m": {
+    "lte": 12000
+   }
+  }
  }
 ]
