@@ -11,15 +11,11 @@ dependencies = [
     "shapely>=2.0", # vectorised geometry, no DB in the test loop
     "pyproj>=3.6", # real CRS handling: 4326 <-> 32632
     "osmium>=4.0", # streaming the Geofabrik PBF, tag-complete
-    "rasterio>=1.3", # DEM sampling in tests; the Phase 0 DEM comparison
     "psycopg[binary]>=3.2", # the PostGIS boundary
-    "geoalchemy2>=0.15", # geometry types over SQLAlchemy
+    # Not used directly: GeoPandas builds an engine internally, so everything
+    # through read_postgis needs it (core.sqlalchemy_url spells the dialect).
     "sqlalchemy>=2.0",
-    "gtfs-kit>=6.0", # transit reachability for the start rule
-    "networkx>=3.0", # component diagnostics; routing stays in pgRouting/GraphHopper
     "matplotlib>=3.8", # near-miss histograms, profile renders
-    "httpx>=0.27", # source downloads
-    "pydantic-settings>=2.0",
     # The route document is the product (docs/route-document.md), and its schema
     # is a contract other tiers read. Validating the emitter against it in the
     # test suite is what stops the contract and the producer drifting apart.

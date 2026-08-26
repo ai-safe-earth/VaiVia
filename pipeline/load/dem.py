@@ -6,9 +6,10 @@ ST_FromGDALRaster reads the GeoTIFF bytes server-side and ST_Tile cuts it into
 instead of one 44 MB raster row. GDAL drivers are disabled by default in
 PostGIS for good security reasons; GTiff is enabled for this session only.
 
-The COG also stays on disk (pipeline/data/) for rasterio-side work — tests and
-the profile comparison read the file; production profile sampling reads the
-database.
+The COG stays on disk (pipeline/data/) as this loader's input, and nothing else
+reads it: every elevation sample in the pipeline is ST_Value against the tiled
+raster in staging.dem. An earlier note here promised rasterio-side work in the
+tests, which never arrived and kept the dependency alive on its own.
 
 Run from pipeline/:
     uv run python -m load.dem --tif data/glo30_N45_E009.tif
