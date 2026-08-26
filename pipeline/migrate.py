@@ -5,19 +5,13 @@ error (the same rule backend/scripts/apply_migrations.py enforces for the
 Supabase schema). Each file runs in its own transaction, so a failure rolls
 that file back whole.
 
-Two chains exist and must never cross:
+``sql/v2/`` is the only chain. Its baseline creates the layout (staging /
+source_map / catalogue / qa / provenance) from scratch and stamps
+``provenance.chain_version``, which the run checks afterwards.
 
-* ``sql/v2/`` is the live chain. Its baseline creates the v2 layout
-  (staging / source_map / catalogue / qa / provenance) from scratch and
-  stamps ``provenance.chain_version``.
-* ``sql/v1/`` is frozen history — the chain that built the store when one
-  ``curated`` schema did both the source-map and catalogue jobs. It is
-  never applied by this script again: replaying it against a v2 store
-  would resurrect empty ``curated.*`` tables beside the renamed full ones,
-  which is how a store quietly becomes two stores.
-
-A store built by v1 carries data but no chain stamp; this script refuses it
-and points at ``convert_v2.py``, the one-shot rename that brings it here.
+There was a v1 chain, and a one-shot ``convert_v2.py`` that renamed a v1 store
+into this layout. Both were deleted once every store had been converted; git
+holds them if a pre-cutover backup ever surfaces.
 
 Run from pipeline/:
     uv run python migrate.py
@@ -33,21 +27,6 @@ from core import connect
 
 MIGRATIONS = Path(__file__).resolve().parent / "sql" / "v2"
 CHAIN_VERSION = 2
-
-
-def store_state(conn) -> str:
-    """'v2', 'v1', or 'fresh' — what chain this store belongs to."""
-    stamped = conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM information_schema.tables"
-        " WHERE table_schema = 'provenance' AND table_name = 'chain_version')"
-    ).fetchone()[0]
-    if stamped:
-        return "v2"
-    v1 = conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM information_schema.schemata"
-        " WHERE schema_name = 'curated')"
-    ).fetchone()[0]
-    return "v1" if v1 else "fresh"
 
 
 def main() -> None:
@@ -68,21 +47,6 @@ def main() -> None:
         return
 
     with connect() as conn:
-        state = store_state(conn)
-        if state == "v1":
-            raise SystemExit(
-                "this store was built by the v1 chain (a `curated` schema and no "
-                "chain stamp). Run `uv run python convert_v2.py` once — the "
-                "in-place rename to the v2 layout — and then this script."
-            )
-        # store_state's SELECTs opened the connection's implicit transaction;
-        # left open, every per-file transaction() below would be a SAVEPOINT
-        # inside it and nothing would commit until exit — making the per-file
-        # "applied" lines a lie on any later failure. Close it, so each file
-        # commits as its line prints, which is the contract the docstring
-        # states.
-        conn.rollback()
-
         for path in files:
             with conn.transaction():
                 conn.execute(path.read_text(encoding="utf-8"))

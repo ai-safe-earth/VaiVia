@@ -5,7 +5,7 @@
 > place) with the generated-route tables moving to **`catalogue`**, and
 > `public.build_run` moved to **`provenance`**. References below use the
 > new names throughout, including in passages narrating v1-era events —
-> read older commits and `sql/v1/` with this mapping in hand.
+> read older commits with this mapping in hand.
 
 The two operations that silently corrupt a route map are cutting ways into pieces and
 merging pieces into routes. Neither has a safe default: "copy everything" on split
