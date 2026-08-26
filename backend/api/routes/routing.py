@@ -279,6 +279,26 @@ def _attribution(document: dict) -> str:
     )
 
 
+@router.get("/routes/by-ids")
+async def routes_by_ids(ids: str, db: DbDep) -> dict:
+    """Hydrate catalogue route ids back into cards, in the order given.
+
+    The resume path: the client stores only ids per conversation turn
+    (messages.result_refs) and asks for the cards again here. Same contract
+    as /routes/favorites — routes_by_ids shares search_loops' RETURN, so the
+    client renders the cards it renders for a live answer; an id whose route
+    left the catalogue comes back in `missing`, never silently dropped.
+    The literal path registers before the /routes/{route_id} patterns.
+    """
+    wanted = [part.strip() for part in ids.split(",") if part.strip()][:100]
+    rows = await db.run_named("routes_by_ids", route_ids=wanted) if wanted else []
+    by_id = {row["id"]: row for row in rows}
+    return {
+        "routes": [by_id[i] for i in wanted if i in by_id],
+        "missing": [i for i in wanted if i not in by_id],
+    }
+
+
 @router.get("/routes/{route_id}/geojson", response_model=RouteGeoJson)
 async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
     """Map payload for one catalogue route, read from its ROUTE DOCUMENT.

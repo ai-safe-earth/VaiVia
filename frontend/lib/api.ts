@@ -159,6 +159,18 @@ export interface FavoritesList {
   missing: string[];
 }
 
+/** The resume path: conversation turns store only route ids (result_refs);
+ *  this hydrates them back into the same card rows a live answer carries.
+ *  Ids whose route left the catalogue come back in `missing`. */
+export async function fetchRoutesByIds(ids: string[]): Promise<FavoritesList> {
+  if (ids.length === 0) return { routes: [], missing: [] };
+  const response = await gatewayFetch(
+    `/routes/by-ids?ids=${encodeURIComponent(ids.join(','))}`,
+  );
+  if (!response.ok) throw new Error(`routes by ids failed: ${response.status}`);
+  return (await response.json()) as FavoritesList;
+}
+
 export async function fetchFavorites(): Promise<FavoritesList> {
   const response = await gatewayFetch('/routes/favorites');
   if (!response.ok) throw new Error(`favorites failed: ${response.status}`);
