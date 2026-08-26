@@ -77,7 +77,10 @@ LAYERS: list[Layer] = [
         """SELECT rel_id, ref, name, route_kind, network, osmc_symbol, edges, km,
                   pieces, continuity_class, climb_class, length_class, scope_class, geom
            FROM qa.v_route""",
-        "One line per named route: 752 features instead of 102,000.",
+        "One line per named route: 752 features instead of 102,000. A NAMING "
+        "layer, not the published catalogue - the relations were withdrawn as "
+        "routes on 2026-08-26 (see `draw`); what they still do is give 10,361 "
+        "otherwise-nameless edges a name.",
         style_by="continuity_class",
         sort_by="pieces desc",
     ),
@@ -152,8 +155,10 @@ LAYERS: list[Layer] = [
                   difficulty_class, climb_class, offroad_class, shape_class,
                   route_shape_class, urban_class, mtb_class, geom
            FROM qa.v_draw""",
-        "The generated catalogue: bounded loops drawn from real starts over our "
-        "own edges. Score is descriptive, never a filter.",
+        "The generated catalogue, and the ONLY thing the catalogue publishes: "
+        "loops, destination routes and strict out-and-backs drawn from real "
+        "starts over our own edges. Colour by `route_shape_class` to see the "
+        "three apart. Score is descriptive, never a filter.",
         style_by="offroad_class",
         sort_by="score desc",
     ),
@@ -503,6 +508,17 @@ SETTLED = [
         "of 752, with 10,361 edges that had no name of their own now carrying one",
     ),
     (
+        "The catalogue publishes generated routes only",
+        "SELECT count(*) FROM catalogue.route",
+        (
+            "generated routes, and the only kind published since 2026-08-26. The 752 "
+            "relations stay as the naming layer above: of the 751 emitted as documents, "
+            "187 carried a warning, 56 were under 500 m and 131 came out in more than "
+            "one piece - a relation is a mapping of ground our bboxes clip, not a route "
+            "drawn end to end (export/document.py::PUBLISHED_KINDS)"
+        ),
+    ),
+    (
         "The DEM agrees with the ground",
         (
             "SELECT count(*) FROM staging.osm_poi "
@@ -537,13 +553,21 @@ def fmt(value) -> str:
 
     Counts arrive as int and sums as Decimal, and `9238.0` beside `101,951`
     reads as a different kind of number when it is not.
+
+    The trailing zeros are stripped only when there is a POINT to strip back
+    to. A Decimal formats to its own exponent, so `round(sum(...), 0)` arrives
+    as Decimal('598880') and `f"{v:,f}"` renders it with no fractional part at
+    all - and an unconditional `.rstrip("0")` then ate the significant zero and
+    published 598,88 metres of climb. Measured on the live store, 2026-08-26.
     """
     if isinstance(value, bool) or value is None:
         return str(value)
     if isinstance(value, int):
         return f"{value:,}"
     if isinstance(value, (float, Decimal)):
-        text = f"{value:,f}".rstrip("0").rstrip(".")
+        text = f"{value:,f}"
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
         return text or "0"
     return str(value)
 
