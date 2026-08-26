@@ -232,6 +232,14 @@ export function ChatPanel({
         needsFetch(loopFeatures.current.get(loop.id)) &&
         !linesInFlight.current.has(loop.id),
     );
+    // Everything asked for is already on the wire: drawing NOW would run
+    // against a cache the in-flight batch has not filled yet — with a
+    // selection set, drawableFeatures returns null and the whole map blanks
+    // until the batch lands. That batch's own continuation draws, selection
+    // included, so there is nothing to do here.
+    if (wanted.length === 0 && loops.some((l) => linesInFlight.current.has(l.id))) {
+      return;
+    }
     wanted.forEach((loop) => linesInFlight.current.add(loop.id));
     const results = await Promise.allSettled(
       wanted.map((loop) => fetchRouteGeoJson(loop.id)),

@@ -359,3 +359,46 @@ describe('an emptied follow-up says so', () => {
     expect(view.queryByTestId('no-matches')).toBeNull();
   });
 });
+
+describe('a click during the in-flight line batch', () => {
+  it('never blanks the map; the batch draws the selection when it lands', async () => {
+    // The initial batch hangs until we release it.
+    const gate: Record<string, (v: GeoJSON.Feature | null) => void> = {};
+    api.fetchRouteGeoJson.mockImplementation(
+      (id: string) =>
+        new Promise((resolve) => {
+          gate[id] = resolve;
+        }),
+    );
+    api.sendChat.mockImplementation(async function* () {
+      yield { type: 'conversation', conversationId: 'conv-1' };
+      yield {
+        type: 'results',
+        results: { kind: 'loop_search', answered_count: 2, loops: B },
+      };
+      yield { type: 'done', usage: { input_tokens: 0, output_tokens: 0 } };
+    });
+    const { onGeometry, view, card } = renderPanel([]);
+
+    fireEvent.change(view.getByLabelText('Your message'), {
+      target: { value: 'loops please' },
+    });
+    fireEvent.submit(view.container.querySelector('form')!);
+    await waitFor(() => expect(card('b1')).toBeTruthy());
+
+    // Click while both lines are still on the wire: no draw may happen —
+    // the cache is empty and a draw here blanked the whole map.
+    fireEvent.click(card('b1'));
+    await Promise.resolve();
+    expect(onGeometry).not.toHaveBeenCalledWith(null);
+    const emissions = onGeometry.mock.calls.length;
+
+    // The batch lands: its continuation draws both lines, b1 selected.
+    gate['b1']?.(line('b1'));
+    gate['b2']?.(line('b2'));
+    await waitFor(() =>
+      expect(lastDrawn(onGeometry)).toEqual({ ids: ['b1', 'b2'], selected: ['b1'] }),
+    );
+    expect(onGeometry.mock.calls.length).toBeGreaterThan(emissions);
+  });
+});
