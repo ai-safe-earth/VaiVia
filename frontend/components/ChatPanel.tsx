@@ -326,6 +326,18 @@ export function ChatPanel({
               });
             } else if (event.results.geometry) {
               emitGeometry(event.results.geometry);
+            } else if (event.results.kind !== 'clarify') {
+              // A search that came back with nothing drawable: the new answer
+              // owns the map, so the previous answer's picture must leave —
+              // keeping it is what made an emptied follow-up read as "nothing
+              // happened". A clarify keeps the map: the question is about it.
+              drawnTurn.current = null;
+              loopFeatures.current.clear();
+              setLineStatus({});
+              routes.select(null);
+              setSelectedTrail(null);
+              emitGeometry(null);
+              emitDetail(null);
             }
             break;
           }
@@ -476,6 +488,28 @@ export function ChatPanel({
                 ))}
               </FoldedCards>
             )}
+
+            {/* An emptied search says so on screen, not only in prose — the
+                cards' absence alone is indistinguishable from a turn that
+                did nothing. */}
+            {message.results &&
+              message.results.kind !== 'clarify' &&
+              !message.streaming &&
+              !message.results.loops?.length &&
+              !message.results.trails?.length &&
+              !message.results.routes?.length &&
+              !message.results.geometry && (
+                <div className="notice" data-testid="no-matches">
+                  <div className="notice-bar" />
+                  <div className="notice-body">
+                    <span className="vv-label">No matches</span>
+                    <p className="vv-body">
+                      Nothing in the catalogue fits all of that — try relaxing
+                      one constraint.
+                    </p>
+                  </div>
+                </div>
+              )}
 
             {message.error && (
               <div className="notice">

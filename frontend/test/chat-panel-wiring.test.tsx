@@ -301,3 +301,61 @@ describe('the mutants the review named', () => {
     expect(lastDrawn(onGeometry)).toEqual(drawnBefore);
   });
 });
+
+describe('an emptied follow-up says so', () => {
+  it('clears the previous picture and shows the No matches notice', async () => {
+    api.sendChat.mockImplementation(async function* () {
+      yield { type: 'conversation', conversationId: 'conv-1' };
+      yield {
+        type: 'results',
+        results: { kind: 'loop_search', answered_count: 5, loops: [] },
+      };
+      yield { type: 'done', usage: { input_tokens: 0, output_tokens: 0 } };
+    });
+    const { onGeometry, onDetail, view, card } = renderPanel(TRANSCRIPT.slice(0, 2));
+
+    // The previous answer is on the map.
+    fireEvent.click(card('a1'));
+    await waitFor(() => expect(lastDrawn(onGeometry)?.selected).toEqual(['a1']));
+
+    fireEvent.change(view.getByLabelText('Your message'), {
+      target: { value: 'only ones with a waterfall' },
+    });
+    fireEvent.submit(view.container.querySelector('form')!);
+
+    // The follow-up matched nothing: the old lines leave the map...
+    await waitFor(() => expect(onGeometry).toHaveBeenLastCalledWith(null));
+    expect(onDetail).toHaveBeenLastCalledWith(null);
+    // ...and the transcript says so instead of staying silent.
+    await waitFor(() =>
+      expect(view.getByTestId('no-matches')).toBeTruthy(),
+    );
+  });
+
+  it('a clarify keeps the previous picture (the question is about it)', async () => {
+    api.sendChat.mockImplementation(async function* () {
+      yield { type: 'conversation', conversationId: 'conv-1' };
+      yield {
+        type: 'results',
+        results: { kind: 'clarify', clarification: 'Which area?' },
+      };
+      yield { type: 'token', delta: 'Which area?' };
+      yield { type: 'done', usage: { input_tokens: 0, output_tokens: 0 } };
+    });
+    const { onGeometry, view, card } = renderPanel(TRANSCRIPT.slice(0, 2));
+
+    fireEvent.click(card('a1'));
+    await waitFor(() => expect(lastDrawn(onGeometry)?.selected).toEqual(['a1']));
+    const emissionsBefore = onGeometry.mock.calls.length;
+
+    fireEvent.change(view.getByLabelText('Your message'), {
+      target: { value: 'hm' },
+    });
+    fireEvent.submit(view.container.querySelector('form')!);
+
+    await waitFor(() => expect(view.queryByText('Which area?')).toBeTruthy());
+    // No new geometry emission: the map still shows the routes being asked about.
+    expect(onGeometry.mock.calls.length).toBe(emissionsBefore);
+    expect(view.queryByTestId('no-matches')).toBeNull();
+  });
+});
