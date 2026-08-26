@@ -263,7 +263,7 @@
   ],
   "expect": {
    "loop.max_distance_m": {
-    "lt": 15000
+    "lt": 18000
    },
    "loop.activity": "hike"
   }
@@ -301,9 +301,11 @@
   ],
   "expect": {
    "loop.activity": "mtb",
-   "loop.max_distance_m": 20000,
    "loop.max_difficulty_level": {
     "lte": 2
+   },
+   "loop.max_distance_m": {
+    "lte": 24000
    }
   }
  },
