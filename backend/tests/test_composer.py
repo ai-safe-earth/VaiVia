@@ -3,14 +3,19 @@
 from chat.composer import (
     MAX_ROUTES,
     MAX_SUBQUERIES,
+    ComposedPlan,
+    apply_delta,
     catalogue_view,
     compose,
     has_constraints,
     merge_searches,
     only_activity,
+    standing_dump,
+    standing_load,
 )
 from chat.intents import (
     ClarifyIntent,
+    LoopSearchIntent,
     RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
@@ -332,3 +337,109 @@ def test_full_range_difficulty_is_vacuous_and_dropped():
     plan = compose([TrailSearchIntent(activity="mtb", max_difficulty_level=2)])
     assert not plan.is_clarify
     assert plan.search is not None and plan.search.max_difficulty_level == 2
+
+
+# ── The standing plan: apply_delta and its serde ─────────────────────────────
+# Latest-wins on purpose. merge_searches is tightest-wins because two atoms in
+# ONE message are one ask; a refinement turn is the user CHANGING the ask, so
+# "actually, longer" must raise a max that tightest-wins would keep.
+
+
+def _standing_loop(**overrides):
+    base = {"activity": "hike", "min_distance_m": 8000.0, "max_distance_m": 15000.0}
+    return ComposedPlan(loop=LoopSearchIntent(**{**base, **overrides}))
+
+
+def test_delta_lowers_a_max():
+    merged = apply_delta(
+        _standing_loop(), ComposedPlan(loop=LoopSearchIntent(max_distance_m=10000.0))
+    )
+    assert merged.loop is not None
+    assert merged.loop.max_distance_m == 10000.0
+    assert merged.loop.min_distance_m == 8000.0  # untouched constraint survives
+    assert merged.loop.activity == "hike"
+
+
+def test_delta_raises_a_max_where_tightest_wins_would_refuse():
+    merged = apply_delta(
+        _standing_loop(max_distance_m=10000.0),
+        ComposedPlan(loop=LoopSearchIntent(max_distance_m=20000.0)),
+    )
+    assert merged.loop is not None
+    assert merged.loop.max_distance_m == 20000.0
+
+
+def test_delta_adds_a_poi_without_disturbing_the_rest():
+    merged = apply_delta(
+        _standing_loop(), ComposedPlan(loop=LoopSearchIntent(poi_types=["lake"]))
+    )
+    assert merged.loop is not None
+    assert merged.loop.poi_types == ["lake"]
+    assert merged.loop.max_distance_m == 15000.0
+
+
+def test_cross_kind_delta_lands_on_the_standing_loop():
+    # "shorter" against a loop often arrives as a trail_search; the shared
+    # constraint carries over and the plan STAYS a loop plan, so the same
+    # catalogue answers.
+    merged = apply_delta(
+        _standing_loop(),
+        ComposedPlan(search=TrailSearchIntent(max_distance_m=10000.0)),
+    )
+    assert merged.search is None
+    assert merged.loop is not None
+    assert merged.loop.max_distance_m == 10000.0
+    assert merged.loop.activity == "hike"
+
+
+def test_cross_kind_delta_never_moves_activity():
+    # The two intents spell activity differently; a cross-carry could flip
+    # which catalogue is searched.
+    merged = apply_delta(
+        _standing_loop(),
+        ComposedPlan(search=TrailSearchIntent(activity="mtb", max_distance_m=9000.0)),
+    )
+    assert merged.loop is not None
+    assert merged.loop.activity == "hike"
+    assert merged.loop.max_distance_m == 9000.0
+
+
+def test_theme_delta_replaces_the_theme_and_keeps_the_search():
+    standing = ComposedPlan(
+        search=TrailSearchIntent(max_distance_m=12000.0), theme="panoramic ridge"
+    )
+    merged = apply_delta(standing, ComposedPlan(theme="shady forest"))
+    assert merged.theme == "shady forest"
+    assert merged.search is not None
+    assert merged.search.max_distance_m == 12000.0
+
+
+def test_a_route_only_delta_is_a_change_of_subject():
+    merged = apply_delta(
+        _standing_loop(),
+        ComposedPlan(routes=[RouteIntent(start="Abbadia", end="Lecco")]),
+    )
+    assert merged.loop is None
+    assert len(merged.routes) == 1
+
+
+def test_standing_dump_and_load_round_trip():
+    plan = ComposedPlan(
+        loop=LoopSearchIntent(activity="hike", max_distance_m=15000.0),
+        theme="lakeside",
+    )
+    loaded = standing_load(standing_dump(plan))
+    assert loaded is not None
+    assert loaded.loop == plan.loop
+    assert loaded.theme == "lakeside"
+
+
+def test_standing_dump_of_a_clarify_is_none():
+    plan = ComposedPlan(clarify=ClarifyIntent(question="which one?"))
+    assert standing_dump(plan) is None
+
+
+def test_standing_load_degrades_malformed_history_to_none():
+    assert standing_load(None) is None
+    assert standing_load({"search": {"max_distance_m": "not a number"}}) is None
+    assert standing_load({"search": None, "loop": None, "theme": None}) is None

@@ -78,11 +78,16 @@ Decomposition rules:
   and every other field null. Do not fill in a plausible distance or a
   difficulty range the user never said — the system asks a better follow-up
   question than a guessed filter would answer.
-- Earlier turns are context for FOLLOW-UPS only: "the same but shorter",
-  "easier than that", "the second one" reach back. A message that states its
-  own constraints is decomposed on its own — never carry a distance, duration,
-  difficulty or feature from an earlier turn into a self-contained ask, and
-  never average the current ask with what was said before.
+- A CURRENT PLAN message may precede the user's turn: the constraints already
+  in force from earlier in the conversation. When the new message MODIFIES
+  that plan — "shorter", "easier than that", "make it near Bergamo instead",
+  "add a lake" — set `refine` true and emit ONLY the constraints that changed,
+  as a subquery of the same kind as the constraint being changed. Do not
+  restate unchanged constraints; the system merges the delta for you. A
+  message that states its own complete ask sets `refine` false and is
+  decomposed on its own — never carry a distance, duration, difficulty or
+  feature from an earlier turn into a self-contained ask, and never average
+  the current ask with what was said before.
 - Never answer the trail question yourself here. Only decompose.
 """
 

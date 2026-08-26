@@ -18,7 +18,12 @@ Run from backend/:
 Dataset: fixtures/golden_questions.json. Expectations address the COMPOSED
 plan ("search.<field>", "loop.<field>", "theme", "routes", "clarify");
 "expect_trails" names the trail ids retrieval must surface, first id = must
-rank first.
+rank first. An entry with "turns" instead of "question" is a CONVERSATION:
+each turn runs through the same extract -> compose -> apply_delta loop the
+orchestrator uses, the standing plan threading between turns, and the
+expectation addresses the final turn's plan. A numeric expectation may be
+{"lt": x} / {"lte": x} / {"gt": x} where a refinement's exact number is the
+model's to choose ("shorter") but its direction is not.
 """
 
 import argparse
@@ -28,7 +33,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from chat.composer import ComposedPlan, compose
+from chat.composer import (
+    ComposedPlan,
+    apply_delta,
+    compose,
+    standing_dump,
+    standing_load,
+)
 from chat.intents import TrailSearchIntent
 from chat.llm import OpenAIClient
 
@@ -58,9 +69,40 @@ def check_plan(expected: dict[str, Any], plan: ComposedPlan) -> list[str]:
             if isinstance(want, list):
                 if not set(want) <= set(got or []):
                     problems.append(f"{key}: want superset of {want}, got {got}")
+            elif isinstance(want, dict) and want.keys() & {"lt", "lte", "gt"}:
+                ok = (
+                    got is not None
+                    and ("lt" not in want or got < want["lt"])
+                    and ("lte" not in want or got <= want["lte"])
+                    and ("gt" not in want or got > want["gt"])
+                )
+                if not ok:
+                    problems.append(f"{key}: want {want}, got {got}")
             elif got != want:
                 problems.append(f"{key}: want {want}, got {got}")
     return problems
+
+
+async def run_turns(
+    client: OpenAIClient, turns: list[str]
+) -> tuple[ComposedPlan, list[str]]:
+    """The orchestrator's multiturn loop, minus the store: the standing plan
+    threads between turns exactly as chat/orchestrator.py threads it."""
+    standing_raw = None
+    plan = ComposedPlan()
+    kinds: list[str] = []
+    for turn in turns:
+        result = await client.extract_plan(turn, [], standing=standing_raw)
+        subqueries = result.envelope.subqueries
+        plan = compose(subqueries)
+        kinds = [s.kind for s in subqueries]
+        if result.envelope.refine and not plan.is_clarify:
+            base = standing_load(standing_raw)
+            if base is not None:
+                plan = apply_delta(base, plan)
+        if not plan.is_clarify:
+            standing_raw = standing_dump(plan)
+    return plan, kinds
 
 
 async def run_retrieval(plan: ComposedPlan, db: Any, embedder: Any) -> list[str]:
@@ -99,16 +141,15 @@ async def main() -> None:
     hit_first = hit_any = retrieval_total = 0
     try:
         for entry in entries:
-            result = await client.extract_plan(entry["question"], [])
-            subqueries = result.envelope.subqueries
-            plan = compose(subqueries)
+            turns = entry.get("turns") or [entry["question"]]
+            plan, kinds = await run_turns(client, turns)
             problems = check_plan(entry.get("expect", {}), plan)
             plan_total += 1
             plan_pass += not problems
-            kinds = [s.kind for s in subqueries]
+            label = " | ".join(turns)
             print(
                 f"[{'PASS' if not problems else 'FAIL'}] {entry['id']} "
-                f"{entry['question']!r} -> {kinds}"
+                f"{label!r} -> {kinds}"
             )
             for problem in problems:
                 print(f"         {problem}")

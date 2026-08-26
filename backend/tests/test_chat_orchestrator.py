@@ -24,7 +24,7 @@ class StubLLM:
         self.extract_calls: list[tuple[str, list]] = []
         self.answer_calls: list[tuple[str, str]] = []
 
-    async def extract_plan(self, message, history):
+    async def extract_plan(self, message, history, standing=None):
         self.extract_calls.append((message, history))
         return PlanResult(
             envelope=PlanEnvelope.model_validate({"subqueries": self.plan}),
@@ -508,3 +508,127 @@ async def test_result_refs_pin_the_answer_to_real_trail_ids(db):
     events = await collect(orchestrator, user_id="u1", message="find trails")
     assert results_of(events)["trails"][0]["id"] == "tf_001"
     assert events[-1].event == "done"
+
+
+# ── The standing plan across turns ───────────────────────────────────────────
+
+
+class ScriptedLLM:
+    """One envelope per turn, refine flag included; records what it was shown."""
+
+    def __init__(self, turns: list[dict]) -> None:
+        self.turns = list(turns)
+        self.standing_seen: list[dict | None] = []
+
+    async def extract_plan(self, message, history, standing=None):
+        self.standing_seen.append(standing)
+        return PlanResult(
+            envelope=PlanEnvelope.model_validate(self.turns.pop(0)),
+            usage=Usage(input_tokens=30, output_tokens=10),
+        )
+
+    async def stream_answer(self, message, results_json, history):
+        yield "ok "
+
+    def last_answer_usage(self) -> Usage:
+        return Usage(input_tokens=10, output_tokens=5)
+
+
+def last_params(db, name: str) -> dict:
+    """The NEWEST call's params — multiturn tests assert on the second turn,
+    where conftest's params_for deliberately returns the first."""
+    return [params for called, params in db.calls if called == name][-1]
+
+
+def scripted(db, turns: list[dict]):
+    llm = ScriptedLLM(turns)
+    store = InMemoryStore()
+    return ChatOrchestrator(db=db, llm=llm, store=store), llm, store
+
+
+LOOP_ASK = {
+    "subqueries": [
+        {"kind": "loop_search", "activity": "hike", "max_distance_m": 15000}
+    ],
+}
+
+
+async def test_a_refine_turn_merges_onto_the_standing_plan(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 10000}],
+                "refine": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(orchestrator, user_id="u1", message="shorter", conversation_id=cid)
+
+    # The second search carries the delta's max AND the standing activity.
+    assert last_params(db, "search_loops")["max_distance_m"] == 10000
+    # activity carried over: "hike" maps to the hiking catalogue's tags
+    assert last_params(db, "search_loops")["activities"] == ["hiking", "foot"]
+    # The model was shown the standing plan on the refine turn only.
+    assert llm.standing_seen[0] is None
+    assert llm.standing_seen[1] is not None
+    assert llm.standing_seen[1]["loop"]["max_distance_m"] == 15000
+
+
+async def test_without_refine_the_standing_plan_is_ignored(db):
+    db.when("search_loops", [])
+    orchestrator, _, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {"subqueries": [{"kind": "loop_search", "max_distance_m": 5000}]},
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(
+        orchestrator, user_id="u1", message="a 5 km loop", conversation_id=cid
+    )
+
+    params = last_params(db, "search_loops")
+    assert params["max_distance_m"] == 5000
+    # Self-contained ask: the old activity does not leak in.
+    assert params["activities"] == ["hike", "mtb"] or params["activities"] is None
+
+
+async def test_a_clarify_turn_carries_the_standing_plan_forward(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {"subqueries": [{"kind": "clarify", "question": "which area?"}]},
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 9000}],
+                "refine": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(orchestrator, user_id="u1", message="hm", conversation_id=cid)
+    await collect(orchestrator, user_id="u1", message="shorter", conversation_id=cid)
+
+    # The clarify did not amnesia the conversation: the refine after it still
+    # merges onto the ORIGINAL plan.
+    assert llm.standing_seen[2] is not None
+    assert llm.standing_seen[2]["loop"]["max_distance_m"] == 15000
+    assert last_params(db, "search_loops")["max_distance_m"] == 9000
+    assert last_params(db, "search_loops")["activities"] == ["hiking", "foot"]
+
+
+async def test_first_turn_has_no_standing_and_runs_unchanged(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(db, [LOOP_ASK])
+    await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    assert llm.standing_seen == [None]
+    assert last_params(db, "search_loops")["max_distance_m"] == 15000
