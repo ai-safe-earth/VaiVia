@@ -185,10 +185,21 @@ Phase 2 only.
   (start-class, region, exigent ceiling, ascent, retrace, urban cap);
   urban_share measured (p95 0.66, tail to 0.92) with the cap at 0.8;
   catalogue regenerated over both provinces — 1,371 routes (751 mapped +
-  620 generated across six families), audit clean. The enum CHECK
+  620 generated across six families), audit clean. The 751 mapped were
+  withdrawn from the published catalogue on 2026-08-26 (see P5a). The enum CHECK
   constraints landed after a parameter-order slip corrupted a run's shapes
   and the emit drift-guard caught it downstream — the constraint now fails
   the first row at the moment of the mistake.
+- [x] P5a `feat/withdraw-mapped-routes` — the catalogue publishes
+  `generated` only (`export/document.py::PUBLISHED_KINDS`, read by both the
+  emitter and the loader). The 751 mapped relations were the pre-factory
+  corpus and measured badly — 187 with warnings, 56 under 500 m, 131 in
+  pieces, 27 under 20% matched fraction — because a relation is a mapping
+  of ground that our bboxes clip. `export.route_documents` withdraws by
+  default and publishes only under `--publish`; the loader gates on kind
+  regardless. `source_map.edge_route` untouched: the relations still name
+  the network and feed `qa.v_route*`. Corpus 1,378 → 627, and the 302 named
+  CAI sentieri leave the answerable set with them.
 - [ ] P5 `feat/compact-card` — the two-line card; exigent warning; three-
   valued bike state; surface distribution, places, real provenance and QA
   warnings on expand.

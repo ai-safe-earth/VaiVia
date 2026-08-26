@@ -32,6 +32,30 @@ from typing import Any, NamedTuple
 
 SCHEMA_VERSION = "2.0"
 
+# The kinds of route the catalogue PUBLISHES. A mapped OSM relation is a legal
+# document — the schema still accepts kind='osm_route' — and it is not one the
+# catalogue serves: of the 751 emitted on 2026-08-25, 187 carried warnings, 56
+# were under 500 m, 131 came out in more than one piece, and 27 matched under
+# 20% of their member ways (BI-12 matches 2 of its 646). A relation is a
+# MAPPING of ground, clipped by our bboxes; a route is something drawn over our
+# own edges and measured end to end, and a 0.0 km shred wearing a famous name
+# is the difference showing. The relation layer stays where it earns its keep —
+# source_map.edge_route names 10,361 otherwise-nameless edges and feeds
+# qa.v_route* — it simply stops being offered to a walker as a route.
+# Owner decision, 2026-08-26.
+PUBLISHED_KINDS = frozenset({"generated"})
+
+
+def published(kind: str) -> bool:
+    """Is a document of this kind part of the served catalogue?
+
+    Both publishers consult this — export/route_documents.py before it writes,
+    export/neo4j_load.py before it loads — so the two cannot drift into
+    different answers about the same document.
+    """
+    return kind in PUBLISHED_KINDS
+
+
 # The category vocabularies are qa's, verbatim — one name, one vocabulary,
 # on both sides of the store (climb_class and difficulty_class exist in the
 # qa views with these exact values; forking them under the same names made

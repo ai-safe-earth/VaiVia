@@ -6,7 +6,11 @@ carries and what it deliberately leaves behind.
 
 from __future__ import annotations
 
-from export.document import SCHEMA_VERSION, Span, build_document
+import json
+
+from export import document as document_rules
+from export import neo4j_load, route_documents
+from export.document import SCHEMA_VERSION, Span, build_document, published
 from export.neo4j_load import document_rows, templates
 
 
@@ -251,3 +255,64 @@ def test_every_template_the_loader_runs_exists_and_is_parameterised():
     # Parameters only, never interpolation: the backend/graph discipline.
     for name in ("load_routes", "load_places", "link_passes"):
         assert "$rows" in cypher[name]
+
+
+def test_a_mapped_relation_is_not_a_kind_the_catalogue_publishes():
+    """The decision of 2026-08-26, in the one place both publishers read it.
+
+    Of the 751 mapped relations emitted the day before, 187 carried warnings,
+    56 were under 500 m and 131 came out in more than one piece — a clipped
+    shred of a relation is not a route a walker can be offered, however famous
+    the name on it.
+    """
+    assert published("generated")
+    assert not published("osm_route")
+
+
+def test_the_emitter_and_the_loader_read_ONE_publication_rule():
+    """Not equal — the SAME object.
+
+    Two copies of "which kinds do we serve" is how the store and the graph
+    start disagreeing about the same document, and the disagreement is silent
+    until a user clicks a route that is only half withdrawn.
+    """
+    assert neo4j_load.PUBLISHED_KINDS is document_rules.PUBLISHED_KINDS
+    assert route_documents.published is document_rules.published
+    # And this is WHY the mapped emitter's default is to withdraw: its own
+    # kind is not one the catalogue publishes.
+    assert not published(route_documents.KIND)
+
+
+def test_the_withdrawal_takes_only_what_its_manifest_lists(tmp_path):
+    """Both emitters write vv2-*.json since the id cutover.
+
+    A glob would have taken the generated catalogue with it — the whole
+    product — which is why ownership lives in a manifest.
+    """
+    mine = tmp_path / "vv2-1111111111111111.json"
+    mine.write_text("{}", encoding="utf-8")
+    legacy = tmp_path / "osm-relation-42.json"
+    legacy.write_text("{}", encoding="utf-8")
+    theirs = tmp_path / "vv2-2222222222222222.json"
+    theirs.write_text("{}", encoding="utf-8")
+    (tmp_path / "routes.geojson").write_text("{}", encoding="utf-8")
+    (tmp_path / route_documents.MANIFEST).write_text(
+        json.dumps([mine.name]), encoding="utf-8"
+    )
+
+    removed = route_documents.withdraw(tmp_path)
+
+    assert removed == 2
+    assert not mine.exists()
+    assert not legacy.exists()
+    assert not (tmp_path / "routes.geojson").exists()
+    assert theirs.exists(), "the generated catalogue is not this emitter's to delete"
+
+
+def test_withdrawing_twice_removes_nothing_the_second_time(tmp_path):
+    """Idempotent, like every destructive step here: a re-run is the normal
+    case, and a second withdrawal reporting a count would be a lie."""
+    (tmp_path / route_documents.MANIFEST).write_text(
+        json.dumps(["vv2-3333333333333333.json"]), encoding="utf-8"
+    )
+    assert route_documents.withdraw(tmp_path) == 0

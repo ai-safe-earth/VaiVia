@@ -81,6 +81,16 @@ this network cannot hold. Twenty-seven sit below 0.2, led by BI-12 (Trieste–Sa
 0.003. **A route generator must filter on that number**; a "route" of two matched ways out
 of 646 is a fragment with a famous name.
 
+**Settled on 2026-08-26: a relation is a naming and QA layer, not a published route.**
+The fragment problem is structural, not per-route — of the 751 relations emitted as
+documents, 187 carried a quality warning, 56 were under 500 m, 131 came out in more than
+one piece. So the catalogue publishes `generated` routes only
+(`export/document.py::PUBLISHED_KINDS`, read by both the emitter and `export.neo4j_load`),
+and `export.route_documents` withdraws by default. Nothing here changes: `edge_route` is
+still written, still names 10,361 otherwise-nameless edges, and still feeds `qa.v_route*`.
+The relation says what a stretch of network is CALLED; it was never able to say where a
+walk begins and ends.
+
 ### The link describes ONE build of the network
 
 `edge_route` holds `edge_id`s, so it is true only of the network that produced them.

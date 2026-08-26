@@ -100,8 +100,8 @@ calibration; a wrong one ships. Calibrating it is a tracked next step.
 
 ```bash
 cd pipeline
-uv run python -m export.route_documents --limit 5    # a handful, to look at
-uv run python -m export.route_documents              # all of them
+uv run python -m export.route_documents              # withdraw what it owns
+uv run python -m export.route_documents --publish    # write them anyway (QA)
 ```
 
 Writes `review/routes/<id>.json` per route, plus `review/routes/routes.geojson` — one
@@ -109,9 +109,33 @@ FeatureCollection of every route with the headline properties, for dropping stra
 a map without opening 752 files. The geometry in the collection is the same object the
 document carries, not a second rendering of it.
 
-**Today the routes are the 752 OSM route relations**, because those are the routes that
-exist. `pipeline/draw/` will generate its own and emits through the same module: a
-generated route is a different `kind`, not a different document.
+## What the catalogue publishes
+
+`export/document.py::PUBLISHED_KINDS` is the rule, and both publishers read that one
+object: the emitter before it writes, `export/neo4j_load.py` before it loads. Today it
+holds **`generated` alone**.
+
+It once held the mapped OSM relations too — they were the only routes that existed —
+and on 2026-08-26 they were withdrawn. The census that decided it, measured on the 751
+emitted the day before: **187 carry a quality warning, 56 are under 500 m, 131 come out
+in more than one piece, and 27 match under 20% of their member ways** (BI-12 matches 2
+of its 646). The cause is structural rather than fixable per route: a relation is a
+MAPPING of ground and our bboxes clip it, so what reaches the store is often a shred of
+the route whose famous name it carries — the "not linked to the correct map" complaint,
+exactly.
+
+Two things this deliberately does **not** do. It does not remove `osm_route` from the
+schema: a mapped document stays a legal artefact, and `--publish` still writes them for
+inspection — the loader's gate, not the emitter's silence, is what keeps them out of the
+graph. And it does not touch the relation layer itself: `source_map.edge_route` still
+gives 10,361 otherwise-nameless edges a name and still feeds `qa.v_route*` in the review
+bundle. A relation is good at saying what a stretch of network is called; it was not good
+at being a route.
+
+The cost, stated rather than absorbed: the answerable corpus drops 1,378 → 627, and the
+302 named CAI *sentieri* leave it with them. Asking for one by name returns nothing until
+generated routes cover that ground, or until mapped routes come back through a measured
+quality gate.
 
 ## The start/end contract
 

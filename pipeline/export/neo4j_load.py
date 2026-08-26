@@ -30,7 +30,7 @@ from typing import Any
 from neo4j import GraphDatabase
 
 from core import connect, env_value
-from export.document import SAC_ORDER
+from export.document import PUBLISHED_KINDS, SAC_ORDER, published
 
 
 def sac_rank(grade: str | None) -> int | None:
@@ -251,8 +251,16 @@ def main() -> None:
     places: dict[str, dict] = {}
     starts: dict[int, dict] = {}
     skipped_placeless = 0
+    unpublished: dict[str, int] = {}
     for path in files:
         document = json.loads(path.read_text(encoding="utf-8"))
+        # The gate. A document on disk is not automatically a route the
+        # catalogue serves: export.route_documents can be asked to write the
+        # mapped relations for inspection, and they must not reach the graph
+        # from there. One rule, read by both publishers (export.document).
+        if not published(document["kind"]):
+            unpublished[document["kind"]] = unpublished.get(document["kind"], 0) + 1
+            continue
         rows = document_rows(document)
         routes.append(rows["route"])
         skipped_placeless += len(document["places"]) - len(rows["passes"])
@@ -267,6 +275,13 @@ def main() -> None:
         f"{len(routes):,} routes, {len(places):,} distinct places, "
         f"{len(passes):,} PASSES, {len(starts):,} starts"
     )
+    for kind, n in sorted(unpublished.items()):
+        print(f"{n:,} {kind} documents skipped: not a published kind")
+    if not routes:
+        raise SystemExit(
+            f"no PUBLISHED documents under {DOCUMENTS} — the catalogue serves "
+            f"{sorted(PUBLISHED_KINDS)} (export.document.PUBLISHED_KINDS)"
+        )
     if skipped_placeless:
         print(f"{skipped_placeless:,} place references without coordinates skipped")
     if args.dry_run:
@@ -347,6 +362,7 @@ def main() -> None:
                         "places": len(places),
                         "passes": len(passes),
                         "starts": len(starts),
+                        "unpublished": unpublished,
                     }
                 ),
             ),
