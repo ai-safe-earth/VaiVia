@@ -10,7 +10,13 @@ than copied from catalogue.route, so the emitter exercises the same pure rules
 the tests pin, and a drift between table and document is impossible — the
 sequence is the single source.
 
-Run from pipeline/ (after draw.generate):
+Only what the gate PASSED is emitted (curate.gate): a document under
+review/routes/ is a served route, and the served set is the one Neo4j loads.
+The manifest deletion above is what makes that reversible — a route demoted
+by a tightened ruleset loses its document on the next run, without anything
+having to remember it was ever published.
+
+Run from pipeline/ (after draw.generate and curate.gate):
     uv run python -m draw.emit
 """
 
@@ -37,6 +43,7 @@ SELECT r.route_id, r.activity, r.shape, r.name, r.destination_id, r.destination_
        ST_AsGeoJSON(r.geom),
        ARRAY[ST_XMin(r.geom), ST_YMin(r.geom), ST_XMax(r.geom), ST_YMax(r.geom)]
 FROM catalogue.route r
+WHERE r.gate_verdict = 'pass'
 ORDER BY r.route_id
 """
 
@@ -91,6 +98,17 @@ def emit_generated() -> None:
     owned: list[str] = []
     with connect() as conn:
         routes = conn.execute(ROUTES).fetchall()
+        if not routes:
+            # An empty emit is indistinguishable from a successful one on
+            # disk, and the gate holds every route until something judges
+            # it — so say which of the two it is.
+            (total,) = conn.execute("SELECT count(*) FROM catalogue.route").fetchone()
+            raise SystemExit(
+                f"no route passed the gate ({total:,} in catalogue.route) — "
+                "run `uv run python -m curate.gate` first"
+                if total
+                else "catalogue.route is empty — run `uv run python -m draw.generate`"
+            )
 
         # The shared-corridor pass: every walked sequence first, so each
         # route's divergence is measured against its whole sibling set —

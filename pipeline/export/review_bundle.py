@@ -152,14 +152,17 @@ LAYERS: list[Layer] = [
         """SELECT route_id, direction, shape, start_vertex, target_km, km,
                   ascent_m, sac_scale, mtb_rideable, off_road_share,
                   retrace_share, urban_share, score,
+                  gate_verdict, gate_version, gate_reasons,
                   difficulty_class, climb_class, offroad_class, shape_class,
-                  route_shape_class, urban_class, mtb_class, geom
+                  route_shape_class, urban_class, mtb_class, gate_class, geom
            FROM qa.v_draw""",
-        "The generated catalogue, and the ONLY thing the catalogue publishes: "
-        "loops, destination routes and strict out-and-backs drawn from real "
-        "starts over our own edges. Colour by `route_shape_class` to see the "
-        "three apart. Score is descriptive, never a filter.",
-        style_by="offroad_class",
+        "The generated catalogue: loops, destination routes and strict "
+        "out-and-backs drawn from real starts over our own edges. Only the "
+        "routes `gate_class` calls pass are published; `gate_reasons` says "
+        "why the others are not, and is what the thresholds are calibrated "
+        "against. Colour by `route_shape_class` to see the three shapes "
+        "apart. Score is descriptive, never a filter.",
+        style_by="gate_class",
         sort_by="score desc",
     ),
     Layer(
