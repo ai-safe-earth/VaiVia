@@ -5,9 +5,13 @@ geometry questions; this turns it into the artefact every reader consumes — th
 API, the Neo4j export, the frontend, and whatever holds photos and comments
 later. None of them redefines a route; they read this.
 
-Today the routes are the 752 OSM route relations, because those are the routes
-that exist. `pipeline/draw/` will generate its own, and it emits through this
-same module: a generated route is a different `kind`, not a different document.
+A relation is a MAPPING of ground, and the catalogue stopped publishing it as a
+route on 2026-08-26 (export.document.PUBLISHED_KINDS carries the census that
+decided it). So this module's default is now to WITHDRAW the documents it owns;
+`--publish` writes them anyway, for inspection and QA, and export.neo4j_load
+still refuses to put an unpublished kind in the graph. The relation layer itself
+is untouched: source_map.edge_route still names the network and still feeds
+qa.v_route*.
 
 What a route PASSES is computed HERE and nowhere earlier. metadata-rules.md
 puts it at assembly for a reason — a place's position is `ST_LineLocatePoint`
@@ -20,8 +24,8 @@ p90 34, against 12 and 59 at 250 m). `offset_m` travels with every place, so a
 reader wanting 30 m filters on it.
 
 Run from pipeline/ (network built, routes joined, elevation sampled, places snapped):
-    uv run python -m export.route_documents --limit 5
-    uv run python -m export.route_documents
+    uv run python -m export.route_documents            # withdraw what it owns
+    uv run python -m export.route_documents --publish  # write them anyway (QA)
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ import uuid
 from pathlib import Path
 
 from core import connect
-from export.document import Span, build_document
+from export.document import Span, build_document, published
 from export.shape import classify_osm_shape
 from export.terminals import endpoints_of, terminal_for_point
 from ids import DIRECTED_SHAPES, forward_is_stored, route_id
@@ -43,6 +47,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # docstring: a bound, not a filter, and offset_m travels so a reader can be
 # stricter.
 PLACES_M = 100.0
+
+# What this emitter produces. `published(KIND)` is False, which is exactly why
+# writing the documents is opt-in below — the default and the loader's gate read
+# the same rule, so they cannot drift into disagreeing about the same document.
+KIND = "osm_route"
+
+# Ownership lives in a manifest, not in a filename glob: both emitters write
+# vv2-*.json since the id cutover, so a glob would take the generated catalogue
+# with it.
+MANIFEST = ".osm_documents.json"
 
 # Attribution is not optional and does not belong only in the frontend footer.
 # docs/licensing.md: ODbL requires attribution of any Produced Work, and the
@@ -267,7 +281,7 @@ def emit(
 
     return build_document(
         route_id=rid,
-        kind="osm_route",
+        kind=KIND,
         shape=shape,
         direction=direction,
         identity={
@@ -308,25 +322,46 @@ def emit(
     )
 
 
+def withdraw(out: Path) -> int:
+    """Remove the documents THIS emitter owns and return how many.
+
+    Only what the previous run listed, plus the legacy patterns from before the
+    id cutover. Never a `vv2-*.json` glob — that is the generated catalogue too.
+    """
+    removed = 0
+    manifest = out / MANIFEST
+    if manifest.exists():
+        for stale in json.loads(manifest.read_text(encoding="utf-8")):
+            path = out / stale
+            if path.exists():
+                path.unlink()
+                removed += 1
+    for stale in out.glob("osm-relation-*.json"):
+        stale.unlink()
+        removed += 1
+    (out / "routes.geojson").unlink(missing_ok=True)
+    return removed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", default=str(REPO_ROOT / "review" / "routes"))
     parser.add_argument("--limit", type=int, help="emit only the first N routes")
+    parser.add_argument(
+        "--publish",
+        action="store_true",
+        help=(
+            "write the mapped documents anyway. The catalogue does not serve "
+            f"{KIND!r} (export.document.PUBLISHED_KINDS) and export.neo4j_load "
+            "refuses to load it, so this is for inspection and QA"
+        ),
+    )
     args = parser.parse_args()
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    # Remove only what THIS emitter owns. Both emitters write vv2-*.json now,
-    # so ownership lives in a manifest instead of the filename: delete what
-    # the previous run of THIS emitter listed, plus the legacy patterns from
-    # before the id cutover.
-    manifest = out / ".osm_documents.json"
-    if manifest.exists():
-        for stale in json.loads(manifest.read_text(encoding="utf-8")):
-            (out / stale).unlink(missing_ok=True)
-    for stale in out.glob("osm-relation-*.json"):
-        stale.unlink()
-    (out / "routes.geojson").unlink(missing_ok=True)
+    manifest = out / MANIFEST
+    withdrawn = withdraw(out)
 
     run_id = f"export-{uuid.uuid4().hex[:8]}"
     with connect() as conn:
@@ -335,10 +370,35 @@ def main() -> None:
             (
                 run_id,
                 json.dumps(
-                    {"builder": "export.route_documents", "places_radius_m": PLACES_M}
+                    {
+                        "builder": "export.route_documents",
+                        "places_radius_m": PLACES_M,
+                        "publish": args.publish,
+                    }
                 ),
             ),
         )
+
+        # The withdrawal is a run like any other: it is recorded in the ledger,
+        # because runs are compared inside the database and a deletion nobody
+        # can date is a deletion nobody can explain.
+        if not args.publish and not published(KIND):
+            manifest.write_text(json.dumps([], indent=1), encoding="utf-8")
+            conn.execute(
+                "UPDATE provenance.build_run SET finished_at = now(), counts = %s "
+                "WHERE run_id = %s",
+                (json.dumps({"published": 0, "withdrawn": withdrawn}), run_id),
+            )
+            print(
+                f"withdrew {withdrawn:,} mapped documents from {out}. "
+                f"the catalogue does not publish {KIND!r} "
+                "(export.document.PUBLISHED_KINDS): a relation is a mapping of "
+                "ground, clipped by our bboxes, not a route drawn over our own "
+                "edges. --publish writes them anyway, for inspection."
+            )
+            print(f"run {run_id}")
+            return
+
         conn.execute(ROUTE_LINES)
         conn.execute(ROUTE_LINES_INDEX)
         conn.execute("ANALYZE route_line")
@@ -428,8 +488,11 @@ def main() -> None:
             (json.dumps(counts), run_id),
         )
 
-    size = sum(p.stat().st_size for p in out.glob("*.json"))
-    print(f"wrote {len(relations):,} documents to {out} ({size / 1e6:.1f} MB)")
+    # What was WRITTEN, not how many relations were read (they differ by the
+    # folds) and not the size of the directory (the generated catalogue shares
+    # it). A report that counts someone else's files is how a fold goes unseen.
+    size = sum((out / name).stat().st_size for name in owned)
+    print(f"wrote {len(owned):,} documents to {out} ({size / 1e6:.1f} MB)")
     print(f"{warned:,} carry a quality warning - they are emitted, not filtered")
     print(f"map: {out / 'routes.geojson'}")
     print(f"run {run_id}")
