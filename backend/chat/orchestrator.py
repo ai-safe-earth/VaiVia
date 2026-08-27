@@ -337,12 +337,15 @@ class ChatOrchestrator:
         if trail_result is not None:
             trails, semantic_unavailable = trail_result
             results["trails"] = trails
+            # No estimate template for trails: the shown length is the count
+            # (the trail graph is small and the page rarely fills its cap).
+            results["total_trails"] = len(trails)
             if semantic_unavailable:
                 results["semantic_unavailable"] = True
             refs["trail_ids"] = [r["id"] for r in trails]
 
         if loop_result is not None:
-            loops, near_resolved = loop_result
+            loops, near_resolved, total_loops = loop_result
             if implicit_loops:
                 # A region we cannot place is a constraint the catalogue cannot
                 # honour, which is exactly when catalogue_view declines to pose
@@ -352,6 +355,8 @@ class ChatOrchestrator:
                 if near_resolved and loops:
                     results["loops"] = loops
                     refs["loop_ids"] = [r["id"] for r in loops]
+                    if total_loops is not None:
+                        results["total_loops"] = total_loops
             elif not near_resolved:
                 # Asked for explicitly, so silence would be the wrong answer:
                 # name the place we could not find rather than presenting
@@ -363,6 +368,8 @@ class ChatOrchestrator:
             else:
                 results["loops"] = loops
                 refs["loop_ids"] = [r["id"] for r in loops]
+                if total_loops is not None:
+                    results["total_loops"] = total_loops
 
         if route_result is not None:
             routes, route_refs = route_result
@@ -382,8 +389,10 @@ class ChatOrchestrator:
 
         return results, refs
 
-    async def _loops(self, intent: Any) -> tuple[list[dict[str, Any]], bool]:
-        """Select from the precomputed catalogue; returns (rows, near_resolved).
+    async def _loops(
+        self, intent: Any
+    ) -> tuple[list[dict[str, Any]], bool, int | None]:
+        """Select from the catalogue; returns (rows, near_resolved, total).
 
         Everything costly ran offline in the pipeline's generator, so this is a
         filter over (:Route) ordered by the score computed there.
@@ -446,8 +455,7 @@ class ChatOrchestrator:
         # silently. The answer presents distance and climb, which are measured.
 
         settings = get_settings()
-        rows = await self._db.run_named(
-            "search_loops",
+        params: dict[str, Any] = dict(
             activities=activities,
             mtb_only=mtb_only,
             # Ceilings compare against sac_max — the EXIGENT grade, the hardest
@@ -474,9 +482,16 @@ class ChatOrchestrator:
             regions=None,
             start_classes=None,
             max_urban_share=None,
-            limit=CARD_RESULT_LIMIT,
         )
-        return rows, near_resolved
+        rows = await self._db.run_named(
+            "search_loops", **params, limit=CARD_RESULT_LIMIT
+        )
+        # The true population behind the capped page, for "I found N routes".
+        # Same filter fragments as search_loops, so total is by construction
+        # the count that search paged. facet_cap=0: only the count is wanted.
+        est = await self._db.run_named("estimate_loops", **params, facet_cap=0)
+        total = est[0].get("total") if est else None
+        return rows, near_resolved, total
 
     async def _search(
         self, intent: TrailSearchIntent, theme: str | None

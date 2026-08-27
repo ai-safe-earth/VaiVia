@@ -193,7 +193,7 @@ async def test_loops_execute_against_the_catalogue(db):
         [{"id": "th1:15000:0", "distance_m": 15300.0, "score": 0.9}],
     )
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
-    rows, near_resolved = await orchestrator._loops(  # noqa: SLF001 — real path
+    rows, near_resolved, _total = await orchestrator._loops(  # noqa: SLF001 — real path
         LoopSearchIntent(max_distance_m=16000, poi_types=["peak"])
     )
     assert [r["id"] for r in rows] == ["th1:15000:0"]
@@ -434,7 +434,7 @@ async def test_an_unresolvable_place_is_reported_not_ignored(db):
     db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
 
-    rows, near_resolved = await orchestrator._loops(  # noqa: SLF001
+    rows, near_resolved, _total = await orchestrator._loops(  # noqa: SLF001
         LoopSearchIntent(near="Atlantis")
     )
     assert near_resolved is False
@@ -536,3 +536,23 @@ async def test_the_factory_params_are_supplied_and_deliberately_unmapped(db):
     assert params["regions"] is None
     assert params["start_classes"] is None
     assert params["max_urban_share"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_true_total_rides_the_results_event(db) -> None:
+    """estimate_loops's count reaches results as total_loops — the number the
+    answer states — and is simply absent when the estimate returns nothing."""
+    from chat.composer import ComposedPlan
+    from chat.intents import LoopSearchIntent
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    db.when("estimate_loops", [{"total": 37, "rows": []}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    plan = ComposedPlan(loop=LoopSearchIntent(max_distance_m=16000))
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["total_loops"] == 37
+
+    db.when("estimate_loops", [])
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert "total_loops" not in results

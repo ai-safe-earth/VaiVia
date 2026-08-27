@@ -114,16 +114,14 @@ def check_answer(answer: str, view: dict[str, Any]) -> list[str]:
         problems.append("names trailforks")
     if any(line.lstrip().startswith("#") for line in answer.splitlines()):
         problems.append("markdown header in answer")
-    # The prompt asks for the best one or two loops by name, not all of them
-    # (relaxed 2026-08-27: demanding every name made the model choose between
-    # coverage and brevity). Case-insensitive: a destination route is named
-    # "To Monte X" and the prompt itself says to write "out and back to
-    # Monte X". Whether a mentioned name is EXACTLY as given is judge
-    # territory; this checks that loops were presented by name at all.
-    lowered = answer.lower()
-    names = {loop["name"] for loop in view.get("loops") or [] if loop.get("name")}
-    if names and not any(name.lower() in lowered for name in names):
-        problems.append(f"no loop named; the view offered {sorted(names)}")
+    # The count rule (owner decision 2026-08-27): the reply is a count-first
+    # sentence, so when the view carries the true total the answer must state
+    # it as digits — a count the cards contradict is worse than none.
+    # Zero is exempt: the empty-block rule asks for "nothing matched" prose,
+    # and demanding the digit 0 would punish the answer the prompt requires.
+    total = view.get("total_loops")
+    if total and str(total) not in answer:
+        problems.append(f"count missing: answer must state {total}")
     return problems
 
 

@@ -44,45 +44,37 @@ def test_a_markdown_header_fails() -> None:
     assert any("header" in p for p in problems)
 
 
-def test_named_loops_ignored_entirely_fail() -> None:
-    """The relaxed rule (2026-08-27): not every loop, but at least one must be
-    presented by name — an answer that names none has detached from the cards."""
-    view = {"loops": [{"id": "vv2-abc", "name": "Anello di Camposecco"}]}
-    problems = check_answer("A fine 12 km loop past a hut.", view)
-    assert any("no loop named" in p for p in problems)
+def test_a_missing_count_fails() -> None:
+    """The count rule (2026-08-27): when the view carries the true total, the
+    answer must state it as digits — a count the cards contradict is worse
+    than none."""
+    view = {"total_loops": 12, "loops": [{"id": "vv2-abc", "name": "Anello"}]}
+    problems = check_answer("I found several routes for your request.", view)
+    assert any("count missing" in p for p in problems)
 
 
-def test_naming_one_of_several_loops_is_enough() -> None:
-    view = {
-        "loops": [
-            {"id": "vv2-abc", "name": "Anello di Camposecco"},
-            {"id": "vv2-def", "name": "To Monte Cereto"},
-        ]
-    }
-    answer = "Start with the Anello di Camposecco, 12.4 km; more are on the cards."
+def test_the_stated_count_passes() -> None:
+    view = {"total_loops": 12, "loops": [{"id": "vv2-abc", "name": "Anello"}]}
+    answer = "I found 12 routes — add a distance to narrow them down."
     assert check_answer(answer, view) == []
 
 
-def test_a_destination_name_matches_the_out_and_back_phrasing() -> None:
-    """A destination route is named 'To Monte X' and the prompt tells the
-    model to write 'out and back to Monte X' — the match is case-insensitive,
-    or every destination loop would read as uncovered."""
-    view = {"loops": [{"id": "vv2-abc", "name": "To Monte Forcellino"}]}
-    answer = "A 9.8 km outing, out and back to Monte Forcellino."
+def test_a_zero_total_needs_no_digit() -> None:
+    """An emptied search answers with the empty-block prose ("nothing
+    matched..."), which the count rule must not punish."""
+    view = {"total_loops": 0, "loops": []}
+    answer = "Nothing matched all of that — try relaxing the distance."
     assert check_answer(answer, view) == []
 
 
-def test_an_unnamed_loop_needs_no_name() -> None:
-    """When name is null the prompt says describe by distance, so absence of a
-    name is not a coverage failure."""
-    view = {"loops": [{"id": "vv2-abc", "name": None}]}
-    assert check_answer("A fine 12 km loop past a hut.", view) == []
+def test_no_total_means_no_count_requirement() -> None:
+    """A view without total_loops (a trails-only or routes answer) imposes no
+    count on the reply."""
+    view = {"loops": [{"id": "vv2-abc", "name": "Anello"}]}
+    assert check_answer("A fine walk by the lake.", view) == []
 
 
 def test_a_clean_answer_passes() -> None:
-    view = {"loops": [{"id": "vv2-abc", "name": "Anello di Camposecco"}]}
-    answer = (
-        "The Anello di Camposecco is a 12.4 km loop with 640 m of climbing, "
-        "back to where you started. Nothing here is exposed in summer."
-    )
+    view = {"total_loops": 5, "loops": [{"id": "vv2-abc", "name": "Anello"}]}
+    answer = "I found 5 routes for your request."
     assert check_answer(answer, view) == []
