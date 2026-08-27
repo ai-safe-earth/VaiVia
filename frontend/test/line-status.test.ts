@@ -129,6 +129,22 @@ describe('what the map may draw for a selection', () => {
   it('draws nothing when nothing is ok', () => {
     expect(drawableFeatures(new Map([['a', { status: 'error' } as LineEntry]]), null)).toBeNull();
   });
+
+  it('stamps each feature with its difficulty band, ungraded when unknown', () => {
+    const bands = new Map([['a', 'hard' as const]]);
+    const features = drawableFeatures(entries, null, bands)!;
+    expect(features.map((f) => f.properties?.difficulty_band)).toEqual([
+      'hard',
+      'ungraded',
+    ]);
+  });
+
+  it('with no band map every feature reads ungraded', () => {
+    const features = drawableFeatures(entries, null)!;
+    expect(
+      features.every((f) => f.properties?.difficulty_band === 'ungraded'),
+    ).toBe(true);
+  });
 });
 
 describe('the drawn line says what it is', () => {

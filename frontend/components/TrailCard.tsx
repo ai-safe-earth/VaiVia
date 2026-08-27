@@ -75,35 +75,6 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
         </div>
       </div>
 
-      {trail.pois.length > 0 && (
-        <div className="key-facts">
-          <div>
-            <span className="vv-label">Along the way</span>
-            <div className="poi-list">
-              {trail.pois.slice(0, 4).map((poi, index) => {
-                const icon = poiIcon(poi.type);
-                return (
-                  <span className="poi vv-body-sm" key={`${poi.type}-${index}`}>
-                    {icon && <Icon name={icon} />}
-                    {poi.name ?? poiLabel(poi.type)}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-          {trail.best_seasons.length > 0 && (
-            <div>
-              <span className="vv-label">Best seasons</span>
-              <p className="fact vv-body-sm">{trail.best_seasons.join(', ')}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {trail.difficulty_notes && (
-        <p className="route-note vv-body">{trail.difficulty_notes}</p>
-      )}
-
       <button
         type="button"
         className="detail-toggle"
@@ -113,7 +84,7 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
           setOpen(!open);
         }}
       >
-        <span>{open ? 'Less' : 'Full card'}</span>
+        <span>{open ? 'Less' : 'See more'}</span>
         <span className="sign" aria-hidden="true">
           {open ? '−' : '+'}
         </span>
@@ -121,6 +92,35 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
 
       {open && (
         <div className="route-detail">
+          {trail.pois.length > 0 && (
+            <div className="key-facts">
+              <div>
+                <span className="vv-label">Along the way</span>
+                <div className="poi-list">
+                  {trail.pois.slice(0, 4).map((poi, index) => {
+                    const icon = poiIcon(poi.type);
+                    return (
+                      <span className="poi vv-body-sm" key={`${poi.type}-${index}`}>
+                        {icon && <Icon name={icon} />}
+                        {poi.name ?? poiLabel(poi.type)}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+              {trail.best_seasons.length > 0 && (
+                <div>
+                  <span className="vv-label">Best seasons</span>
+                  <p className="fact vv-body-sm">{trail.best_seasons.join(', ')}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {trail.difficulty_notes && (
+            <p className="route-note vv-body">{trail.difficulty_notes}</p>
+          )}
+
           {trail.landscape_description && (
             <p className="detail-note vv-body-sm">{trail.landscape_description}</p>
           )}
@@ -144,10 +144,9 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
               </div>
             </div>
           )}
+          <Hazard hazards={trail.seasonal_hazards} />
         </div>
       )}
-
-      <Hazard hazards={trail.seasonal_hazards} />
 
       <Sources id={trail.id} />
     </div>

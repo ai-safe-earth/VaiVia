@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { SAC_ORDER } from '@/lib/difficulty';
 import { distance, distanceFigure, elevationFigure } from '@/lib/format';
 import type { LineStatus } from '@/lib/mapTurn';
 import { profileFromDetail } from '@/lib/profile';
@@ -31,16 +32,6 @@ interface Props {
   favorited?: boolean;
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
 }
-
-/** SAC grades in catalogue order — index+1 is the rank the squares fill to. */
-const SAC_ORDER = [
-  'hiking',
-  'mountain_hiking',
-  'demanding_mountain_hiking',
-  'alpine_hiking',
-  'demanding_alpine_hiking',
-  'difficult_alpine_hiking',
-];
 
 /** sac_scale in words. The scale runs past what a route catalogue should be
  *  offering, so the top band is deliberately blunt. */
@@ -99,7 +90,6 @@ export function LoopCard({
   const heading =
     loop.name ??
     (loop.ref ? `Sentiero ${loop.ref}` : `${distance(loop.distance_m)} ${loop.activity} loop`);
-  const startName = loop.start_names?.[0] ?? null;
 
   // Which KIND of outing this is, said out loud (owner rule 2026-08-21): a
   // trail ask can answer with loops, out-and-backs and named trails in one
@@ -190,41 +180,6 @@ export function LoopCard({
         )}
       </div>
 
-      {(loop.pois.length > 0 || startName || loop.car_free) && (
-        <div className="key-facts">
-          {(startName || loop.car_free) && (
-            <div>
-              <span className="vv-label">Starts at</span>
-              <p className="fact vv-body-sm">
-                {startName ?? 'an unnamed trailhead'}
-                {loop.car_free ? ' · reachable by train' : ''}
-              </p>
-            </div>
-          )}
-          {loop.pois.length > 0 && (
-            <div>
-              <span className="vv-label">Along the way</span>
-              <div className="poi-list">
-                {loop.pois
-                  .filter((poi) => poi.name)
-                  .slice(0, 3)
-                  // The index is in the key because a route can pass the same
-                  // place twice — an out-and-back does it by definition, and
-                  // two peaks can share a name. Name+type alone collides.
-                  .map((poi, index) => (
-                    <span
-                      className="poi vv-body-sm"
-                      key={`${poi.name}-${poi.type}-${index}`}
-                    >
-                      {poi.name}
-                    </span>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       <button
         type="button"
         className="detail-toggle"
@@ -236,7 +191,7 @@ export function LoopCard({
           if (next) onExpand?.(loop);
         }}
       >
-        <span>{open ? 'Less' : 'Full card'}</span>
+        <span>{open ? 'Less' : 'See more'}</span>
         <span className="sign" aria-hidden="true">
           {open ? '−' : '+'}
         </span>
@@ -273,8 +228,45 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
   }
   const namedPois = loop.pois.filter((poi) => poi.name);
 
+  const startName = loop.start_names?.[0] ?? null;
+
   return (
     <div className="route-detail">
+      {(loop.pois.length > 0 || startName || loop.car_free) && (
+        <div className="key-facts">
+          {(startName || loop.car_free) && (
+            <div>
+              <span className="vv-label">Starts at</span>
+              <p className="fact vv-body-sm">
+                {startName ?? 'an unnamed trailhead'}
+                {loop.car_free ? ' · reachable by train' : ''}
+              </p>
+            </div>
+          )}
+          {loop.pois.length > 0 && (
+            <div>
+              <span className="vv-label">Along the way</span>
+              <div className="poi-list">
+                {loop.pois
+                  .filter((poi) => poi.name)
+                  .slice(0, 3)
+                  // The index is in the key because a route can pass the same
+                  // place twice — an out-and-back does it by definition, and
+                  // two peaks can share a name. Name+type alone collides.
+                  .map((poi, index) => (
+                    <span
+                      className="poi vv-body-sm"
+                      key={`${poi.name}-${poi.type}-${index}`}
+                    >
+                      {poi.name}
+                    </span>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {extended.length > 0 && (
         <div className="detail-figures">
           {extended.map((item) => (

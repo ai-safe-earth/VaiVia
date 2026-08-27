@@ -23,6 +23,9 @@ import { isAuthConfigured } from '@/lib/supabaseClient';
 import type { ChatMessage, Loop, RouteDetail, Trail } from '@/lib/types';
 import { useRouteDetails } from '@/lib/useRouteDetails';
 
+import { type DifficultyBand, loopBand, trailBand } from '@/lib/difficulty';
+
+import { Feedback } from './Feedback';
 import { FoldedCards } from './FoldedCards';
 import { LoopCard } from './LoopCard';
 import { QueryReading } from './QueryReading';
@@ -90,6 +93,9 @@ export function ChatPanel({
   // OUTCOME too: a failed line must read as "unavailable" on the card, not
   // as an id silently absent from the map.
   const loopFeatures = useRef<Map<string, LineEntry>>(new Map());
+  // Difficulty band per route id, for the map's line colour. Never cleared:
+  // ids are content-derived, so a stale entry is the same route.
+  const bands = useRef<Map<string, DifficultyBand>>(new Map());
   // The same statuses as React state, so the cards re-render when a line
   // arrives or fails - the ref alone repaints nothing.
   const [lineStatus, setLineStatus] = useState<Record<string, LineStatus>>({});
@@ -155,7 +161,18 @@ export function ChatPanel({
     const geometry = await fetchTrailGeoJson(trail.id).catch(() => null);
     // A slow trail A must not repaint the map after trail B was picked.
     if (!isStillSelected(routes.current(), trail.id)) return;
-    emitGeometry(geometry);
+    // Stamp the feature the way FavoritesView does: without `selected` a
+    // lone trail rendered at the dimmed unselected style by omission.
+    emitGeometry(
+      geometry && {
+        ...geometry,
+        properties: {
+          ...(geometry.properties ?? {}),
+          selected: true,
+          difficulty_band: trailBand(trail.difficulty_level),
+        },
+      },
+    );
   }
 
   /** Every loop drawn at once, with `selected` marking the one to highlight.
@@ -164,7 +181,7 @@ export function ChatPanel({
    *  "a selection whose line is unavailable clears the map rather than
    *  framing its siblings" - lives in lib/mapTurn.ts, tested. */
   function drawLoops(selectedId: string | null) {
-    const features = drawableFeatures(loopFeatures.current, selectedId);
+    const features = drawableFeatures(loopFeatures.current, selectedId, bands.current);
     emitGeometry(features ? { type: 'FeatureCollection', features } : null);
   }
 
@@ -225,6 +242,7 @@ export function ChatPanel({
    *  just revealed. Settled, not all: one route missing its geometry must not
    *  stop the others being drawn. */
   async function appendLoopGeometry(loops: Loop[], turn: number) {
+    loops.forEach((loop) => bands.current.set(loop.id, loopBand(loop)));
     // Errors are retried on the next ask; ok and missing (404) are settled;
     // a line already on the wire is not asked for again.
     const wanted = loops.filter(
@@ -357,7 +375,7 @@ export function ChatPanel({
             updateLast({ error: event.message, streaming: false });
             break;
           case 'done':
-            updateLast({ streaming: false });
+            updateLast({ streaming: false, messageId: event.messageId });
             break;
         }
       }
@@ -517,6 +535,19 @@ export function ChatPanel({
                     </p>
                   </div>
                 </div>
+              )}
+
+            {/* The user half of the eval loop: rendered once the turn is
+                stored (messageId arrives on `done`), never mid-stream. */}
+            {message.role === 'assistant' &&
+              !message.streaming &&
+              message.messageId &&
+              conversationId && (
+                <Feedback
+                  key={message.messageId}
+                  messageId={message.messageId}
+                  conversationId={conversationId}
+                />
               )}
 
             {message.error && (

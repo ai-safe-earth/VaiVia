@@ -20,6 +20,7 @@ const api = vi.hoisted(() => ({
   fetchRouteDetail: vi.fn(async () => null),
   fetchTrailGeoJson: vi.fn(async () => null),
   sendChat: vi.fn(),
+  sendFeedback: vi.fn(async () => undefined),
 }));
 
 vi.mock('@/lib/api', () => ({

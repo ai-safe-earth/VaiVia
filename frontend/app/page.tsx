@@ -7,7 +7,7 @@ import { AppHeader } from '@/components/AppHeader';
 import { AuthPanel } from '@/components/AuthPanel';
 import { ChatPanel } from '@/components/ChatPanel';
 import { FavoritesView } from '@/components/FavoritesView';
-import { ElevationPanel, MapLayerTabs } from '@/components/MapChrome';
+import { ElevationPanel } from '@/components/MapChrome';
 import { fetchFavorites, setFavorite, type FavoritesList } from '@/lib/api';
 import { applyToggle, belongsToCurrentUser, savedIds } from '@/lib/favorites';
 import { onSession, signOut, type AuthUser } from '@/lib/auth';
@@ -20,10 +20,6 @@ import type { ChatMessage, Loop, RouteDetail } from '@/lib/types';
 const MapView = dynamic(() => import('@/components/MapView').then((m) => m.MapView), {
   ssr: false,
 });
-
-/** Where the graph has been ingested. Named, because the honest answer to a
- *  request past the edge of coverage is where it stops. */
-const REGION = 'Lecco · Bergamo';
 
 export default function Home() {
   const [geometry, setGeometry] = useState<
@@ -54,6 +50,10 @@ export default function Home() {
   const [resumed, setResumed] = useState<
     { id: string | null; messages: ChatMessage[] } | undefined
   >(undefined);
+  // Bumped by the header's New chat button. Part of the panel key, so a fresh
+  // chat is an explicit remount — the key must never change from an SSE event
+  // (that was the mid-stream remount bug).
+  const [epoch, setEpoch] = useState(0);
 
   // Who is signed in NOW, readable from a continuation that started under
   // whoever was signed in THEN.
@@ -68,6 +68,7 @@ export default function Home() {
     // second sign-in seeing the first one's saved routes -- for a moment if
     // the fetch succeeds, and indefinitely if it fails.
     setResumed(undefined);
+    setEpoch(0);
     setFavoriteIds(new Set());
     setFavoritesList(undefined);
     if (!user) return;
@@ -127,8 +128,11 @@ export default function Home() {
     <main className="shell">
       <div className="chat-column">
         <AppHeader
-          region={REGION}
           email={user?.email}
+          onNewChat={() => {
+            setShowFavorites(false);
+            setEpoch((current) => current + 1);
+          }}
           onSignOut={user ? () => void signOut() : undefined}
           onFavorites={user ? () => setShowFavorites((open) => !open) : undefined}
           favoritesOpen={showFavorites}
@@ -149,19 +153,34 @@ export default function Home() {
             the transcript of the conversation you were having. */}
         {(!authRequired || resumed !== undefined) && (
           <ChatPanel
-            key={`${user?.id ?? 'anon'}:${resumed?.id ?? 'fresh'}`}
+            key={`${user?.id ?? 'anon'}:${epoch > 0 ? `new-${epoch}` : (resumed?.id ?? 'fresh')}`}
             hidden={showFavorites}
             onGeometry={setGeometry}
             onDetail={setRouteDetail}
-            initialConversationId={resumed?.id ?? null}
-            initialMessages={resumed?.messages ?? []}
+            initialConversationId={epoch > 0 ? null : (resumed?.id ?? null)}
+            initialMessages={epoch > 0 ? [] : (resumed?.messages ?? [])}
             favorites={user ? favoriteIds : undefined}
             onToggleFavorite={user ? toggleFavorite : undefined}
           />
         )}
-        {/* Trail geometry, paths and POIs in every answer are OSM-derived, so
-            the credit belongs in the app chrome and not only on the map — a
-            user reading results never has to open the map to see it. */}
+      </div>
+      {/* The canvas is its own row so the elevation panel is chrome around
+          it rather than an overlay on top of it — and so the tile attribution
+          keeps its place at the foot of the map itself. */}
+      <div className="map">
+        <div className="map-canvas">
+          <MapView geometry={geometry} />
+          {!geometry && (
+            <p className="map-empty vv-body-sm">Pick a trail to see it drawn here.</p>
+          )}
+        </div>
+        <ElevationPanel
+          profile={profileFromDetail(routeDetail)}
+          quality={routeDetail?.profile_quality}
+        />
+        {/* Trail geometry, paths and POIs in every answer are OSM-derived;
+            the credit sits under the profile line, beside the map it
+            attributes (owner decision 2026-08-27). */}
         <footer className="data-credit vv-body-sm">
           Trails, paths and places from{' '}
           <a
@@ -181,22 +200,6 @@ export default function Home() {
           </a>
           . Conditions change — check locally before you go.
         </footer>
-      </div>
-      {/* The canvas is its own row so the layer tabs and the elevation panel
-          are chrome around it rather than overlays on top of it — and so the
-          tile attribution keeps its place at the foot of the map itself. */}
-      <div className="map">
-        <MapLayerTabs />
-        <div className="map-canvas">
-          <MapView geometry={geometry} />
-          {!geometry && (
-            <p className="map-empty vv-body-sm">Pick a trail to see it drawn here.</p>
-          )}
-        </div>
-        <ElevationPanel
-          profile={profileFromDetail(routeDetail)}
-          quality={routeDetail?.profile_quality}
-        />
       </div>
     </main>
   );
