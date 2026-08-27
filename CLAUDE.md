@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working with me
+
+Solo builder/founder; I wrote most of this code. Skip orientation and background explanation.
+
+- Be terse. No end-of-turn summaries.
+- Propose a plan before implementing.
+- Explain tradeoffs when there's a real design choice.
+- I clear often, at roughly 40% context. The flow is mine to trigger: I type `/handoff`, then `/clear`. Don't propose it every turn. If I'm about to clear and something from this session isn't in `handoff.md` yet, say so in one line.
+
 ## Project status
 
 Monorepo; the roadmap and target architecture live in `docs/plan.md` — read it before structural work. Layout: `pipeline/` (geodata pipeline, PostGIS, Python — its own uv project, own `README.md` and `docs/`), `backend/` (FastAPI + Neo4j, Python), `gateway/` (Fastify BFF, Node/TS), `frontend/` (Next.js + MapLibre), `infra/` (compose, Supabase migrations, deploy). All four tiers are built and tested; CI runs one job per tier. Backend code lands under `backend/` (`api/`, `ingestion/`, `graph/`, `scripts/`, `tests/`, `fixtures/`).
@@ -62,9 +71,15 @@ Monorepo; the roadmap and target architecture live in `docs/plan.md` — read it
 - **Branch from `develop` and open PRs against `develop`**, never `main`. `main` is production: protected, no direct pushes, and reached only by a release PR from `develop` or a `hotfix/…` branched off `main` (which must then be merged back into `develop`). `develop` is the repo default, so `gh pr create` targets it on its own.
 - Update the relevant file in `docs/` (including `docs/plan.md` checkboxes) when a change affects the data model, query patterns, fragilities, or roadmap. Pipeline changes update `pipeline/docs/` (`metadata-rules.md`, `data-sources.md`) instead.
 
-## Handoff file (read by the project tracker)
+## State files
 
-Read `handoff.md` once, at the start of a session, before the first plan or code change. Do not
-re-read it later in the same session — the conversation is the fresher source. Re-read only after
-a `/clear`, a `/compact`, or if I say the repo moved outside this session. If it conflicts with
-the repo, trust the repo and say so.
+`handoff.md` is the moving picture; this file is the stable rules. Read it once, at the start
+of a session, before the first plan or code change. Do not re-read it later — the conversation
+is fresher. Re-read after a `/clear` or `/compact`. If it conflicts with the repo, trust the
+repo and say so.
+
+Never read `docs/pm-log.jsonl`. It is append-only history for the project tracker; reading it
+puts 150 KB of settled decisions into context for no benefit. If you need to know why something
+was decided, ask me or read the code.
+
+Writing any of this is the `/handoff` skill's job, on my command only.
