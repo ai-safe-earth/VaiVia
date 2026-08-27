@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The eval pipeline — VaiVia</title>
+<style>
+  /* --p0/--p1 are per-unit accent pairs; add --p2 (and .b2/.d2) the same way
+     for a third unit. A one-unit doc uses --p0 only and drops the legend. */
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --fg:#1c1c22; --muted:#6b6b76; --rule:#e3e1dc;
+    --code-bg:#f2f0ec; --code-fg:#2a2a30; --comment:#8b8b95;
+    --p0:#0e7490; --p0-bg:#e3f3f7; --p0-line:#0e7490;
+    --p1:#bd2a80; --p1-bg:#fbe6f2; --p1-line:#bd2a80;
+    --infra:#8f8c96; --good:#177245; --warn:#9a6a06;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#101014; --panel:#17171c; --fg:#e8e6e3; --muted:#9a97a0; --rule:#2b2b33;
+      --code-bg:#1c1c23; --code-fg:#d8d6d3; --comment:#7e7e8a;
+      --p0:#53c9dd; --p0-bg:#0d3540; --p0-line:#53c9dd;
+      --p1:#ff5cb8; --p1-bg:#3e1130; --p1-line:#ff5cb8;
+      --infra:#77747e; --good:#5fce8d; --warn:#e3b341;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.65 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  main{max-width:980px; margin:0 auto; padding:0 28px 90px}
+  header.doc{max-width:980px; margin:0 auto; padding:56px 28px 8px}
+  h1{font-size:30px; line-height:1.2; margin:0 0 6px}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 4px}
+  h2{font-size:22px; margin:60px 0 12px; padding-top:18px; border-top:1px solid var(--rule)}
+  h3{font-size:16.5px; margin:30px 0 8px}
+  p{margin:10px 0}
+  a{color:var(--p0); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{
+    font:12.8px/1.55 ui-monospace,"Cascadia Code",Consolas,Menlo,monospace;
+    background:var(--code-bg); padding:1px 5px; border-radius:4px;
+  }
+  pre{
+    background:var(--code-bg); color:var(--code-fg); border:1px solid var(--rule);
+    border-radius:0 0 8px 8px; padding:14px 16px; overflow-x:auto; margin:0 0 18px;
+  }
+  pre code{background:none; padding:0; font-size:12.8px}
+  .file{
+    display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+    background:var(--panel); border:1px solid var(--rule); border-bottom:none;
+    border-radius:8px 8px 0 0; padding:7px 16px; margin-top:16px;
+    font:12px ui-monospace,Consolas,monospace; color:var(--muted);
+  }
+  .file b{color:var(--fg); font-weight:600}
+  .cm{color:var(--comment)}
+  .badge{
+    display:inline-block; font:700 10.5px/1 ui-monospace,Consolas,monospace;
+    padding:4px 7px; border-radius:99px; vertical-align:2px; letter-spacing:.05em;
+  }
+  .b0{background:var(--p0-bg); color:var(--p0)}
+  .b1{background:var(--p1-bg); color:var(--p1)}
+  .fig{
+    background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+    padding:18px 14px 8px; margin:20px 0 8px; overflow-x:auto;
+  }
+  .fig svg{display:block; margin:0 auto; min-width:720px}
+  .figcap{color:var(--muted); font-size:13px; margin:6px 4px 22px; text-align:center}
+  table{border-collapse:collapse; width:100%; margin:14px 0 20px; font-size:13.5px}
+  th,td{border:1px solid var(--rule); padding:7px 10px; text-align:left; vertical-align:top}
+  th{background:var(--code-bg); font-weight:600}
+  td code{font-size:12px}
+  ul,ol{padding-left:24px; margin:10px 0}
+  li{margin:5px 0}
+  .take{
+    background:var(--panel); border:1px solid var(--rule); border-left:4px solid var(--p0);
+    border-radius:8px; padding:12px 18px; margin:22px 0;
+  }
+  .take.t1{border-left-color:var(--p1)}
+  .take h4{margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+  .take ul{margin:6px 0 2px}
+  .dec b.num{
+    display:inline-block; min-width:20px; text-align:center; border-radius:99px;
+    font:700 11px/20px ui-monospace,Consolas,monospace; margin-right:6px;
+  }
+  .dec.d0 b.num{background:var(--p0-bg); color:var(--p0)}
+  .dec.d1 b.num{background:var(--p1-bg); color:var(--p1)}
+  nav.toc{
+    background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+    padding:14px 22px; margin:22px 0 0; font-size:14px;
+  }
+  nav.toc ol{margin:6px 0; columns:2; column-gap:40px}
+  .warntag{color:var(--warn); font-weight:600}
+  .goodtag{color:var(--good); font-weight:600}
+  .svgt{font:12px -apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--fg)}
+  .svgs{font:10.5px -apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--muted)}
+  .svgm{font:11px ui-monospace,Consolas,monospace; fill:var(--fg)}
+  .svgmd{font:10.5px ui-monospace,Consolas,monospace; fill:var(--muted)}
+</style>
+</head>
+<body>
+<header class="doc">
+  <h1>The eval pipeline — every stage of a chat turn now leaves a score</h1>
+  <p class="sub">VaiVia · branch <code>feat/eval-hardening</code> · commits <code>3376c4b</code>, <code>b9902bb</code> · written 2026-08-27</p>
+  <p class="sub">Legend used throughout: <span class="badge b0">P0</span> the measurement harness &nbsp;·&nbsp; <span class="badge b1">P1</span> what measuring changed &nbsp;·&nbsp; grey = pre-existing infrastructure</p>
+  <nav class="toc">
+    <b>Contents</b>
+    <ol>
+      <li><a href="#context">Why this exists</a></li>
+      <li><a href="#system">The system, and where the work lands</a></li>
+      <li><a href="#harness">P0 · The measurement harness</a></li>
+      <li><a href="#feedback">P1 · What measuring changed, same day</a></li>
+      <li><a href="#next">What comes next + recommendations</a></li>
+    </ol>
+  </nav>
+</header>
+<main>
+
+<h2 id="context">1 · Why this exists</h2>
+<p>An eval audit (2026-08-26, using the <code>evals-skills</code> checklist) found that the chat
+pipeline measured its first two stages and not its third. Decomposition had a golden dataset
+(<code>backend/fixtures/golden_questions.json</code>) and retrieval had <code>--graph</code>, but the
+<b>answer prose</b> — the stage carrying the most safety-loaded rules in the system: never invent a
+trail, never write a link, never name trailforks.com — had zero checks. Nothing would have noticed
+the model drifting on those rules, because the one rule that had failed before (links, live smoke
+2026-08-21) was patched by a production sanitizer that also silently hides any recurrence from
+observation.</p>
+<p>Three smaller gaps rode along: the eval's check logic existed twice (a drifted copy in
+<code>check_intents_live.py</code> with no <code>loop.</code> support), the dataset had zero Italian
+phrasings for a product serving Lecco and Bergamo, and scores lived only as hand-written prose in
+<code>handoff.md</code> — where they were already stale (24/26 figures for a 34-entry dataset).</p>
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>Before this branch: decomposition and retrieval measured, answer stage unmeasured, scores unrecorded.</li>
+    <li>The production link-stripper made the answer stage <em>look</em> safe while hiding whether the model obeys.</li>
+    <li>Deliberately deferred: error analysis on real traces (pre-launch, <code>dump_conversation</code> covers it) and any LLM judge (no judges before error analysis).</li>
+  </ul>
+</div>
+
+<h2 id="system">2 · The system, and where the work lands</h2>
+<div class="fig">
+<svg viewBox="0 0 960 430" role="img" aria-label="Eval harness tapping the three stages of the chat pipeline">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--infra)"/></marker>
+    <marker id="ar0" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p0-line)"/></marker>
+    <marker id="ar1" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p1-line)"/></marker>
+  </defs>
+
+  <!-- production pipeline row (grey, pre-existing) -->
+  <rect x="20" y="30" width="180" height="72" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="34" y="56" class="svgt" font-weight="600">extract_plan</text>
+  <text x="34" y="74" class="svgs">OpenAI structured outputs</text>
+  <text x="34" y="90" class="svgmd">chat/llm.py</text>
+
+  <rect x="260" y="30" width="180" height="72" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="274" y="56" class="svgt" font-weight="600">compose + _execute</text>
+  <text x="274" y="74" class="svgs">Python merges, Neo4j runs</text>
+  <text x="274" y="90" class="svgmd">chat/composer.py · orchestrator.py</text>
+
+  <rect x="500" y="30" width="180" height="72" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="514" y="56" class="svgt" font-weight="600">stream_answer</text>
+  <text x="514" y="74" class="svgs">answer model, RAW tokens</text>
+  <text x="514" y="90" class="svgmd">chat/llm.py:106</text>
+
+  <rect x="740" y="30" width="190" height="72" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="754" y="56" class="svgt" font-weight="600">strip_links_stream</text>
+  <text x="754" y="74" class="svgs">repairs links in code</text>
+  <text x="754" y="90" class="svgmd">chat/sanitize.py:124</text>
+
+  <path d="M200 66 L258 66" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="204" y="58" class="svgs">subqueries</text>
+  <path d="M440 66 L498 66" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="444" y="58" class="svgs">_answer_view</text>
+  <path d="M680 66 L738 66" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="684" y="58" class="svgs">deltas</text>
+
+  <!-- eval harness row (P0) -->
+  <rect x="20" y="180" width="910" height="120" rx="10" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="36" y="206" class="svgt" font-weight="600">scripts/eval_golden.py — one entry, three verdicts</text>
+  <text x="36" y="228" class="svgm">DECOMPOSITION  check_plan(expect, plan)                      50/50  ①②</text>
+  <text x="36" y="248" class="svgm">RETRIEVAL      --graph: ids of results.trails / results.loops  18/20  ③</text>
+  <text x="36" y="268" class="svgm">ANSWER         --answers: check_answer(raw_text, view)         42/44  ④⑤</text>
+  <text x="36" y="290" class="svgs">same extract → compose → apply_delta loop as the orchestrator; one _execute per entry feeds both retrieval and answer</text>
+
+  <!-- taps -->
+  <path d="M110 102 L110 178" stroke="var(--p0-line)" stroke-width="2" fill="none" marker-end="url(#ar0)"/>
+  <text x="118" y="140" class="svgs">composed plan</text>
+  <path d="M350 102 L350 178" stroke="var(--p0-line)" stroke-width="2" fill="none" marker-end="url(#ar0)"/>
+  <text x="358" y="140" class="svgs">result ids ③</text>
+  <path d="M590 102 L590 178" stroke="var(--p0-line)" stroke-width="2" fill="none" marker-end="url(#ar0)"/>
+  <text x="598" y="140" class="svgs">RAW answer text ④</text>
+  <text x="750" y="140" class="svgs">⟂ never tapped after the</text>
+  <text x="750" y="156" class="svgs">sanitizer — it hides drift ④</text>
+
+  <!-- outputs -->
+  <rect x="20" y="350" width="430" height="56" rx="10" fill="var(--panel)" stroke="var(--p0-line)"/>
+  <text x="36" y="374" class="svgt" font-weight="600">backend/eval_runs.jsonl</text>
+  <text x="36" y="392" class="svgmd">one committed line per run: date · commit · scores ⑥</text>
+  <rect x="500" y="350" width="430" height="56" rx="10" fill="var(--panel)" stroke="var(--p0-line)"/>
+  <text x="516" y="374" class="svgt" font-weight="600">scripts/check_intents_live.py</text>
+  <text x="516" y="392" class="svgmd">adversarial gate only — 7/7 must clarify ②</text>
+  <path d="M240 300 L240 348" stroke="var(--p0-line)" stroke-width="2" fill="none" marker-end="url(#ar0)"/>
+  <text x="248" y="330" class="svgs">log_run(summary)</text>
+  <path d="M715 300 L715 348" stroke="var(--p0-line)" stroke-width="2" fill="none" marker-end="url(#ar0)"/>
+  <text x="723" y="330" class="svgs">shares the dataset's clarify entries</text>
+</svg>
+</div>
+<p class="figcap">Fig. 1 — The eval taps each production stage where its output is still honest. Gateway,
+frontend, and Supabase are untouched by this work and omitted.</p>
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>One script, three verdicts per entry, each pointing at the layer that caused a failure.</li>
+    <li>The answer tap is deliberately <em>before</em> the sanitizer: production repairs what the eval measures.</li>
+    <li>Every run appends a committed score line, so prompt changes get before/after numbers for free.</li>
+  </ul>
+</div>
+
+<h2 id="harness">3 · <span class="badge b0">P0</span> The measurement harness</h2>
+
+<h3>3.1 · Goal</h3>
+<p>Make every stage of a chat turn measurable by reusing the production path, not a parallel
+re-implementation — and grow the dataset to 50 entries: the drifted golden half of
+<code>check_intents_live.py</code> folded in, eight Italian/mixed phrasings added
+(<code>g43</code>–<code>g50</code>), and a new <code>expect_loops</code> key pinning catalogue
+routes by their geometry-stable <code>vv2-…</code> ids.</p>
+
+<h3>3.2 · How the data moves and transforms</h3>
+<p>The multiturn loop is the orchestrator's own — standing plan threading included — and execution
+is the orchestrator's own <code>_execute</code>, so a passing eval certifies the code users hit:</p>
+
+<div class="file"><span><b>backend/scripts/eval_golden.py</b>:220–248 — one execution feeds retrieval and answer checks</span><span class="badge b0">P0</span></div>
+<pre><code>results, _ = await orchestrator._execute(plan)  <span class="cm"># noqa: SLF001 — eval reuses the real path ③</span>
+for expected, key in ((expected_trails, "trails"), (expected_loops, "loops")):
+    ...
+    retrieved = [r["id"] for r in results.get(key) or []]
+if args.answers:
+    view = _answer_view(results)                <span class="cm"># the top-5 prefix the model actually saw ⑤</span>
+    answer = "".join([chunk async for chunk in client.stream_answer(
+        turns[-1], results_to_json(view), []    <span class="cm"># RAW stream — before strip_links_stream ④</span>
+    )])</code></pre>
+
+<div class="file"><span><b>backend/scripts/eval_golden.py</b>:103–127 — the code-checkable prompt rules</span><span class="badge b0">P0</span></div>
+<pre><code>def check_answer(answer: str, view: dict[str, Any]) -&gt; list[str]:
+    link = find_link(answer)                    <span class="cm"># chat/sanitize.py:50 — detection half of unlink</span>
+    if link is not None: problems.append(f"link in answer: {link!r}")
+    if "trailforks" in answer.lower(): problems.append("names trailforks")
+    if any(line.lstrip().startswith("#") for line in answer.splitlines()):
+        problems.append("markdown header in answer")
+    names = {loop["name"] for loop in view.get("loops") or [] if loop.get("name")}
+    if names and not any(name.lower() in lowered for name in names):
+        problems.append(f"no loop named; the view offered {sorted(names)}")  <span class="cm"># relaxed — see P1</span></code></pre>
+
+<div class="file"><span><b>backend/scripts/eval_golden.py</b>:152–165 — the run log</span><span class="badge b0">P0</span></div>
+<pre><code>def log_run(summary: dict[str, Any]) -&gt; None:
+    <span class="cm">"""One JSON line per run, appended: the trend the handoff prose cannot hold."""</span>
+    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], ...).stdout.strip()
+    line = {"date": ..., "commit": commit, **summary}
+    with RUN_LOG.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(line) + "\n")       <span class="cm"># ⑥ committed: backend/eval_runs.jsonl</span></code></pre>
+
+<h3>3.3 · Decisions, and why</h3>
+<ul class="dec d0">
+  <li><b class="num">①</b><strong>One checker, one dataset.</strong> <code>check_intents_live.py</code>'s
+  golden half moved into <code>golden_questions.json</code> (entries <code>g35</code>–<code>g42</code>) and its
+  drifted local <code>check()</code> was deleted; the script keeps only the 7-payload adversarial gate
+  (<code>scripts/check_intents_live.py:20</code>). Rejected: importing <code>check_plan</code> into it —
+  after the move the gate needs only <code>plan.is_clarify</code>. Cost: the gate no longer double-covers
+  natural phrasings, which the 50-entry dataset now owns.</li>
+  <li><b class="num">②</b><strong>Code checks only; no judge.</strong> Every answer rule that a regex or a
+  set-membership test can decide is checked in code; faithfulness ("no invented facts") is not checked at
+  all, stated in the docstring as deferred. Rejected: an LLM judge now — the audit's own rule is no judges
+  before error analysis, and an unvalidated judge is worse than a named gap.</li>
+  <li><b class="num">③</b><strong>Pin ids, never names.</strong> <code>expect_loops</code> takes
+  <code>vv2-…</code> ids (geometry digests, <code>pipeline/ids.py</code>) because
+  <code>scripts/name_routes.py</code> rewrites names every run. Only <code>g30</code> is pinned
+  (<code>fixtures/golden_questions.json:311</code>): the catalogue holds no ≤15 km hike loop near Lecco
+  (its hike loops run 18–21 km) and Bergamo's catalogue is not in Neo4j — both data facts the eval now
+  makes visible instead of hiding behind an unpinnable expectation.</li>
+  <li><b class="num">④</b><strong>Grade the raw stream.</strong> The orchestrator pipes answers through
+  <code>strip_links_stream</code> (<code>chat/orchestrator.py:241</code>), so an answer captured from
+  <code>orch.run()</code> can never contain a link. The eval calls <code>stream_answer</code> directly:
+  it measures whether the <em>model</em> obeys, keeping the check a drift canary rather than a test of the
+  strip. Cost: the eval bypasses <code>run()</code>'s quota guard — acceptable, it is an operator script.</li>
+  <li><b class="num">⑤</b><strong>Grade against the view, not the results.</strong> Checks read
+  <code>_answer_view(results)</code> — the top-5 prefix the model was shown — because judging coverage
+  against the full result set would fail the model for rows it never saw.</li>
+  <li><b class="num">⑥</b><strong>The log is committed.</strong> <code>eval_runs.jsonl</code> is versioned
+  with the prompts that produced each line (owner decision, 2026-08-27), so <code>git log</code> answers
+  "what did this prompt change cost". Rejected: keeping scores in <code>handoff.md</code> prose — that is
+  how they went stale.</li>
+</ul>
+
+<h3>3.4 · For a scalable system</h3>
+<ul>
+  <li>Entries run sequentially; a 50-entry <code>--graph --answers</code> run takes ~5 minutes and ~110
+  OpenAI calls. Ceiling ≈ a few hundred entries; the upgrade is an <code>asyncio.gather</code> batch with a
+  small semaphore — the harness has no shared mutable state to stop it.</li>
+  <li>Trail retrieval can never grow past 5: <code>(:Trail)</code> nodes come only from the fixture
+  (<code>ingestion/trailforks_ingest.py</code>). This ceiling belongs to the data story, not to the eval;
+  the catalogue (<code>expect_loops</code>) is the growable half.</li>
+</ul>
+
+<h3>3.5 · Security</h3>
+<ul>
+  <li>The adversarial gate is the containment regression test: all 7 injection/out-of-scope payloads must
+  compose to <code>clarify</code>, which runs no query. Re-verified 7/7 after the refactor and again after
+  the P1 prompt change. Dataset entries <code>g15</code>, <code>g33</code>, <code>g48</code> keep
+  injections (one Italian, one mid-conversation) in the scored set too.</li>
+  <li>The eval needs <code>OPENAI_API_KEY</code> and a live Neo4j; it is a script, never CI —
+  CI stays offline by construction and the checker functions have their own offline tests
+  (<code>tests/test_eval_golden_checks.py</code>).</li>
+</ul>
+
+<div class="take">
+  <h4>Key takeaways — P0</h4>
+  <ul>
+    <li>The eval certifies the production path because it <em>is</em> the production path, tapped at three points.</li>
+    <li>Dataset 34 → 50: dedupe from the live script, eight Italian entries, id-pinned catalogue loops.</li>
+    <li>What is deliberately not checked is written down (faithfulness → after error analysis), not implied.</li>
+  </ul>
+</div>
+
+<h2 id="feedback">4 · <span class="badge b1">P1</span> What measuring changed, same day</h2>
+
+<h3>4.1 · Goal</h3>
+<p>The first <code>--answers</code> run scored 34/44 and every failure was one rule: the prompt demanded
+every loop be called by name while also demanding brevity — with five loops and five trails in view, the
+model had to break one rule or the other. The fix relaxes the rule to what a walker needs, in prompt and
+checker together, and the re-run proves it: 42/44.</p>
+
+<h3>4.2 · How the data moves and transforms</h3>
+<div class="file"><span><b>backend/chat/prompts.py</b>:130–134 — the relaxed rule (inside ANSWER_SYSTEM_PROMPT, :104)</span><span class="badge b1">P1</span></div>
+<pre><code>walker on a linear route must arrange the return. You need not cover every
+loop: the list is ranked, so present the best one or two and let the cards
+carry the rest. Any loop you DO mention, call by its `name` when it has
+one, exactly as given, so your reply and the cards on screen agree; when
+`name` is null, describe it by distance and what it passes rather than
+inventing a name.</code></pre>
+<p>The checker relaxed in lockstep (P0's <code>check_answer</code>): it now fails only an answer that
+names <em>no</em> loop when named loops were offered — the two residual failures are exactly that.</p>
+<div class="file"><span><b>backend/chat/prompts.py</b>:125–129 — out_and_back taught to the prompt</span><span class="badge b1">P1</span></div>
+<pre><code>`shape` says what each one is: `loop` and `circular` come back to the start
+(say "a loop"), `destination` goes somewhere worth going and back (say "out
+and back to ..."), `out_and_back` does the same but returns by exactly the
+outbound path (say "out and back to ..., returning the same way"),
+`linear` ends somewhere else</code></pre>
+
+<h3>4.3 · Decisions, and why</h3>
+<ul class="dec d1">
+  <li><b class="num">ⓐ</b><strong>Relax the rule, don't grade harder.</strong> Rejected: keeping the
+  every-name rule and calling 34/44 a model deficiency — the rule itself was contradictory, and an eval
+  that fails a model for obeying the neighbouring rule teaches nothing. Prompt and checker moved together
+  in one commit (<code>b9902bb</code>) so the score line brackets exactly one semantic change.</li>
+  <li><b class="num">ⓑ</b><strong>Whether a mentioned name is <em>exactly</em> as given is judge
+  territory.</strong> The code check is substring, case-insensitive (a destination route is named
+  "To Monte X" and the prompt says to write "out and back to Monte X"). Verifying verbatim naming needs
+  interpretation; deferred with the rest of the judge work.</li>
+  <li><b class="num">ⓒ</b><strong>The <code>out_and_back</code> gap was found by counting, not by a
+  failure.</strong> Writing this work's live counts showed 167 of 627 loaded routes carry a shape the
+  prompt never described — the factory added it 2026-08-25 (<code>pipeline/docs/metadata-rules.md</code>,
+  "The parametric factory") and the prompt was never told. The model had been improvising on a quarter of
+  the catalogue. No eval caught this because no check can catch a shape the spec itself omits.</li>
+</ul>
+
+<div class="take t1">
+  <h4>Key takeaways — P1</h4>
+  <ul>
+    <li>34/44 → 42/44 from one rule change; the residual 2 fail the relaxed rule genuinely (no loop named at all).</li>
+    <li>Prompt and checker are one contract: they change in the same commit or the scores lie.</li>
+    <li>The first day of measurement paid for the harness twice — one contradiction, one silent spec gap.</li>
+  </ul>
+</div>
+
+<h2 id="next">5 · What comes next + recommendations</h2>
+<p>Where the eval plan stands (audit findings, owner-scoped 2026-08-27):</p>
+<table>
+  <tr><th>Item</th><th>Status</th></tr>
+  <tr><td>Answer-stage code checks (<code>--answers</code>)</td><td><span class="goodtag">done</span> — 42/44, residuals understood</td></tr>
+  <tr><td>Dedupe check logic; adversarial gate stands alone</td><td><span class="goodtag">done</span> — 7/7 contained</td></tr>
+  <tr><td>Italian golden entries</td><td><span class="goodtag">done</span> — g43–g50, all pass decomposition first try</td></tr>
+  <tr><td>Loop retrieval pinning (<code>expect_loops</code>)</td><td><span class="goodtag">done</span> — mechanism live; one entry pinned (see R3)</td></tr>
+  <tr><td>Committed run log</td><td><span class="goodtag">done</span> — <code>backend/eval_runs.jsonl</code>, 2 lines</td></tr>
+  <tr><td>Error analysis on real traces</td><td><span class="warntag">deferred to launch</span> — <code>dump_conversation</code> + BUG notes cover pre-launch</td></tr>
+  <tr><td>Faithfulness LLM judge</td><td><span class="warntag">deferred</span> — blocked on error analysis, by design</td></tr>
+</table>
+<p>Discovered while writing:</p>
+<ol>
+  <li><span class="warntag">Neo4j lags the catalogue.</span> Live Neo4j holds 627 <code>:Route</code>
+  nodes, all <code>kind=generated</code>; plan P4 records a 1,371-route catalogue (751 mapped + 620
+  generated). Either <code>pipeline/export/neo4j_load.py</code> hasn't run since the P4 regeneration or it
+  filters mapped routes — chat users currently cannot be offered any mapped route. Worth one
+  <code>neo4j_load</code> run and a count check.</li>
+  <li><span class="warntag">Dead template with a stale pointer.</span> <code>backend/graph/queries.cypher:540</code>
+  documents <code>estimate_loops</code> as feeding <code>chat/narrowing.py</code>, which does not exist in
+  the tree. The template is guard-tested but consumed by nothing. Wire it or fold the comment — a pointer
+  to a missing file will misdirect the next reader.</li>
+  <li><span class="warntag">The catalogue has no short hike loops near Lecco.</span> The reason
+  g27/g49 cannot be pinned: every hike loop near Lecco is 18–21 km. A user asking the most natural
+  question in the dataset — "a short loop hike near Lecco" — gets an empty block. A generation run with a
+  smaller <code>target_m</code> band would fill it.</li>
+  <li><span class="warntag">handoff.md's eval figures are stale</span> (24/26 for a 50-entry dataset).
+  Update at the next handoff write; henceforth the JSONL is the source and the handoff should cite it.</li>
+  <li>The two residual answer failures (no loop named at all when the ask was trail-shaped) —
+  <b>accepted, because</b> the prompt says to lead with whichever kind fits the ask better; forcing a loop
+  mention into a trail-shaped answer would trade a real rule for a score. Revisit if the count grows.</li>
+</ol>
+
+<p class="sub" style="margin-top:48px">Sources: <code>docs/plan.md</code> (Phase 4, Phase 7 P6),
+<code>backend/scripts/eval_golden.py</code>, <code>backend/scripts/check_intents_live.py</code>,
+<code>backend/chat/prompts.py</code>, <code>backend/chat/sanitize.py</code>,
+<code>backend/fixtures/golden_questions.json</code>, <code>backend/eval_runs.jsonl</code>.
+Line numbers as of <code>feat/eval-hardening</code> @ <code>b9902bb</code>; all quoted files committed.</p>
+
+</main>
+</body>
+</html>
