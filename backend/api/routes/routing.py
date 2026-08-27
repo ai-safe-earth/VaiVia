@@ -171,8 +171,9 @@ async def _route_via_gds(
 #: refused visibly rather than served on the guess that the fields line up.
 #: 2.0 is the id cutover (vv2- digests, terminals, categories); the 1.x
 #: store was re-emitted whole, so nothing older is ever legitimate here.
-#: Extend deliberately, with the reader.
-SUPPORTED_SCHEMA_VERSIONS = {"2.0"}
+#: 2.1 adds `recommended` (direction pairs suggest the steep-up walk) —
+#: additive, so both are served. Extend deliberately, with the reader.
+SUPPORTED_SCHEMA_VERSIONS = {"2.0", "2.1"}
 
 
 def _verify_document(document: dict, route_id: str, row: dict) -> None:

@@ -48,5 +48,8 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "evals-skills@hamelsmu-evals-skills": true
   }
 }

@@ -386,3 +386,45 @@ because `args.bbox` is the `--bbox` option that is the fix rather than the bug.
 *fact about the data* look identical at the call site — both are four floats. The
 difference only shows up as an answer that is quietly about less than you think.
 When a value bounds an analysis, it has to come from the thing being analysed.
+
+## 17. A Point Index Cannot Serve `point.distance` Between Two Properties (measured 2026-08-27)
+
+`build_trailheads` snapped anchors with
+`point.distance(p.location, i.location) <= $snap_m`, and the plan for it was a
+`NodeByLabelScan` over all 84,137 intersections **per anchor** — 167k dbHits
+each — despite `inter_location` being a POINT index, ONLINE, on exactly that
+property. The script had been "fixed" for this once already by cutting the work
+into batches of 25 against the server's 10 s transaction timeout, sized to a
+measured per-anchor cost. The graph then grew, the margin evaporated, and the
+first batch died. Batching was treating the symptom of a plan that never used
+the index at all.
+
+The planner says why when asked for a hint:
+`USING INDEX i:Intersection(location)` is rejected with *"the comparison cannot
+be performed between two property values"*. A distance predicate is
+index-servable only when the reference side is a literal, a parameter, or a
+**bound variable** — `p.location` inline is a property access, not a bound
+variable. The fix is one line before the subquery:
+
+    WITH p, p.location AS anchor
+    CALL (p, anchor) {
+      MATCH (i:Intersection)
+      WHERE point.distance(anchor, i.location) <= $snap_m
+      ...
+
+Same predicate, same results, `NodeIndexSeekByRange` at ~30 dbHits per anchor:
+all 1,547 anchors snap in one 0.77 s transaction, and the batching apparatus
+was deleted rather than retuned.
+
+The trap has a twin that makes it easy to misdiagnose: `SCORE_ACCESS` in the
+same script also compares two properties and its plan **does** seek the index —
+the planner manages the rewrite in some shapes (an aggregate over the
+neighbourhood) and not in others (`ORDER BY distance LIMIT 1`). So "it profiled
+fine over there" proves nothing about the query here.
+
+**The rule:** any spatial predicate that matters gets a `PROFILE` before it
+ships, and the thing to look for is the seek — `NodeIndexSeekByRange` — not the
+runtime. A label scan under a warm cache on today's graph is fast enough to
+pass every test and die two regions later; the plan, unlike the timing, tells
+you which one you wrote. When the plan scans, bind the reference point to a
+variable first.

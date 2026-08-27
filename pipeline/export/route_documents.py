@@ -36,7 +36,17 @@ import uuid
 from pathlib import Path
 
 from core import connect
-from export.document import Span, build_document, published
+from export.document import Span, build_document
+from export.orientation import (
+    Edge,
+    Piece,
+    Step,
+    climb,
+    climbing_gradients,
+    profile_steps,
+    walk_route,
+    walked_distance,
+)
 from export.shape import classify_osm_shape
 from export.terminals import endpoints_of, terminal_for_point
 from ids import DIRECTED_SHAPES, forward_is_stored, route_id
@@ -123,14 +133,13 @@ SELECT
     (SELECT ARRAY[ST_XMin(geom), ST_YMin(geom), ST_XMax(geom), ST_YMax(geom)]
        FROM line),
     (SELECT sum(length_m) FROM edges),
-    (SELECT CASE WHEN count(*) FILTER (WHERE ascent_m IS NULL) > 0 THEN NULL
-                 ELSE sum(ascent_m) END FROM edges),
-    (SELECT CASE WHEN count(*) FILTER (WHERE descent_m IS NULL) > 0 THEN NULL
-                 ELSE sum(descent_m) END FROM edges),
     (SELECT min(z) FROM edges, LATERAL unnest(profile_m) z),
     (SELECT max(z) FROM edges, LATERAL unnest(profile_m) z),
     (SELECT count(*) FILTER (WHERE ascent_m IS NULL) FROM edges),
-    (SELECT array_agg(ARRAY[coalesce(length_m, 0)]::text[]) FROM edges),
+    -- The line's geodesic length: the basis distance_along_m was measured
+    -- against, so a reversed sibling can flip a place's position on the
+    -- same ruler.
+    (SELECT ST_Length(geom::geography) FROM line),
     -- Endpoint gap in metres, for the shape classifier (export/shape.py).
     -- Only a single LineString has two endpoints to measure; a route held in
     -- pieces reports NULL and the classifier stays conservative.
@@ -169,13 +178,31 @@ WHERE ST_DWithin(ST_Transform(p.geom, 32632), l.utm, %(radius)s)
 ORDER BY along_m NULLS LAST, offset_m
 """
 
-# The starts on this route's own vertices: where a walk on it can begin.
-PROFILE = """
-SELECT e.profile_m, e.length_m, er.member_index, e.piece_index
+# Every walked occurrence of every edge, located along its piece of the
+# merged line — the raw material export/orientation.py turns into a walk.
+# LEFT JOIN, so an edge that ST_Covers puts on no piece arrives with piece
+# -1 and the orientation honestly refuses rather than guessing. Repeats
+# (the same way twice in one relation) arrive as repeated rows.
+EDGE_WALK = """
+WITH pieces AS (
+    SELECT (d).path[1] AS piece_no, (d).geom AS pgeom
+    FROM (SELECT ST_Dump(ST_Multi(geom)) AS d
+          FROM route_line WHERE rel_id = %(rel)s) x
+)
+SELECT coalesce(p.piece_no, -1),
+       ST_X(ST_StartPoint(p.pgeom)), ST_Y(ST_StartPoint(p.pgeom)),
+       ST_X(ST_EndPoint(p.pgeom)),   ST_Y(ST_EndPoint(p.pgeom)),
+       coalesce(ST_Equals(ST_StartPoint(p.pgeom), ST_EndPoint(p.pgeom)), false),
+       er.member_index,
+       e.edge_id,
+       coalesce(ST_LineLocatePoint(p.pgeom, ST_StartPoint(e.geom)), 0),
+       coalesce(ST_LineLocatePoint(p.pgeom, ST_EndPoint(e.geom)), 0),
+       e.length_m, e.ascent_m, e.descent_m, e.profile_m
 FROM source_map.edge_route er
 JOIN source_map.edge e ON e.edge_id = er.edge_id
+LEFT JOIN pieces p ON ST_Covers(p.pgeom, e.geom)
 WHERE er.rel_id = %(rel)s
-ORDER BY er.member_index, e.piece_index
+ORDER BY er.member_index
 """
 
 RELATIONS = """
@@ -187,21 +214,25 @@ ORDER BY r.rel_id
 """
 
 
-def build_profile(rows) -> dict[str, list[float]] | None:
-    """Concatenate the edges' profiles into one series along the route.
+def build_profile(
+    steps: list[tuple[list[float], float]] | None,
+) -> dict[str, list[float]] | None:
+    """Concatenate the walked steps' profiles into one series along the route.
 
-    Distance is cumulative across edges in member order. A missing sample
-    anywhere makes the whole profile absent, for the same reason ascent is
-    null: a profile with a hole silently shortens the route it describes.
+    Steps come from orientation.profile_steps — WALK order, each series
+    already reversed where the walk runs against the stored edge. A missing
+    sample anywhere makes the whole profile absent, for the same reason
+    ascent is null: a profile with a hole silently shortens the route it
+    describes.
     """
+    if steps is None:
+        return None
     distances: list[float] = []
     elevations: list[float] = []
     travelled = 0.0
-    for profile, length_m, _member, _piece in rows:
-        if not profile or any(z is None for z in profile):
-            return None
-        step = (length_m or 0.0) / max(len(profile) - 1, 1)
-        for i, z in enumerate(profile):
+    for series, length_m in steps:
+        step = (length_m or 0.0) / max(len(series) - 1, 1)
+        for i, z in enumerate(series):
             distances.append(round(travelled + i * step, 1))
             elevations.append(round(z, 1))
         travelled += length_m or 0.0
@@ -210,23 +241,101 @@ def build_profile(rows) -> dict[str, list[float]] | None:
     return {"distance_m": distances, "elevation_m": elevations}
 
 
+def reversed_profile(
+    profile: dict[str, list[float]] | None,
+) -> dict[str, list[float]] | None:
+    """The same ground walked the other way: elevations reversed, distances
+    re-measured from the other end."""
+    if profile is None:
+        return None
+    total = profile["distance_m"][-1]
+    return {
+        "distance_m": [round(total - d, 1) for d in reversed(profile["distance_m"])],
+        "elevation_m": list(reversed(profile["elevation_m"])),
+    }
+
+
+def route_walk(rows) -> list[Step] | None:
+    """EDGE_WALK rows -> the inferred walk (export/orientation.py)."""
+    if not rows:
+        return None
+    occurrences: dict[int, int] = {}
+    for row in rows:
+        occurrences[row[7]] = occurrences.get(row[7], 0) + 1
+    edges: dict[int, Edge] = {}
+    pieces: dict[int, Piece] = {}
+    for (
+        piece_no,
+        sx,
+        sy,
+        ex,
+        ey,
+        closed,
+        member,
+        edge_id,
+        f_start,
+        f_end,
+        length_m,
+        ascent_m,
+        descent_m,
+        profile_m,
+    ) in rows:
+        if edge_id not in edges:
+            edges[edge_id] = Edge(
+                edge_id=edge_id,
+                piece_no=piece_no,
+                f_start=float(f_start),
+                f_end=float(f_end),
+                length_m=float(length_m or 0.0),
+                ascent_m=None if ascent_m is None else float(ascent_m),
+                descent_m=None if descent_m is None else float(descent_m),
+                profile_m=profile_m,
+                occurrences=occurrences[edge_id],
+            )
+        if piece_no >= 0:
+            known = pieces.get(piece_no)
+            pieces[piece_no] = Piece(
+                piece_no=piece_no,
+                start=(sx, sy),
+                end=(ex, ey),
+                min_member=min(member, known.min_member) if known else member,
+                closed=closed,
+            )
+    return walk_route(list(edges.values()), list(pieces.values()))
+
+
+# A multi-piece route below this matched share is a fragment wearing a full
+# route's name (BI-12: 2 of 646 ways) — clipped at the coverage edge rather
+# than gapped. Owner-ratified 2026-08-27: at or above the floor a gapped
+# route is offered with its gaps visible; below it, held until coverage
+# grows. Single-line routes are untouched — their coverage shows in
+# matched_fraction like everyone else's.
+MULTI_PIECE_FLOOR = 0.9
+
+
 def emit(
     conn, rel_id: int, tags: dict, regions: list[str], matched_fraction, run_id: str
-):
+) -> list[dict] | None:
+    """The documents for one relation: one, two for a single-line circular
+    (both directions, owner rule 2026-08-27), or None when the multi-piece
+    floor holds it back."""
     row = conn.execute(ROUTE, {"rel": rel_id}).fetchone()
     (
         geojson,
         pieces,
         bbox,
-        distance_m,
-        ascent_m,
-        descent_m,
+        edge_sum_m,
         lowest_m,
         highest_m,
         without_profile,
-        _lengths,
+        line_geo_m,
         endpoint_gap_m,
     ) = row
+
+    if pieces > 1 and (
+        matched_fraction is None or float(matched_fraction) < MULTI_PIECE_FLOOR
+    ):
+        return None
 
     spans = conn.execute(SPANS, {"rel": rel_id}).fetchall()
     surface_spans = [Span(s, float(length)) for s, _sac, length in spans]
@@ -249,7 +358,18 @@ def emit(
         )
     ]
 
-    profile = build_profile(conn.execute(PROFILE, {"rel": rel_id}).fetchall())
+    # The inferred walk (export/orientation.py): direction-aware climb,
+    # walked distance (an out-and-back stretch counts both passes), and the
+    # profile in walk order. When the walk cannot be honestly known, all
+    # three are absent — never the direction-blind sums that stood here and
+    # violated the join rule (metadata-rules.md: never summed per piece).
+    walk = route_walk(conn.execute(EDGE_WALK, {"rel": rel_id}).fetchall())
+    climbed = climb(walk)
+    ascent_m, descent_m = climbed if climbed is not None else (None, None)
+    distance_m = walked_distance(walk)
+    if distance_m is None:
+        distance_m = float(edge_sum_m)
+    profile = build_profile(profile_steps(walk))
 
     geometry = json.loads(geojson)
     # Measured, never declared: the mapper's roundtrip tag wins, then the
@@ -266,60 +386,130 @@ def emit(
     )
     # This document describes the STORED orientation — whichever way the
     # mapper drew it. Its direction label says which of the pair that is,
-    # from geometry alone; the sibling arrives as a pure addition later.
+    # from geometry alone.
     direction = None
     if shape in DIRECTED_SHAPES:
         direction = "fwd" if forward_is_stored(coordinate_pieces[0]) else "rev"
-    rid = route_id(coordinate_pieces, shape, direction or "fwd")
 
-    # One terminal for a circular route, the two outermost endpoints of the
-    # merged geometry for a traverse — each independently tested for network
-    # reachability (the far end of a traverse went untested for ever).
-    terminals = [
-        terminal_for_point(conn, lon, lat) for lon, lat in endpoints_of(geometry, shape)
+    def one_document(
+        doc_direction: str | None,
+        doc_geometry: dict,
+        doc_places: list[dict],
+        doc_ascent: float | None,
+        doc_descent: float | None,
+        doc_profile: dict | None,
+        recommended: bool | None,
+    ) -> dict:
+        # One terminal for a circular route, the two outermost endpoints of
+        # the merged geometry for a traverse — each independently tested for
+        # network reachability.
+        terminals = [
+            terminal_for_point(conn, lon, lat)
+            for lon, lat in endpoints_of(doc_geometry, shape)
+        ]
+        return build_document(
+            route_id=route_id(coordinate_pieces, shape, doc_direction or "fwd"),
+            kind="osm_route",
+            shape=shape,
+            direction=doc_direction,
+            recommended=recommended,
+            identity={
+                "name": tags.get("name"),
+                "ref": tags.get("ref"),
+                "activity": tags.get("route"),
+                "network": tags.get("network"),
+                "waymark": tags.get("osmc:symbol"),
+                "from": tags.get("from"),
+                "to": tags.get("to"),
+                "operator": tags.get("operator"),
+                "regions": regions,
+                "osm_relation_id": rel_id,
+            },
+            geometry=doc_geometry,
+            bbox=bbox,
+            distance_m=float(distance_m),
+            ascent_m=doc_ascent,
+            descent_m=doc_descent,
+            lowest_m=None if lowest_m is None else float(lowest_m),
+            highest_m=None if highest_m is None else float(highest_m),
+            profile=doc_profile,
+            surface_spans=surface_spans,
+            sac_spans=sac_spans,
+            pieces=pieces,
+            edges_without_profile=without_profile,
+            matched_fraction=(
+                None if matched_fraction is None else float(matched_fraction)
+            ),
+            places=doc_places,
+            terminals=terminals,
+            # Which breaks are our bbox and which are real holes is a
+            # judgement (the QGIS queue) — 'unknown' until judged.
+            divergence=None,
+            provenance={
+                "run_id": run_id,
+                "producer": "pipeline/export/route_documents.py",
+                "sources": SOURCES,
+            },
+        )
+
+    # A single-line circular is walkable either way, so it is emitted BOTH
+    # ways (owner rule 2026-08-27), recommending the direction that takes
+    # the steep side up — the higher mean climbing gradient. Without a
+    # profile there is nothing to recommend from, and null is honest.
+    if shape == "circular" and pieces == 1:
+        recommended_stored: bool | None = None
+        recommended_other: bool | None = None
+        if profile is not None:
+            grads = climbing_gradients(profile["distance_m"], profile["elevation_m"])
+            if grads is not None:
+                recommended_stored = grads[0] >= grads[1]
+                recommended_other = not recommended_stored
+        stored = one_document(
+            direction,
+            geometry,
+            places,
+            ascent_m,
+            descent_m,
+            profile,
+            recommended_stored,
+        )
+        other_geometry = {
+            "type": geometry["type"],
+            "coordinates": list(reversed(geometry["coordinates"])),
+        }
+        basis = None if line_geo_m is None else float(line_geo_m)
+        other_places = sorted(
+            (
+                {
+                    **place,
+                    "distance_along_m": (
+                        None
+                        if place["distance_along_m"] is None or basis is None
+                        else round(basis - place["distance_along_m"], 1)
+                    ),
+                }
+                for place in places
+            ),
+            key=lambda p: (
+                p["distance_along_m"] is None,
+                p["distance_along_m"],
+                p["offset_m"],
+            ),
+        )
+        other = one_document(
+            "rev" if direction == "fwd" else "fwd",
+            other_geometry,
+            other_places,
+            descent_m,
+            ascent_m,
+            reversed_profile(profile),
+            recommended_other,
+        )
+        return [stored, other]
+
+    return [
+        one_document(direction, geometry, places, ascent_m, descent_m, profile, None)
     ]
-
-    return build_document(
-        route_id=rid,
-        kind=KIND,
-        shape=shape,
-        direction=direction,
-        identity={
-            "name": tags.get("name"),
-            "ref": tags.get("ref"),
-            "activity": tags.get("route"),
-            "network": tags.get("network"),
-            "waymark": tags.get("osmc:symbol"),
-            "from": tags.get("from"),
-            "to": tags.get("to"),
-            "operator": tags.get("operator"),
-            "regions": regions,
-            "osm_relation_id": rel_id,
-        },
-        geometry=geometry,
-        bbox=bbox,
-        distance_m=float(distance_m),
-        ascent_m=None if ascent_m is None else float(ascent_m),
-        descent_m=None if descent_m is None else float(descent_m),
-        lowest_m=None if lowest_m is None else float(lowest_m),
-        highest_m=None if highest_m is None else float(highest_m),
-        profile=profile,
-        surface_spans=surface_spans,
-        sac_spans=sac_spans,
-        pieces=pieces,
-        edges_without_profile=without_profile,
-        matched_fraction=None if matched_fraction is None else float(matched_fraction),
-        places=places,
-        terminals=terminals,
-        # Which breaks are our bbox and which are real holes is a judgement
-        # (the 131-route QGIS queue) — 'unknown' until judged, never guessed.
-        divergence=None,
-        provenance={
-            "run_id": run_id,
-            "producer": "pipeline/export/route_documents.py",
-            "sources": SOURCES,
-        },
-    )
 
 
 def withdraw(out: Path) -> int:
@@ -413,8 +603,12 @@ def main() -> None:
         owned: list[str] = []
         emitted: dict[str, int] = {}
         folded: dict[int, int] = {}
+        held = 0
         for rel_id, tags, regions, matched_fraction in relations:
-            document = emit(conn, rel_id, tags, regions, matched_fraction, run_id)
+            documents = emit(conn, rel_id, tags, regions, matched_fraction, run_id)
+            if documents is None:
+                held += 1
+                continue
             # Two relations over the SAME canonical ground share one id — a
             # duplicate mapping, or a foot and a bike relation on one rail
             # trail. Same ground is same route (the rule that already folds
@@ -423,41 +617,45 @@ def main() -> None:
             # keeps the document, the rest are FOLDED, out loud, and
             # recorded in the run's counts. A silent overwrite here once
             # cost a relation its identity with nobody told.
-            if document["id"] in emitted:
-                folded[rel_id] = emitted[document["id"]]
+            primary = documents[0]
+            if primary["id"] in emitted:
+                folded[rel_id] = emitted[primary["id"]]
                 print(
-                    f"  folded relation {rel_id} into {emitted[document['id']]} "
-                    f"({document['id']}): same canonical ground"
+                    f"  folded relation {rel_id} into {emitted[primary['id']]} "
+                    f"({primary['id']}): same canonical ground"
                 )
                 continue
-            emitted[document["id"]] = rel_id
-            path = out / f"{document['id']}.json"
-            path.write_text(
-                json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
-            owned.append(path.name)
-            if document["quality"]["warnings"]:
+            emitted[primary["id"]] = rel_id
+            for document in documents:
+                path = out / f"{document['id']}.json"
+                path.write_text(
+                    json.dumps(document, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                owned.append(path.name)
+            if primary["quality"]["warnings"]:
                 warned += 1
             # The map: one FeatureCollection of every route, for dropping onto a
             # map without opening 752 files. The geometry is the same object the
-            # document carries, not a second rendering of it.
+            # document carries, not a second rendering of it — and one feature
+            # per GROUND: a direction pair would draw the same line twice.
             features.append(
                 {
                     "type": "Feature",
-                    "id": document["id"],
-                    "geometry": document["geometry"],
+                    "id": primary["id"],
+                    "geometry": primary["geometry"],
                     "properties": {
-                        "id": document["id"],
-                        "name": document["identity"]["name"],
-                        "ref": document["identity"]["ref"],
-                        "activity": document["identity"]["activity"],
-                        "distance_m": document["measures"]["distance_m"],
-                        "ascent_m": document["measures"]["ascent_m"],
-                        "sac_scale": document["difficulty"]["sac_scale"],
-                        "surface": document["surface"]["dominant"],
-                        "places": len(document["places"]),
-                        "continuous": document["continuity"]["continuous"],
-                        "warnings": len(document["quality"]["warnings"]),
+                        "id": primary["id"],
+                        "name": primary["identity"]["name"],
+                        "ref": primary["identity"]["ref"],
+                        "activity": primary["identity"]["activity"],
+                        "distance_m": primary["measures"]["distance_m"],
+                        "ascent_m": primary["measures"]["ascent_m"],
+                        "sac_scale": primary["difficulty"]["sac_scale"],
+                        "surface": primary["surface"]["dominant"],
+                        "places": len(primary["places"]),
+                        "continuous": primary["continuity"]["continuous"],
+                        "warnings": len(primary["quality"]["warnings"]),
                     },
                 }
             )
@@ -482,17 +680,23 @@ def main() -> None:
             json.dumps(collection, ensure_ascii=False), encoding="utf-8"
         )
 
-        counts = {"routes": len(relations), "with_warnings": warned}
+        counts = {
+            "routes": len(relations),
+            "documents": len(owned),
+            "held_below_floor": held,
+            "with_warnings": warned,
+        }
         conn.execute(
             "UPDATE provenance.build_run SET finished_at = now(), counts = %s WHERE run_id = %s",
             (json.dumps(counts), run_id),
         )
 
-    # What was WRITTEN, not how many relations were read (they differ by the
-    # folds) and not the size of the directory (the generated catalogue shares
-    # it). A report that counts someone else's files is how a fold goes unseen.
-    size = sum((out / name).stat().st_size for name in owned)
+    size = sum(p.stat().st_size for p in out.glob("*.json"))
     print(f"wrote {len(owned):,} documents to {out} ({size / 1e6:.1f} MB)")
+    print(
+        f"{held:,} multi-piece routes held below the {MULTI_PIECE_FLOOR} "
+        "matched floor - clipped at the coverage edge, not offered"
+    )
     print(f"{warned:,} carry a quality warning - they are emitted, not filtered")
     print(f"map: {out / 'routes.geojson'}")
     print(f"run {run_id}")

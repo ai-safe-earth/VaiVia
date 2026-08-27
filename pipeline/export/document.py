@@ -30,7 +30,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple
 
-SCHEMA_VERSION = "2.0"
+# 2.1: adds `recommended` — which of a direction pair to suggest (the
+# steep-up gentle-descent rule, owner-ratified 2026-08-27). Additive, so a
+# minor version per the schema's own rule.
+SCHEMA_VERSION = "2.1"
 
 # The kinds of route the catalogue PUBLISHES. A mapped OSM relation is a legal
 # document — the schema still accepts kind='osm_route' — and it is not one the
@@ -280,11 +283,12 @@ def quality_warnings(
     deciding whether to show it needs to know which one it is.
     """
     warnings: list[str] = []
-    if pieces > 1:
-        warnings.append(
-            f"the route is held in {pieces} disconnected pieces: it is clipped at "
-            "the edge of coverage, or the network has a real gap along it"
-        )
+    # Being in pieces is NOT a warning any more (owner rule 2026-08-27): the
+    # multi-piece matched floor holds the clipped fragments back entirely, so
+    # an emitted multi-piece document is one the policy chose to offer, and
+    # its brokenness is a described property — `continuity` carries pieces
+    # and reason, and the chat gate (warnings = 0) must not re-hide what the
+    # floor ratified. Fragments still warn below, via matched_fraction.
     if edges_without_profile:
         warnings.append(
             f"{edges_without_profile} edges have no altitude profile, so ascent "
@@ -323,6 +327,7 @@ def build_document(
     terminals: list[dict[str, Any]],
     provenance: dict[str, Any],
     direction: str | None = None,
+    recommended: bool | None = None,
     continuity_reason: str | None = None,
     divergence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -379,6 +384,11 @@ def build_document(
         # land as pure additions.
         "direction": direction,
         "reverse_of": sibling_route_id(route_id),
+        # Of a direction pair, the one to suggest: the steep side UP, the
+        # gentle side down (owner rule 2026-08-27, computed from the
+        # profile's climbing gradients). Null when the route is undirected,
+        # unpaired, or has no profile to judge from.
+        "recommended": recommended,
         "terminals": terminals,
         "categories": {
             "distance_class": distance_class(distance_m),

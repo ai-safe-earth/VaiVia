@@ -30,7 +30,8 @@ from typing import Any
 from neo4j import GraphDatabase
 
 from core import connect, env_value
-from export.document import PUBLISHED_KINDS, SAC_ORDER, published
+from export.document import SAC_ORDER
+from export.route_documents import MULTI_PIECE_FLOOR, RELATIONS
 
 
 def sac_rank(grade: str | None) -> int | None:
@@ -138,6 +139,8 @@ def document_rows(document: dict) -> dict[str, Any]:
             # twins the cards and legends style by.
             "direction": document.get("direction"),
             "reverse_of": document.get("reverse_of"),
+            # 2.1: of a direction pair, suggest the steep-up walk.
+            "recommended": document.get("recommended"),
             "continuity_reason": (document.get("continuity") or {}).get("reason"),
             "divergence_vertex": (document.get("divergence") or {}).get("vertex_id"),
             "approach_m": (document.get("divergence") or {}).get("approach_m"),
@@ -350,6 +353,43 @@ def main() -> None:
     driver.close()
 
     with connect() as conn:
+        # The count assertion the 627-of-1,379 gap earned (2026-08-27): the
+        # graph held only the generated routes because only their documents
+        # were on disk, and nothing said so. Count what the store DESCRIBES —
+        # generated routes in catalogue.route plus the mapped relations the
+        # document emitter would emit (its own query, so the criterion cannot
+        # drift), minus what policy deliberately holds (the multi-piece
+        # matched floor, so held-by-policy never reads as missing-by-
+        # accident) — against the GROUNDS actually loaded: a direction pair
+        # is two documents over one ground, so documents stopped being the
+        # unit the moment pairs landed.
+        generated = conn.execute("SELECT count(*) FROM catalogue.route").fetchone()[0]
+        mapped = conn.execute(
+            f"SELECT count(*) FROM ({RELATIONS}) mapped_routes"
+        ).fetchone()[0]
+        held = conn.execute(
+            """SELECT count(*) FROM qa.v_route v
+               JOIN qa.v_route_coverage c USING (rel_id)
+               WHERE v.pieces > 1
+                 AND (c.matched_fraction IS NULL OR c.matched_fraction < %s)""",
+            (MULTI_PIECE_FLOOR,),
+        ).fetchone()[0]
+        grounds = len(
+            {r["route_id"].removesuffix("-fwd").removesuffix("-rev") for r in routes}
+        )
+        expected = generated + mapped - held
+        if grounds != expected:
+            print(
+                f"\nNOTE: the store describes {generated + mapped:,} routes "
+                f"({generated:,} generated + {mapped:,} mapped, of which "
+                f"{held:,} are held below the {MULTI_PIECE_FLOOR} multi-piece "
+                f"matched floor) but {grounds:,} distinct grounds were on "
+                "disk to load. A small residual is usually same-ground "
+                "relations folded into one document (the export run's notes "
+                "name them); anything larger is a missing set — emit it "
+                "(draw.emit for generated, export.route_documents for "
+                "mapped) and re-run this load."
+            )
         conn.execute(
             "INSERT INTO provenance.build_run (run_id, stage, parameters, counts, finished_at)"
             " VALUES (%s, 'export', %s, %s, now())",
