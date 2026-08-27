@@ -104,7 +104,7 @@ def check_answer(answer: str, view: dict[str, Any]) -> list[str]:
     """The code-checkable rules of ANSWER_SYSTEM_PROMPT, over the raw answer.
 
     ``view`` is what the model was shown — _answer_view(results), the top-5
-    prefix — so a loop the view holds is a loop the answer had to cover.
+    prefix — so what the view holds is what the answer had to work from.
     """
     problems: list[str] = []
     link = find_link(answer)
@@ -114,13 +114,16 @@ def check_answer(answer: str, view: dict[str, Any]) -> list[str]:
         problems.append("names trailforks")
     if any(line.lstrip().startswith("#") for line in answer.splitlines()):
         problems.append("markdown header in answer")
-    # Case-insensitive, deduped: a destination route is named "To Monte X" and
-    # the prompt itself tells the model to write "out and back to Monte X".
+    # The prompt asks for the best one or two loops by name, not all of them
+    # (relaxed 2026-08-27: demanding every name made the model choose between
+    # coverage and brevity). Case-insensitive: a destination route is named
+    # "To Monte X" and the prompt itself says to write "out and back to
+    # Monte X". Whether a mentioned name is EXACTLY as given is judge
+    # territory; this checks that loops were presented by name at all.
     lowered = answer.lower()
     names = {loop["name"] for loop in view.get("loops") or [] if loop.get("name")}
-    for name in sorted(names):
-        if name.lower() not in lowered:
-            problems.append(f"named loop not mentioned: {name!r}")
+    if names and not any(name.lower() in lowered for name in names):
+        problems.append(f"no loop named; the view offered {sorted(names)}")
     return problems
 
 
@@ -219,9 +222,7 @@ async def main() -> None:
             if not (args.graph and wants_execution and not plan.is_clarify):
                 continue
 
-            results, _ = await orchestrator._execute(
-                plan
-            )  # noqa: SLF001 — eval reuses the real path
+            results, _ = await orchestrator._execute(plan)  # noqa: SLF001 — eval reuses the real path
             for expected, key in (
                 (expected_trails, "trails"),
                 (expected_loops, "loops"),

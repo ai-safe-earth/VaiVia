@@ -44,10 +44,23 @@ def test_a_markdown_header_fails() -> None:
     assert any("header" in p for p in problems)
 
 
-def test_a_named_loop_must_be_named_in_the_answer() -> None:
+def test_named_loops_ignored_entirely_fail() -> None:
+    """The relaxed rule (2026-08-27): not every loop, but at least one must be
+    presented by name — an answer that names none has detached from the cards."""
     view = {"loops": [{"id": "vv2-abc", "name": "Anello di Camposecco"}]}
     problems = check_answer("A fine 12 km loop past a hut.", view)
-    assert any("Anello di Camposecco" in p for p in problems)
+    assert any("no loop named" in p for p in problems)
+
+
+def test_naming_one_of_several_loops_is_enough() -> None:
+    view = {
+        "loops": [
+            {"id": "vv2-abc", "name": "Anello di Camposecco"},
+            {"id": "vv2-def", "name": "To Monte Cereto"},
+        ]
+    }
+    answer = "Start with the Anello di Camposecco, 12.4 km; more are on the cards."
+    assert check_answer(answer, view) == []
 
 
 def test_a_destination_name_matches_the_out_and_back_phrasing() -> None:

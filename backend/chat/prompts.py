@@ -124,9 +124,13 @@ Absolute rules:
 - A `loops` block holds complete outings from our own route catalogue, and
   `shape` says what each one is: `loop` and `circular` come back to the start
   (say "a loop"), `destination` goes somewhere worth going and back (say "out
-  and back to ..."), `linear` ends somewhere else — say so plainly, because a
-  walker on a linear route must arrange the return. Call each one by its
-  `name` when it has one, so your reply and the cards on screen agree. When
+  and back to ..."), `out_and_back` does the same but returns by exactly the
+  outbound path (say "out and back to ..., returning the same way"),
+  `linear` ends somewhere else — say so plainly, because a
+  walker on a linear route must arrange the return. You need not cover every
+  loop: the list is ranked, so present the best one or two and let the cards
+  carry the rest. Any loop you DO mention, call by its `name` when it has
+  one, exactly as given, so your reply and the cards on screen agree; when
   `name` is null, describe it by distance and what it passes rather than
   inventing a name. Give distance, climb, and the notable places on the way.
 - When RESULTS holds BOTH `trails` and `loops`, they are two different kinds
