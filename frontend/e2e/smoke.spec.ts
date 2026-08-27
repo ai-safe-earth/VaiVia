@@ -56,30 +56,28 @@ test.describe('VaiVia smoke', () => {
     await expect(page.getByLabel('Password')).toBeVisible();
   });
 
-  test('resumes a stored conversation with its history', async ({ page }) => {
+  test('resumes the stored conversation and New chat starts fresh', async ({ page }) => {
     await page.goto('/');
     await page.getByLabel('Email').fill(EMAIL!);
     await page.getByLabel('Password').fill(PASSWORD!);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByText(EMAIL!)).toBeVisible();
 
-    const conversations = page.getByRole('navigation', { name: 'Conversations' });
-    const stored = conversations.getByRole('button').nth(1); // 0 is "+ New chat"
-    // The list loads asynchronously after sign-in — wait for it rather than
-    // sampling visibility immediately, which raced the fetch and false-skipped.
-    const hasStored = await stored
+    // The single conversation resumes on sign-in (no tabs). History loads
+    // asynchronously — wait for a user turn rather than sampling immediately,
+    // which raced the fetch and false-skipped.
+    const hasStored = await page
+      .locator('.turn-user')
+      .first()
       .waitFor({ state: 'visible', timeout: 10_000 })
       .then(() => true)
       .catch(() => false);
     test.skip(!hasStored, 'no stored conversation for this account yet');
 
-    await stored.click();
-    // History renders at least one user turn without any network turn.
-    await expect(page.locator('.turn-user').first()).toBeVisible();
-
-    // "+ New chat" resets to the empty state with suggestions.
-    await conversations.getByRole('button', { name: '+ New chat' }).click();
+    // "New chat" resets to the empty state with suggestions.
+    await page.getByRole('button', { name: 'New chat' }).click();
     await expect(page.getByText('Ask for a trail the way you would ask a local.')).toBeVisible();
+    await expect(page.locator('.turn-user')).toHaveCount(0);
   });
 
   test('streams a live turn end to end', async ({ page }) => {
@@ -151,6 +149,18 @@ test.describe('VaiVia smoke', () => {
         .poll(async () => page.locator('.route-card').count())
         .toBeGreaterThan(before);
     }
+
+    // The feedback loop, end to end: thumbs render once the turn is stored
+    // (messageId arrives on `done`), a downvote asks what could be improved,
+    // and the comment posts through the gateway into message_feedback.
+    const feedback = page.locator('.feedback').last();
+    await expect(feedback).toBeVisible();
+    await feedback.getByLabel('Bad answer').click();
+    const why = feedback.getByLabel('What could be improved?');
+    await expect(why).toBeVisible();
+    await why.fill('e2e: automated check, please ignore');
+    await feedback.getByRole('button', { name: 'Send' }).click();
+    await expect(feedback.getByText('Noted — thank you')).toBeVisible();
 
     // Favorites round-trip: save the first card, find it in the saved view,
     // unsave it there — leaving the account as we found it.

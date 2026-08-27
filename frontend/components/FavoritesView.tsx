@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { loopBand } from '@/lib/difficulty';
 import { fetchFavorites, fetchRouteGeoJson, type FavoritesList } from '@/lib/api';
 import { needsFetch, recordLine, type LineEntry, type LineStatus } from '@/lib/mapTurn';
 import type { Loop, RouteDetail } from '@/lib/types';
@@ -107,6 +108,7 @@ export function FavoritesView({
               ...(entry.feature.properties ?? {}),
               id: loop.id,
               selected: true,
+              difficulty_band: loopBand(loop),
             },
           }
         : null,

@@ -111,12 +111,15 @@ def client(db: FakeDb, embedder: FakeEmbedder) -> TestClient:
     # In-memory ALWAYS in tests: a developer's .env points DATABASE_URL at the
     # live local stack, and a test suite must never write real favorites.
     from api.routes.favorites import InMemoryFavorites
+    from api.routes.feedback import InMemoryFeedback
 
     app.state.favorites = InMemoryFavorites()
+    app.state.feedback = InMemoryFeedback()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
     app.state.favorites = None
+    app.state.feedback = None
 
 
 TRAIL_ROW = {

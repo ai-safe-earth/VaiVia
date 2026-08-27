@@ -41,4 +41,16 @@ describe('toChatMessages', () => {
     expect(messages).toHaveLength(3);
     expect(messages[1].results).toBeUndefined();
   });
+
+  it('an assistant row id becomes messageId; user rows and id-less rows get none', () => {
+    const rows = [
+      { id: 'u1', role: 'user', content: 'hi' },
+      { id: 'm1', role: 'assistant', content: 'hello' },
+      { role: 'assistant', content: 'legacy row without id' },
+    ];
+    const messages = toChatMessages(rows);
+    expect(messages[0].messageId).toBeUndefined();
+    expect(messages[1].messageId).toBe('m1');
+    expect(messages[2].messageId).toBeUndefined();
+  });
 });

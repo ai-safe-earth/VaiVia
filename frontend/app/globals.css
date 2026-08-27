@@ -71,6 +71,10 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* The dialogue window: one contour around transcript + composer, so the
+     cards inside read as part of the conversation, not a list beside it. */
+  margin: var(--vv-s3);
+  border: 1px solid var(--vv-line);
 }
 
 /* ── Header ───────────────────────────────────────────────────────────────
@@ -99,11 +103,23 @@ body {
   color: var(--vv-lime);
 }
 
-.app-header .region {
+/* New chat: a quiet secondary beside the wordmark — the one lime block in
+   the chrome stays reserved for the account action. */
+.header-new {
+  flex: none;
   margin-left: var(--vv-s9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 7px var(--vv-s3);
+  border: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.header-new:hover {
+  border-color: var(--vv-lime);
 }
 
 .app-header .spacer {
@@ -148,47 +164,6 @@ body {
   letter-spacing: 0.11em;
   text-transform: uppercase;
   cursor: pointer;
-}
-
-/* ── Conversations ────────────────────────────────────────────────────────
-   The map-chrome tab pattern: flush row, hairline dividers, active is a lime
-   block with ground text. */
-
-.conversations {
-  flex: none;
-  display: flex;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--vv-line);
-}
-
-.conversations button {
-  flex: none;
-  max-width: 190px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: var(--vv-s2) var(--vv-s4);
-  border: 0;
-  border-right: 1px solid var(--vv-line-2);
-  background: transparent;
-  color: var(--vv-text);
-  font: 400 9.5px/1 var(--vv-sans);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.conversations button:hover {
-  color: var(--vv-lime);
-}
-
-.conversations button.active {
-  background: var(--vv-lime);
-  color: var(--vv-ground);
-}
-
-.conversations button.active:hover {
-  color: var(--vv-ground);
 }
 
 /* ── Transcript ───────────────────────────────────────────────────────────
@@ -299,13 +274,16 @@ body {
 }
 
 /* ── Route card ───────────────────────────────────────────────────────────
-   A band in the transcript delimited by hairlines: no border, no radius. The
+   An inset block inside the assistant turn: its own hairline frame and a gap
+   to the next card, so each route is unmistakably one thing. No radius. The
    3px left edge marks the route drawn on the map — transparent when it is not,
    so picking one never shifts the layout. */
 
 .route-card {
-  border-bottom: 1px solid var(--vv-line);
+  border: 1px solid var(--vv-line);
   border-left: 3px solid transparent;
+  margin: 0 var(--vv-s4) var(--vv-s3);
+  background: var(--vv-ground);
   cursor: pointer;
 }
 
@@ -483,8 +461,17 @@ body {
 }
 
 .show-more {
-  border-top: 0;
-  border-bottom: 1px solid var(--vv-line);
+  /* A control between card groups, not a row of a card: same inset as the
+     cards, its own frame, centered. */
+  width: auto;
+  justify-content: center;
+  gap: var(--vv-s2);
+  margin: 0 var(--vv-s4) var(--vv-s4);
+  border: 1px solid var(--vv-line);
+}
+
+.show-more:hover {
+  border-color: var(--vv-lime);
 }
 
 .show-more:hover span:first-child,
@@ -676,6 +663,88 @@ body {
   border-top: 1px solid var(--vv-line);
 }
 
+/* ── Feedback ─────────────────────────────────────────────────────────────
+   Thumbs on an assistant answer. Quiet by design: muted until pressed, lime
+   when pressed — the save-toggle grammar. The why-input reuses the
+   suggestions button idiom. */
+
+.feedback {
+  padding: var(--vv-s2) var(--vv-s7) var(--vv-s4);
+  border-bottom: 1px solid var(--vv-line);
+}
+
+.feedback-row {
+  display: flex;
+  align-items: center;
+  gap: var(--vv-s3);
+}
+
+.feedback-row .vv-label {
+  color: var(--vv-muted);
+}
+
+.feedback-thumb {
+  padding: var(--vv-s1) var(--vv-s2);
+  border: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-muted);
+  font: 400 13px/1 var(--vv-sans);
+  cursor: pointer;
+}
+
+.feedback-thumb:hover {
+  color: var(--vv-text);
+  border-color: var(--vv-lime);
+}
+
+.feedback-thumb[aria-pressed='true'] {
+  color: var(--vv-ground);
+  background: var(--vv-lime);
+  border-color: var(--vv-lime);
+}
+
+.feedback-thanks {
+  color: var(--vv-muted);
+}
+
+.feedback-why {
+  display: flex;
+  gap: var(--vv-s2);
+  margin-top: var(--vv-s3);
+}
+
+.feedback-why input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--vv-s1) var(--vv-s3);
+  border: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 12px/1.5 var(--vv-sans);
+}
+
+.feedback-why input::placeholder {
+  color: var(--vv-muted);
+}
+
+.feedback-why button {
+  padding: var(--vv-s1) var(--vv-s3);
+  border: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 12px/1.5 var(--vv-sans);
+  cursor: pointer;
+}
+
+.feedback-why button:hover:enabled {
+  border-color: var(--vv-lime);
+}
+
+.feedback-why button:disabled {
+  color: var(--vv-muted);
+  cursor: not-allowed;
+}
+
 /* ── Notices ──────────────────────────────────────────────────────────────
    Missing data and failed turns reuse the hazard structure: the flare bar is
    the system saying something is absent, which is what flare is for. */
@@ -780,38 +849,6 @@ body {
   position: relative;
   flex: 1;
   min-height: 0;
-}
-
-/* Layer tabs: flush row, hairline dividers. Active is a lime block; the three
-   that have no data behind them are --vv-muted and really disabled, which is
-   the brand system's own "unavailable" state rather than a bespoke one. */
-
-.map-tabs {
-  flex: none;
-  display: flex;
-  border-bottom: 1px solid var(--vv-line);
-}
-
-.map-tabs button {
-  padding: var(--vv-s2) var(--vv-s4);
-  border: 0;
-  border-right: 1px solid var(--vv-line);
-  background: transparent;
-  color: var(--vv-text);
-  font: 400 9.5px/1 var(--vv-sans);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.map-tabs button.active {
-  background: var(--vv-lime);
-  color: var(--vv-ground);
-}
-
-.map-tabs button.unavailable {
-  color: var(--vv-muted);
-  cursor: not-allowed;
 }
 
 /* Bottom panel: the elevation profile and its three labels. Inactive — the

@@ -34,6 +34,7 @@ Two consequences that drive every decision below:
     --vv-muted    #A7ADA6   labels, captions, placeholders, secondary text
     --vv-lime     #CCFF3B   route, primary action, confirmed data
     --vv-flare    #FF6B3D   hazard, stale data, missing coverage
+    --vv-amber    #FFC53B   data encoding only: the map's moderate difficulty band
     --vv-map      #12150F   map canvas base
 
 Light fallback (print, email, third-party embeds only — NOT the app):
@@ -51,7 +52,10 @@ a 1px border; flare darkens to #C4451F for text.
   an icon-with-triangle alarm, do not use red.
 - Contrast: every pairing above clears WCAG AA at 9px. Do not tint text with
   opacity — use --vv-muted. Opacity is reserved for the coverage texture.
-- Two accents only. Do not add a third for any reason.
+- Two accents only. Do not add a third for any reason. Amendment
+  2026-08-27: --vv-amber is a data-encoding colour for the map's moderate
+  difficulty band (lime = easy, amber = moderate, flare = hard, muted =
+  ungraded), not an accent — never a button, label or action colour.
 
 ---
 

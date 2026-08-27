@@ -118,16 +118,46 @@ export function MapView({ geometry }: Props) {
           ['get', 'selected'],
           false,
         ];
-        // Lime at 3px, and no casing: on a dark ground the accent carries
-        // itself, and the casing the old palette needed only muddied it.
+        // Line colour encodes the difficulty band (BRAND-SPEC amendment
+        // 2026-08-27): lime easy, amber moderate, flare hard, muted
+        // ungraded. The fallback is lime — a composed A→B route carries no
+        // band and stays the route colour it always was.
+        const bandColor: maplibregl.ExpressionSpecification = [
+          'match',
+          ['get', 'difficulty_band'],
+          'easy',
+          token('--vv-lime', '#CCFF3B'),
+          'moderate',
+          token('--vv-amber', '#FFC53B'),
+          'hard',
+          token('--vv-flare', '#FF6B3D'),
+          'ungraded',
+          token('--vv-muted', '#A7ADA6'),
+          token('--vv-lime', '#CCFF3B'),
+        ];
+        // The picked route wears a light casing under a wider, full-opacity
+        // line; its siblings dim. Width alone was not perceptible once the
+        // lines stopped sharing one colour. Both layers are created once and
+        // restyle through setData — the expressions are all data-driven.
+        instance.addLayer({
+          id: 'selection-casing',
+          type: 'line',
+          source: 'selection',
+          paint: {
+            'line-color': token('--vv-text', '#F2F3F0'),
+            'line-width': ['case', selected, 7, 0],
+            'line-opacity': ['case', selected, 1, 0],
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+        });
         instance.addLayer({
           id: 'selection-line',
           type: 'line',
           source: 'selection',
           paint: {
-            'line-color': token('--vv-lime', '#CCFF3B'),
-            'line-width': ['case', selected, 3, 2],
-            'line-opacity': ['case', selected, 1, 0.55],
+            'line-color': bandColor,
+            'line-width': ['case', selected, 4, 2],
+            'line-opacity': ['case', selected, 1, 0.4],
           },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });

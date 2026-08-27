@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { SAC_ORDER } from '@/lib/difficulty';
 import { distance, distanceFigure, elevationFigure } from '@/lib/format';
 import type { LineStatus } from '@/lib/mapTurn';
 import { profileFromDetail } from '@/lib/profile';
@@ -31,16 +32,6 @@ interface Props {
   favorited?: boolean;
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
 }
-
-/** SAC grades in catalogue order — index+1 is the 1..6 rank. */
-const SAC_ORDER = [
-  'hiking',
-  'mountain_hiking',
-  'demanding_mountain_hiking',
-  'alpine_hiking',
-  'demanding_alpine_hiking',
-  'difficult_alpine_hiking',
-];
 
 /** sac_scale in words. The scale runs past what a route catalogue should be
  *  offering, so the top band is deliberately blunt. */
@@ -204,7 +195,7 @@ export function LoopCard({
             if (next) onExpand?.(loop);
           }}
         >
-          <span>{open ? 'Less' : 'Full card'}</span>
+          <span>{open ? 'Less' : 'See more'}</span>
           <span className="sign" aria-hidden="true">
             {open ? '−' : '+'}
           </span>

@@ -58,6 +58,14 @@ def test_chat_streams_sse_events_in_order(chat_client):
     assert events[-1] == "done"
     assert "Lago " in response.text
 
+    # The done payload carries the assistant message id — the client's only
+    # handle for attaching feedback to this answer.
+    import json
+
+    data_lines = [ln for ln in response.text.splitlines() if ln.startswith("data: ")]
+    done_data = json.loads(data_lines[-1].removeprefix("data: "))
+    assert done_data["message_id"]
+
 
 def test_empty_message_is_rejected(chat_client):
     response = chat_client.post(

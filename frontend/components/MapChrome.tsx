@@ -1,60 +1,13 @@
 'use client';
 
 /**
- * Map chrome: the layer tabs along the top, and the panel along the bottom.
+ * Map chrome: the elevation panel along the bottom of the map column.
  *
- * Everything except the route layer is INACTIVE, and says so in the spec's own
- * vocabulary rather than a bespoke disabled style: an unavailable tab is
- * --vv-muted, which is exactly what the brand system defines it as. Each one is
- * a real `disabled` button, so it is skipped by the keyboard and announced as
- * unavailable rather than merely looking greyed out.
- *
- * What each is waiting on is recorded in handoff.md.
+ * The layer tab strip that used to sit along the top (Route, plus disabled
+ * Places / Hazards / Coverage placeholders) was removed 2026-08-27 — what
+ * each placeholder was waiting on is recorded in handoff.md; the layers
+ * return here when the API can feed them.
  */
-
-interface Layer {
-  id: string;
-  label: string;
-  /** Null when the layer works; otherwise what it is waiting for. */
-  blocked: string | null;
-}
-
-const LAYERS: Layer[] = [
-  { id: 'route', label: 'Route', blocked: null },
-  {
-    id: 'places',
-    label: 'Places',
-    blocked: 'POIs are not returned with map geometry yet',
-  },
-  {
-    id: 'hazards',
-    label: 'Hazards',
-    blocked: 'hazards are per trail, not per segment, so there is nothing to draw',
-  },
-  {
-    id: 'coverage',
-    label: 'Coverage',
-    blocked: 'the API does not expose where coverage stops',
-  },
-];
-
-export function MapLayerTabs() {
-  return (
-    <nav className="map-tabs" aria-label="Map layers">
-      {LAYERS.map((layer) => (
-        <button
-          key={layer.id}
-          type="button"
-          className={layer.blocked ? 'unavailable' : 'active'}
-          disabled={Boolean(layer.blocked)}
-          title={layer.blocked ?? undefined}
-        >
-          {layer.label}
-        </button>
-      ))}
-    </nav>
-  );
-}
 
 export interface Profile {
   /** Metres above sea level, evenly spaced along the route. */

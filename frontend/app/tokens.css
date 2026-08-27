@@ -24,6 +24,10 @@
   --vv-lime: #CCFF3B;
   --vv-flare: #FF6B3D;
 
+  /* Data encoding, not an accent: the map's moderate difficulty band
+     (amendment 2026-08-27). Never a button, label or action colour. */
+  --vv-amber: #FFC53B;
+
   /* Light fallback: print, email, embeds. NOT the app. */
   --vv-ground-light: #F2F3F0;
   --vv-text-light: #0D0F0E;

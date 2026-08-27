@@ -43,7 +43,8 @@ export function FoldedCards({ fold, onReveal, children }: Props) {
           }}
         >
           <span>
-            Show {Math.min(STEP, hidden)} more of {count}
+            Show {Math.min(STEP, hidden)} more route
+            {Math.min(STEP, hidden) === 1 ? '' : 's'}
           </span>
           <span className="sign" aria-hidden="true">
             +

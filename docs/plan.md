@@ -214,7 +214,8 @@ Phase 2 only.
   `GET /routes/by-ids` hydrates stored loop_ids back into cards.
   `scripts.dump_conversation` renders any conversation as markdown with
   BUG/FIX/NOTE user turns flagged — the feedback-log surface.
-- [ ] P7 `feat/custom-route-jobs` — Supabase 0004, pipeline-side worker,
+- [ ] P7 `feat/custom-route-jobs` — Supabase 0005 (0004 taken by message
+  feedback, 2026-08-27), pipeline-side worker,
   atomic publication, gateway quota on the creating POST.
 - [ ] P8 `feat/direction-documents` — the `-rev` siblings and `reverse_of`
   (additions, never renames — the id rule landed in P3).
