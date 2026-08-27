@@ -5,8 +5,8 @@
 --
 -- v1 was replay-idempotent by doctrine (and by three verified full replays),
 -- and a pure rename preserves that, so this file replays safely too. The v1
--- files are frozen under sql/v1/ for the record; a live v1 store is brought
--- here by convert_v2.py, never by this file.
+-- files themselves, and convert_v2.py which brought a live v1 store here, were
+-- deleted on 2026-08-26 once every store had been converted; git holds them.
 --
 -- The per-section comments below are the original migrations' own, kept
 -- because they carry the measurements that justified each decision.

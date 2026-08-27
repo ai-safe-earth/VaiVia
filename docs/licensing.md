@@ -94,8 +94,8 @@ Audited 2026-08-17 against the working tree.
 
 `backend/ingestion/trailforks_ingest.py:207-211` is the only live path and
 raises `NotImplementedError`. There is no Trailforks HTTP client, no endpoint
-path, no query parameters. `trailforks_api_key` and `trailforks_base_url` exist
-in `backend/core/config.py:35-36` but are read by nothing. The cache directory
+path, no query parameters. `trailforks_api_key` and `trailforks_base_url` were
+settings read by nothing and were removed on 2026-08-26. The cache directory
 `backend/fixtures/trailforks_cache/` does not exist on disk; it is gitignored
 pre-emptively.
 
