@@ -6,9 +6,11 @@ Living roadmap for VaiVia. Ratified 2026-08-15 after an architecture review. Upd
 
 ## Context
 
-The original skeleton had a sound core (the two-source OSM + Trailforks knowledge graph) but incomplete or wrong surroundings:
+The original skeleton had a sound core (then framed as a two-source OSM + Trailforks knowledge graph) but incomplete or wrong surroundings:
 
 - The LLM layer — the product's point — was undesigned and implied raw LLM-generated Cypher (injection + hallucination risk).
+
+(The data story changed on 2026-08-18: Trailforks is legally unavailable — API-only key grants, prior written consent required for commercial/in-software/AI use, see `docs/licensing.md` — so the graph is OSM throughout, with open-licensed Wikipedia/Wikidata enrichment over marquee places. Trailforks references below this point are historical record of what was built and verified at the time.)
 - The routing model was internally inconsistent: `CONNECTS_TO` was Segment→Intersection, but GDS routing requires Intersection–Intersection edges.
 - `COMPOSED_OF`/`MAPS_TO` were redundant and unordered, silently breaking distance-along-trail queries ("hut at the halfway point").
 - No security, auth, observability, or deployment story.
@@ -62,7 +64,7 @@ Security model: browsers never reach FastAPI, Neo4j, or OpenAI. The gateway is t
 
 ## The LLM boundary (intent contract)
 
-`backend/app/intents/schema.py` defines pydantic models — e.g. `TrailSearchIntent {activity, difficulty[], distance_km_range, duration_hours?, poi_constraints[{type, position: along|near|midpoint|endpoint}], region, surface_exclusions[], multi_day?}`, `RouteIntent {from_poi, to_poi, max_km}`, and `Clarify {question}`. OpenAI structured outputs (strict json_schema) produce exactly one of these; out-of-scope input → `Clarify`. Each intent maps to a named parameterized template in `backend/graph/queries.cypher`. **The model never sees or writes Cypher.**
+`backend/chat/intents.py` defines pydantic models — `TrailSearchIntent`, `LoopSearchIntent`, `RouteIntent`, `SemanticThemeIntent`, and `ClarifyIntent`, wrapped in a `PlanEnvelope` of atomic subqueries. OpenAI structured outputs (strict json_schema, via `to_strict_schema` because strict mode rejects `oneOf`/`discriminator`) produce validated intents only; out-of-scope input → `ClarifyIntent`, which poisons the whole plan. `backend/chat/composer.py` — Python, not the model — merges subqueries (tightest-wins) and maps the result onto named parameterized templates in `backend/graph/queries.cypher`. **The model never sees or writes Cypher.**
 
 ## Delivery phases
 
