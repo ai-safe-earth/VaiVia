@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from api.middleware import GatewayTrustMiddleware, RequestContextMiddleware
 from api.models import HealthResponse
-from api.routes import chat, favorites, routing, trails
+from api.routes import chat, favorites, feedback, routing, trails
 from core.config import get_settings
 from core.logging import configure_logging
 from core.pg import asyncpg_ssl
@@ -77,6 +77,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             app.state.favorites = favorites.InMemoryFavorites()
 
+    # Feedback rides the same pool for the same reason.
+    if getattr(app.state, "feedback", None) is None:
+        if getattr(app.state, "pg_pool", None) is not None:
+            app.state.feedback = feedback.PostgresFeedback(app.state.pg_pool)
+        else:
+            app.state.feedback = feedback.InMemoryFeedback()
+
     try:
         yield
     finally:
@@ -103,6 +110,7 @@ app.include_router(trails.router)
 app.include_router(favorites.router)
 app.include_router(routing.router)
 app.include_router(chat.router)
+app.include_router(feedback.router)
 
 
 @app.get("/healthz", response_model=HealthResponse, tags=["ops"])

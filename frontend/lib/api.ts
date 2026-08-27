@@ -14,7 +14,7 @@ export type ChatStreamEvent =
   | { type: 'intent'; intent: Record<string, unknown> }
   | { type: 'results'; results: ChatResults }
   | { type: 'token'; delta: string }
-  | { type: 'done'; usage: { input_tokens: number; output_tokens: number } }
+  | { type: 'done'; messageId?: string; usage: { input_tokens: number; output_tokens: number } }
   | { type: 'error'; error: string; message: string };
 
 export class AuthRequiredError extends Error {}
@@ -99,6 +99,8 @@ function toEvent(name: string, raw: string): ChatStreamEvent | null {
     case 'done':
       return {
         type: 'done',
+        messageId:
+          typeof data.message_id === 'string' ? data.message_id : undefined,
         usage: (data.usage as { input_tokens: number; output_tokens: number }) ?? {
           input_tokens: 0,
           output_tokens: 0,
@@ -189,4 +191,25 @@ export async function setFavorite(routeId: string, on: boolean): Promise<void> {
     },
   );
   if (!response.ok) throw new Error(`favorite toggle failed: ${response.status}`);
+}
+
+/** Thumbs vote on an assistant answer. An upsert server-side: a re-vote
+ *  flips, a second call with a comment attaches it. */
+export async function sendFeedback(
+  messageId: string,
+  conversationId: string,
+  vote: 1 | -1,
+  comment?: string,
+): Promise<void> {
+  const response = await gatewayFetch('/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message_id: messageId,
+      conversation_id: conversationId,
+      vote,
+      comment: comment ?? null,
+    }),
+  });
+  if (!response.ok) throw new Error(`feedback failed: ${response.status}`);
 }

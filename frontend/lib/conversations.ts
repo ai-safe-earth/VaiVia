@@ -20,6 +20,7 @@ export interface ConversationSummary {
 }
 
 interface MessageRow {
+  id?: string;
   role: string;
   content: string;
   result_refs?: { loop_ids?: string[] } | null;
@@ -52,6 +53,8 @@ export function toChatMessages(
       return {
         role: row.role,
         content: row.content,
+        // Only assistant turns take feedback; a user turn needs no handle.
+        ...(row.role === 'assistant' && row.id && { messageId: row.id }),
         ...(loops.length > 0 && {
           results: { kind: 'loop_search' as const, loops },
         }),
@@ -88,7 +91,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
 export async function loadMessages(conversationId: string): Promise<ChatMessage[]> {
   const { data, error } = await getSupabase()
     .from('messages')
-    .select('role, content, result_refs, created_at')
+    .select('id, role, content, result_refs, created_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
     .limit(200);

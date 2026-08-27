@@ -151,6 +151,8 @@ export interface ChatResults {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** The stored assistant row's id — the handle feedback attaches to. */
+  messageId?: string;
   results?: ChatResults;
   streaming?: boolean;
   error?: string;
