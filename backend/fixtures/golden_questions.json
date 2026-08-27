@@ -94,7 +94,10 @@
   "id": "g10",
   "question": "somewhere to swim at the end of an easy stroll",
   "expect": {
-   "search.max_difficulty_level": 1
+   "search.max_difficulty_level": 1,
+   "search.poi_types": [
+    "beach"
+   ]
   },
   "expect_trails": [
    "tf_003"
@@ -388,7 +391,7 @@
   "question": "somewhere to swim along the way",
   "expect": {
    "search.poi_types": [
-    "bathing_water"
+    "beach"
    ]
   }
  },
