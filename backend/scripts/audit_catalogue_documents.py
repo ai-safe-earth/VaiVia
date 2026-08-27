@@ -11,6 +11,13 @@ under a user's click.
 Quarantined routes (``warnings > 0``) are audited too: they answer no user,
 but a desynced quarantined row is still a desync.
 
+A document the graph does not name is informational, and since 2026-08-26 it
+is also expected: ``export.route_documents --publish`` writes the mapped
+relations for inspection while the catalogue publishes only generated routes
+(the rule is the pipeline's, ``export.document.PUBLISHED_KINDS``, and is not
+restated here). Those are reported BY KIND, so "withdrawn on purpose" cannot
+be mistaken for "the loader dropped rows".
+
 Usage (live Neo4j + ROUTE_DOCUMENTS_DIR required)::
 
     uv run python -m scripts.audit_catalogue_documents
@@ -76,13 +83,25 @@ def audit(rows: list[dict], store: Path) -> int:
     # vv2-*.json only: the store also holds the emitters' dot-prefixed
     # ownership manifests, and pathlib's glob matches hidden files.
     documents = list(store.glob("vv2-*.json"))
-    orphans = [p.stem for p in documents if p.stem not in catalogued]
+    orphans = [p for p in documents if p.stem not in catalogued]
+    # By kind, because the two causes look identical as a bare count: a kind
+    # the catalogue does not publish is an expected leftover, a MISSING
+    # generated route is the loader having dropped rows.
+    orphan_kinds: dict[str, int] = {}
+    for path in orphans:
+        try:
+            kind = json.loads(path.read_text(encoding="utf-8")).get("kind", "unknown")
+        except (OSError, json.JSONDecodeError):
+            kind = "unreadable"
+        orphan_kinds[kind] = orphan_kinds.get(kind, 0) + 1
 
     print(f"routes in catalogue : {len(rows)}")
     print(f"documents in store  : {len(documents)}")
     print(f"desyncs             : {len(problems)}")
     print(f"unstamped (no doc_run_id on the node — reload to close): {unstamped}")
     print(f"documents no route names (informational): {len(orphans)}")
+    for kind, n in sorted(orphan_kinds.items()):
+        print(f"  {n:>5} of kind {kind!r}")
     for line in problems[:50]:
         print(f"  MISMATCH {line}")
     if len(problems) > 50:

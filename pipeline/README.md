@@ -150,8 +150,8 @@ survive rebuilds; build and repair clear the catalogue like every derived table.
 ## The product: route documents
 
 ```bash
-uv run python -m export.route_documents --limit 5    # a handful, to look at
-uv run python -m export.route_documents              # all 752 (~3 min)
+uv run python -m export.route_documents              # withdraw what it owns
+uv run python -m export.route_documents --publish    # write them anyway, QA (~3 min)
 ```
 
 Writes `review/routes/<id>.json` per route — identity, geometry, measures, altitude
@@ -164,9 +164,15 @@ it in the test suite: a contract nothing checks is a comment. `docs/route-docume
 the repo root) has the reasoning behind each field, including why **duration is
 deliberately absent** and why attribution travels inside the document.
 
-Today the routes are the 752 OSM route relations, because those are the routes that exist.
-`draw/` will generate its own and emits through the same module — a generated route is a
-different `kind`, not a different document.
+**The catalogue publishes `generated` routes only** (`export/document.py::PUBLISHED_KINDS`,
+the one object both the emitter and `export.neo4j_load` read). The 751 mapped OSM
+relations were withdrawn on 2026-08-26: 187 carried a quality warning, 56 were under
+500 m, 131 came out in more than one piece and 27 matched under 20% of their member ways,
+because a relation is a mapping of ground and our bboxes clip it. So this module's default
+is now to WITHDRAW the documents it owns; `--publish` writes them for inspection and the
+loader still refuses to put them in the graph. `source_map.edge_route` is untouched — the
+relations still name the network and still feed `qa.v_route*`. Reasoning in
+`docs/route-document.md`.
 
 ## The Neo4j export — the inversion
 

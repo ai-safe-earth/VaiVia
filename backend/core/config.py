@@ -49,18 +49,10 @@ class Settings(BaseSettings):
     # returns 503, never an empty or invented shape (the semantic-search rule).
     route_documents_dir: str | None = None
 
-    trailforks_api_key: str = ""
-    trailforks_base_url: str = "https://www.trailforks.com/api/1"
-
-    # Internal service, like Neo4j: never published, only the gateway is.
-
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout_s: int = 120
 
     log_level: str = "info"
-
-    api_host: str = "0.0.0.0"  # noqa: S104 — container-internal, never published
-    api_port: int = 8000
 
     # The backend is not public: every request must carry this shared secret in
     # the X-Gateway-Secret header, proving it came through the Fastify gateway.

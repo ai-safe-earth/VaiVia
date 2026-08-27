@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working with me
+
+Solo builder/founder; I wrote most of this code. Skip orientation and background explanation.
+
+- Be terse. No end-of-turn summaries.
+- Propose a plan before implementing.
+- Explain tradeoffs when there's a real design choice.
+- I clear often, at roughly 40% context. The flow is mine to trigger: I type `/handoff`, then `/clear`. Don't propose it every turn. If I'm about to clear and something from this session isn't in `handoff.md` yet, say so in one line.
+
 ## Project status
 
 Monorepo; the roadmap and target architecture live in `docs/plan.md` — read it before structural work. Layout: `pipeline/` (geodata pipeline, PostGIS, Python — its own uv project, own `README.md` and `docs/`), `backend/` (FastAPI + Neo4j, Python), `gateway/` (Fastify BFF, Node/TS), `frontend/` (Next.js + MapLibre), `infra/` (compose, Supabase migrations, deploy). All four tiers are built and tested; CI runs one job per tier. Backend code lands under `backend/` (`api/`, `ingestion/`, `graph/`, `scripts/`, `tests/`, `fixtures/`).
@@ -31,7 +40,7 @@ Monorepo; the roadmap and target architecture live in `docs/plan.md` — read it
 - **The route document is the product; PostGIS is the working store that holds the value** (`docs/route-document.md`, ratified 2026-08-20). Curated geometry, elevation, routes and places live in PostGIS; `pipeline/export/route_documents.py` emits one structured JSON + GeoJSON per route, and Neo4j, the API, the frontend and any future social layer are all **readers of that document**. No reader redefines a route: a field a reader needs goes in the document, never into that reader. `backend/` consumes what the pipeline produces — it no longer produces the data.
 - The document's contract is `pipeline/schemas/route-document.schema.json`, it is versioned, and the emitter is validated against it in the test suite. Attribution, licence and provenance travel **inside** the document, because the document is the ODbL Produced Work.
 - **A route id must be stable across rebuilds.** Photos, comments and likes will key to it (`docs/social-layer.md`), so a generated route's id comes from its geometry, never from a sequence number or a `run_id` — vertex ids do not survive a rebuild.
-- Migrations are `pipeline/sql/v2/NNNN_*.sql`, applied in filename order by `uv run python migrate.py` (idempotent; `--dry-run` lists them). Add a new file; never edit an applied one. `sql/v1/` is the frozen pre-rename chain — never apply it; a v1-era store is converted once by `uv run python convert_v2.py`. Schemas: `staging`, `source_map` (network, places), `catalogue` (routes), `qa`, `provenance` (build ledger).
+- Migrations are `pipeline/sql/v2/NNNN_*.sql`, applied in filename order by `uv run python migrate.py` (idempotent; `--dry-run` lists them). Add a new file; never edit an applied one. Schemas: `staging`, `source_map` (network, places), `catalogue` (routes), `qa`, `provenance` (build ledger).
 - Division of labour: one SQL statement over a whole table (noding, snapping, line-merge, raster sampling) → PostGIS. Per-feature branching, anything needing a unit test or a plot → Python (GeoPandas/Shapely). Code implements the table in `pipeline/docs/metadata-rules.md`, not its own judgement.
 - **Look before repairing.** Detectors write `qa.finding` (one rule = one QGIS layer); repairs write `qa.fix` with before/after geometry and honour `--dry-run`. Tolerances come from a measured distribution (2 m from the near-miss histogram, `topology/histogram.py`), never a guess — re-run the histogram after any change to the network.
 - Pipeline tests are pure-function and must not touch a database: CI has no PostGIS.
@@ -62,9 +71,15 @@ Monorepo; the roadmap and target architecture live in `docs/plan.md` — read it
 - **Branch from `develop` and open PRs against `develop`**, never `main`. `main` is production: protected, no direct pushes, and reached only by a release PR from `develop` or a `hotfix/…` branched off `main` (which must then be merged back into `develop`). `develop` is the repo default, so `gh pr create` targets it on its own.
 - Update the relevant file in `docs/` (including `docs/plan.md` checkboxes) when a change affects the data model, query patterns, fragilities, or roadmap. Pipeline changes update `pipeline/docs/` (`metadata-rules.md`, `data-sources.md`) instead.
 
-## Handoff file (read by the project tracker)
+## State files
 
-Read `handoff.md` once, at the start of a session, before the first plan or code change. Do not
-re-read it later in the same session — the conversation is the fresher source. Re-read only after
-a `/clear`, a `/compact`, or if I say the repo moved outside this session. If it conflicts with
-the repo, trust the repo and say so.
+`handoff.md` is the moving picture; this file is the stable rules. Read it once, at the start
+of a session, before the first plan or code change. Do not re-read it later — the conversation
+is fresher. Re-read after a `/clear` or `/compact`. If it conflicts with the repo, trust the
+repo and say so.
+
+Never read `docs/pm-log.jsonl`. It is append-only history for the project tracker; reading it
+puts 150 KB of settled decisions into context for no benefit. If you need to know why something
+was decided, ask me or read the code.
+
+Writing any of this is the `/handoff` skill's job, on my command only.

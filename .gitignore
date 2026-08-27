@@ -24,8 +24,13 @@ build/
 *.ipynb
 # ...except the pipeline's state notebook, which is a REVIEW SURFACE rather
 # than someone's scratch pad: it is committed with its outputs so the state of
-# the build reads on GitHub without a database, alongside its HTML export.
+# the build reads on GitHub without a database.
 !pipeline/notebooks/*.ipynb
+# The HTML export is not committed. GitHub renders the .ipynb with its outputs,
+# which is the whole reason that file is exempt above, so the export bought
+# nothing but 1.8 MB and a second copy to go stale. Regenerate it locally when
+# you want one offline: jupyter nbconvert --to html pipeline/notebooks/state.ipynb
+pipeline/notebooks/*.html
 
 # OSM / data files (can be large)
 *.osm

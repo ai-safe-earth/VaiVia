@@ -65,6 +65,7 @@ function mkLoop(id: string, name: string): Loop {
     sac_max: null,
     mtb_rideable: null,
     mtb_scale: null,
+    bike_blocked_m: null,
     off_road_share: null,
     score: null,
     start_vertex_id: null,

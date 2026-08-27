@@ -9,6 +9,7 @@ a legend that sorts alphabetically, a count printed as a measurement, a
 from __future__ import annotations
 
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import geopandas as gpd
@@ -223,3 +224,29 @@ def test_a_gap_between_pieces_is_not_bridged():
 
     assert heights == [100.0, 200.0, 900.0, 950.0]
     assert distances[2] == pytest.approx(1.0)
+
+
+def test_a_whole_decimal_keeps_its_trailing_zeros():
+    """598,880 metres of climb was published as 598,88.
+
+    A Decimal formats to its own exponent, so round(sum(...), 0) renders with
+    no fractional part at all and the unconditional rstrip('0') ate a
+    significant digit. Every metric on the review surface whose value ends in
+    zero was wrong, silently, and only in the README - the kind of lie that
+    survives because nobody re-adds the number by hand.
+    """
+    from export import review_bundle
+
+    assert review_bundle.fmt(Decimal(598880)) == "598,880"
+    assert review_bundle.fmt(Decimal(101950)) == "101,950"
+    assert review_bundle.fmt(1000) == "1,000"
+
+
+def test_a_fractional_decimal_still_loses_its_padding():
+    """The reason the strip exists: 9238.0 beside 101,951 reads as a different
+    kind of number, and 9,238.000000 reads as a measurement it is not."""
+    from export import review_bundle
+
+    assert review_bundle.fmt(Decimal("9238.0")) == "9,238"
+    assert review_bundle.fmt(Decimal("972.60")) == "972.6"
+    assert review_bundle.fmt(0.0) == "0"

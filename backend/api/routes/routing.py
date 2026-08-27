@@ -382,12 +382,15 @@ async def get_route_detail(route_id: str, db: DbDep) -> RouteDetail:
 
     return RouteDetail(
         route_id=route_id,
+        kind=document.get("kind"),
         shape=document.get("shape"),
         profile=profile,
         profile_quality=profile_quality,
         measures=document["measures"],
         continuity=document["continuity"],
         surface=document["surface"],
+        difficulty=document.get("difficulty"),
+        quality=document.get("quality"),
         places=document.get("places", []),
         attribution=_attribution(document),
     )

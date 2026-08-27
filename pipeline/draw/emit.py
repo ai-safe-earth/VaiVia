@@ -157,8 +157,8 @@ def emit_generated() -> None:
                 )
             ]
             # The id is verified against the ground, never trusted from the
-            # table: rekey_v2.py and the generator both mint through
-            # pipeline/ids.py, and a drift here is a cutover bug surfacing.
+            # table: the generator mints through pipeline/ids.py, so a drift
+            # here means the row and its geometry stopped agreeing.
             coords = json.loads(geometry)["coordinates"]
             direction = None
             if shape in DIRECTED_SHAPES:
@@ -168,10 +168,11 @@ def emit_generated() -> None:
                 raise SystemExit(
                     f"catalogue.route {rid!r} does not match its ground "
                     f"({expected!r}). INSPECT the row first — shape, "
-                    "direction, geometry: a well-formed row that moved with "
-                    "a repair is rekey_v2's job, but a malformed one (a "
-                    "corrupt shape once put urban floats here) must be "
-                    "deleted, and renaming it would only launder it"
+                    "direction, geometry: a well-formed row whose geometry "
+                    "moved under a repair must be DELETED and redrawn, and so "
+                    "must a malformed one (a corrupt shape once put urban "
+                    "floats here). Renaming it to its ground would only "
+                    "launder whatever put it out of step"
                 )
 
             (point,) = conn.execute(
