@@ -22,6 +22,7 @@ export function Feedback({ messageId, conversationId }: Props) {
   const [vote, setVote] = useState<1 | -1 | null>(null);
   const [askWhy, setAskWhy] = useState(false);
   const [comment, setComment] = useState('');
+  const [expected, setExpected] = useState('');
   const [sent, setSent] = useState(false);
 
   const cast = (next: 1 | -1) => {
@@ -60,9 +61,13 @@ export function Feedback({ messageId, conversationId }: Props) {
           className="feedback-why"
           onSubmit={(event) => {
             event.preventDefault();
-            void sendFeedback(messageId, conversationId, -1, comment).catch(
-              () => undefined,
-            );
+            void sendFeedback(
+              messageId,
+              conversationId,
+              -1,
+              comment.trim() || undefined,
+              expected.trim() || undefined,
+            ).catch(() => undefined);
             setAskWhy(false);
             setSent(true);
           }}
@@ -71,11 +76,19 @@ export function Feedback({ messageId, conversationId }: Props) {
             type="text"
             value={comment}
             maxLength={2000}
-            placeholder="What could be improved?"
-            aria-label="What could be improved?"
+            placeholder="What's wrong?"
+            aria-label="What's wrong?"
             onChange={(event) => setComment(event.target.value)}
           />
-          <button type="submit" disabled={!comment.trim()}>
+          <input
+            type="text"
+            value={expected}
+            maxLength={2000}
+            placeholder="How should it be instead?"
+            aria-label="How should it be instead?"
+            onChange={(event) => setExpected(event.target.value)}
+          />
+          <button type="submit" disabled={!comment.trim() && !expected.trim()}>
             Send
           </button>
         </form>

@@ -200,6 +200,7 @@ export async function sendFeedback(
   conversationId: string,
   vote: 1 | -1,
   comment?: string,
+  expected?: string,
 ): Promise<void> {
   const response = await gatewayFetch('/feedback', {
     method: 'POST',
@@ -209,6 +210,7 @@ export async function sendFeedback(
       conversation_id: conversationId,
       vote,
       comment: comment ?? null,
+      expected: expected ?? null,
     }),
   });
   if (!response.ok) throw new Error(`feedback failed: ${response.status}`);

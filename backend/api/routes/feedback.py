@@ -32,6 +32,7 @@ class FeedbackStore(Protocol):
         message_id: str,
         vote: int,
         comment: str | None,
+        expected: str | None,
     ) -> bool:
         """Upsert one vote. False means the message is not in this user's
         conversation — the route turns that into an honest 404."""
@@ -46,7 +47,7 @@ class InMemoryFeedback:
     the single-statement upsert in PostgresFeedback enforce it."""
 
     def __init__(self) -> None:
-        self._votes: dict[tuple[str, str], tuple[int, str | None]] = {}
+        self._votes: dict[tuple[str, str], tuple[int, str | None, str | None]] = {}
 
     async def set(
         self,
@@ -55,8 +56,9 @@ class InMemoryFeedback:
         message_id: str,
         vote: int,
         comment: str | None,
+        expected: str | None,
     ) -> bool:
-        self._votes[(user_id, message_id)] = (vote, comment)
+        self._votes[(user_id, message_id)] = (vote, comment, expected)
         return True
 
 
@@ -75,13 +77,15 @@ class PostgresFeedback:
         message_id: str,
         vote: int,
         comment: str | None,
+        expected: str | None,
     ) -> bool:
         async with self._pool.acquire() as conn:
             row = await conn.fetchval(
                 """
                 INSERT INTO message_feedback
-                    (user_id, message_id, conversation_id, vote, comment)
-                SELECT c.user_id, m.id, c.id, $3, $4
+                    (user_id, message_id, conversation_id, vote, comment,
+                     expected)
+                SELECT c.user_id, m.id, c.id, $3, $4, $5
                 FROM messages m
                 JOIN conversations c ON c.id = m.conversation_id
                 WHERE c.user_id = $1::uuid
@@ -89,6 +93,7 @@ class PostgresFeedback:
                 ON CONFLICT (user_id, message_id) DO UPDATE
                     SET vote = excluded.vote,
                         comment = excluded.comment,
+                        expected = excluded.expected,
                         updated_at = now()
                 RETURNING message_id
                 """,
@@ -96,6 +101,7 @@ class PostgresFeedback:
                 message_id,
                 vote,
                 comment,
+                expected,
             )
         return row is not None
 
@@ -108,6 +114,8 @@ class FeedbackIn(BaseModel):
     # clears a stale comment, which is right — the comment was about the old
     # vote.
     comment: str | None = Field(default=None, max_length=2000)
+    # "How should it be instead?" — the second half of the downvote's ask.
+    expected: str | None = Field(default=None, max_length=2000)
 
 
 class FeedbackState(BaseModel):
@@ -125,7 +133,12 @@ async def set_feedback(
 ) -> FeedbackState:
     """Idempotent upsert: a re-vote flips, a comment updates."""
     ok = await _store(request).set(
-        user_id, body.conversation_id, body.message_id, body.vote, body.comment
+        user_id,
+        body.conversation_id,
+        body.message_id,
+        body.vote,
+        body.comment,
+        body.expected,
     )
     if not ok:
         raise HTTPException(

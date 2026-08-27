@@ -52,19 +52,23 @@ describe('Feedback', () => {
     expect(container.querySelectorAll('.feedback')).toHaveLength(1);
   });
 
-  it('posts a vote on click and asks why on a downvote', () => {
+  it('posts a vote on click and asks both questions on a downvote', () => {
     const { getByLabelText } = mount();
     fireEvent.click(getByLabelText('Bad answer'));
     expect(api.sendFeedback).toHaveBeenCalledWith('m1', 'conv-1', -1);
 
-    const why = getByLabelText('What could be improved?');
-    fireEvent.change(why, { target: { value: 'wrong lake' } });
-    fireEvent.submit(why.closest('form')!);
+    const wrong = getByLabelText("What's wrong?");
+    fireEvent.change(wrong, { target: { value: 'wrong lake' } });
+    fireEvent.change(getByLabelText('How should it be instead?'), {
+      target: { value: 'the one by Lecco' },
+    });
+    fireEvent.submit(wrong.closest('form')!);
     expect(api.sendFeedback).toHaveBeenLastCalledWith(
       'm1',
       'conv-1',
       -1,
       'wrong lake',
+      'the one by Lecco',
     );
   });
 
@@ -72,6 +76,6 @@ describe('Feedback', () => {
     const { getByLabelText, queryByLabelText } = mount();
     fireEvent.click(getByLabelText('Good answer'));
     expect(api.sendFeedback).toHaveBeenCalledWith('m1', 'conv-1', 1);
-    expect(queryByLabelText('What could be improved?')).toBeNull();
+    expect(queryByLabelText("What's wrong?")).toBeNull();
   });
 });

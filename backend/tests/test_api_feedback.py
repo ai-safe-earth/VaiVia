@@ -13,12 +13,13 @@ CONVERSATION_ID = "5f0c9d1e-0000-4000-8000-0000000000bb"
 USER = {"x-user-id": "9b2f9d1e-0000-4000-8000-000000000001"}
 
 
-def _body(vote: int, comment: str | None = None) -> dict:
+def _body(vote: int, comment: str | None = None, expected: str | None = None) -> dict:
     return {
         "message_id": MESSAGE_ID,
         "conversation_id": CONVERSATION_ID,
         "vote": vote,
         "comment": comment,
+        "expected": expected,
     }
 
 
@@ -37,7 +38,9 @@ def test_a_revote_flips_and_a_comment_updates(client):
     assert up.json() == {"message_id": MESSAGE_ID, "vote": 1}
 
     down = client.post(
-        "/feedback", json=_body(-1, "named the wrong lake"), headers=USER
+        "/feedback",
+        json=_body(-1, "named the wrong lake", "the one by Lecco"),
+        headers=USER,
     )
     assert down.status_code == 200
     assert down.json() == {"message_id": MESSAGE_ID, "vote": -1}
@@ -46,6 +49,7 @@ def test_a_revote_flips_and_a_comment_updates(client):
     assert store._votes[(USER["x-user-id"], MESSAGE_ID)] == (
         -1,
         "named the wrong lake",
+        "the one by Lecco",
     )
 
 
