@@ -169,22 +169,38 @@ export function LoopCard({
         )}
       </div>
 
-      <button
-        type="button"
-        className="detail-toggle"
-        aria-expanded={open}
-        onClick={(event) => {
-          event.stopPropagation();
-          const next = !open;
-          setOpen(next);
-          if (next) onExpand?.(loop);
-        }}
-      >
-        <span>{open ? 'Less' : 'See more'}</span>
-        <span className="sign" aria-hidden="true">
-          {open ? '−' : '+'}
-        </span>
-      </button>
+      {/* Line 2: how it will treat you — a calibrated duration when one
+          exists (none does yet: the slot renders only with a real figure,
+          never an uncalibrated guess), the character grade, the exigent
+          warning, the bike state, and the expand affordance. */}
+      <div className="route-line2">
+        {character && <span className="vv-body-sm">{character}</span>}
+        {warning && (
+          <span
+            className="exigent vv-label"
+            title="The hardest metre walked exceeds the route's character grade — what you must be able to handle, whatever the label says."
+          >
+            ⚠ {warning}
+          </span>
+        )}
+        <span className="vv-body-sm">{bikeState(loop)}</span>
+        <button
+          type="button"
+          className="detail-toggle"
+          aria-expanded={open}
+          onClick={(event) => {
+            event.stopPropagation();
+            const next = !open;
+            setOpen(next);
+            if (next) onExpand?.(loop);
+          }}
+        >
+          <span>{open ? 'Less' : 'See more'}</span>
+          <span className="sign" aria-hidden="true">
+            {open ? '−' : '+'}
+          </span>
+        </button>
+      </div>
 
       {open && <LoopDetail loop={loop} detail={detail} />}
     </div>
@@ -222,45 +238,8 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
   const warnings =
     (detail?.quality as { warnings?: string[] } | undefined | null)?.warnings ?? [];
 
-  const startName = loop.start_names?.[0] ?? null;
-
   return (
     <div className="route-detail">
-      {(loop.pois.length > 0 || startName || loop.car_free) && (
-        <div className="key-facts">
-          {(startName || loop.car_free) && (
-            <div>
-              <span className="vv-label">Starts at</span>
-              <p className="fact vv-body-sm">
-                {startName ?? 'an unnamed trailhead'}
-                {loop.car_free ? ' · reachable by train' : ''}
-              </p>
-            </div>
-          )}
-          {loop.pois.length > 0 && (
-            <div>
-              <span className="vv-label">Along the way</span>
-              <div className="poi-list">
-                {loop.pois
-                  .filter((poi) => poi.name)
-                  .slice(0, 3)
-                  // The index is in the key because a route can pass the same
-                  // place twice — an out-and-back does it by definition, and
-                  // two peaks can share a name. Name+type alone collides.
-                  .map((poi, index) => (
-                    <span
-                      className="poi vv-body-sm"
-                      key={`${poi.name}-${poi.type}-${index}`}
-                    >
-                      {poi.name}
-                    </span>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {extended.length > 0 && (
         <div className="detail-figures">
           {extended.map((item) => (
