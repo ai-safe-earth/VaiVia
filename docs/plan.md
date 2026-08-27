@@ -143,7 +143,7 @@ feeding the Phase 3 embedding alongside description and difficulty notes.
 - Every phase lands with CI green, fully offline (`--mock`).
 - Phase 1: run ingestion twice, assert node/relationship counts unchanged; cookbook queries return expected fixture results.
 - Phases 2–3: end-to-end curl through gateway → backend → Neo4j on compose; auth/limit contract tests.
-- Phase 4: golden set of ~20 NL queries → expected intents (snapshot tests); adversarial set never produces a write.
+- Phase 4: golden set of NL queries → expected intents (50 entries incl. Italian phrasings and multiturn conversations; `--graph` checks retrieval, `--answers` checks the raw answer against the code-checkable prompt rules); adversarial set never produces a write. Scores logged per run in `backend/eval_runs.jsonl`.
 - Phase 5: Playwright smoke — sign in, ask "easy trail near a lake", see result cards + map polyline.
 
 ### Phase 7 — The Bergamo refactor (plan approved 2026-08-25)
