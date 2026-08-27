@@ -31,6 +31,7 @@ from neo4j import GraphDatabase
 
 from core import connect, env_value
 from export.document import SAC_ORDER
+from export.route_documents import RELATIONS
 
 
 def sac_rank(grade: str | None) -> int | None:
@@ -335,6 +336,25 @@ def main() -> None:
     driver.close()
 
     with connect() as conn:
+        # The count assertion the 627-of-1,379 gap earned (2026-08-27): the
+        # graph held only the generated routes because only their documents
+        # were on disk, and nothing said so. Count what the store DESCRIBES —
+        # generated routes in catalogue.route plus the mapped relations the
+        # document emitter would emit (its own query, so the criterion cannot
+        # drift) — against what was actually loadable.
+        generated = conn.execute("SELECT count(*) FROM catalogue.route").fetchone()[0]
+        mapped = conn.execute(
+            f"SELECT count(*) FROM ({RELATIONS}) mapped_routes"
+        ).fetchone()[0]
+        if len(routes) != generated + mapped:
+            print(
+                f"\nNOTE: the store describes {generated + mapped:,} routes "
+                f"({generated:,} generated + {mapped:,} mapped) but "
+                f"{len(routes):,} documents were on disk to load. A route "
+                "without a document cannot be selected — emit the missing set "
+                "(draw.emit for generated, export.route_documents for mapped) "
+                "and re-run this load."
+            )
         conn.execute(
             "INSERT INTO provenance.build_run (run_id, stage, parameters, counts, finished_at)"
             " VALUES (%s, 'export', %s, %s, now())",
