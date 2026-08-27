@@ -1907,6 +1907,72 @@ P4 catalogue's 1,371 (the 751 mapped routes are not loaded); `queries.cypher:540
 at `chat/narrowing.py` which does not exist; `docs/plan.md`'s Context still tells the
 Trailforks story and its LLM-boundary section cites a pre-rename path.
 
+## Session 2026-08-27 (later) — the mechanical debugs, and a plan that never used the index
+
+The brief was: continue with what needs no owner decision. Six commits on
+`feat/eval-hardening`.
+
+The headline is `build_trailheads`. The timeout audit found it dying on its FIRST
+batch of 25 anchors, and profiling showed why: a point index cannot serve
+`point.distance` between two PROPERTY accesses (the planner's hint error says so
+verbatim), so the anchor snap label-scanned all 84,137 intersections per anchor —
+167k dbHits each. The 25-anchor batching from 2026-08-22 was treating that
+symptom, sized to a measurement the graph then outgrew. Binding the anchor point
+to a variable first (`WITH p, p.location AS anchor`) turns the same predicate
+into an index seek at ~30 dbHits: all 1,547 anchors snap in one 0.77 s
+transaction, and the batching apparatus is deleted. Now fragility #17, including
+the twin trap: SCORE_ACCESS compares two properties too and its plan DOES seek —
+"it profiled fine over there" proves nothing here. A full `--dry-run` completes
+(281 clusters against 283 live trailheads — graph drift since 08-22, not the plan
+change); the real write is left alone because DELETE_STALE cascades into
+catalogue routes, which is a product call.
+
+The rest: the SAC bike ceiling landed in `load/legality.py` (T4+ needs an
+explicit `mtb:scale` or bicycle permission; every branch pinned; stored
+`routable_bike` changes only on the next load run). `export/neo4j_load.py` now
+counts what the store DESCRIBES against what was on disk to load, reusing the
+mapped emitter's own RELATIONS query so the criterion cannot drift — verified
+live: "1,379 routes (627 generated + 752 mapped) but 627 documents on disk", and
+after the reload `audit_catalogue_documents` reports 627/627, 0 desyncs, 0
+unstamped. (The live numbers are 752/1,379; this file previously said 751/1,371 —
+stale snapshot.) `docs/plan.md` got the OSM data story and the real intent-module
+path; the `estimate_loops` comment now says chat/narrowing.py is PLANNED (Phase
+3) rather than pointing at a file that does not exist.
+
+Four nextSteps turned out to be already done and are pruned: the
+`tags.get("highway", "path")` default (removed at `osm_extract.py:182` with a
+comment), the frontend ESLint config (exists; `npm run lint` runs clean —
+the only noise is a workspace-root warning from a stray package-lock.json in the
+user home directory, outside the repo), the GDS plugins volume (compose mounts
+`neo4j_plugins`, GDS deliberately OUT of NEO4J_PLUGINS, seeding documented in
+CONTRIBUTING — and GDS ran live today), and the `settings.default_bbox` question
+(fragility #16 already ratifies the answer: it is the ingestion default and
+nothing else).
+
+Found while verifying, for the owner:
+
+- `export/route_documents.py` (the mapped emitter) violates the ratified join
+  rule — metadata-rules.md: "ascent/descent from the altitude profile, never
+  summed per piece". Its ROUTE statement sums per-edge `ascent_m` with no
+  direction handling and `build_profile` concatenates profiles unreversed.
+  `source_map.edge_route` records no orientation, so the fix needs per-edge
+  direction inference along the merged line, and the edge cases are real:
+  ST_LineMerge collapses an out-and-back, a closed ring is ambiguous at the
+  seam, and 131 multi-piece routes have no single line at all. The 0.5-day
+  estimate was optimistic; it needs a design pass.
+- The P4 reload (offering the 752 mapped routes to chat) is blocked BEHIND that:
+  only the 627 generated documents exist on disk at the current schema, and
+  re-emitting the mapped set re-opens the ascent bug plus schema currency.
+- Golden g10 is not vocabulary misalignment, it is data absence: `bathing_water`
+  is wired end-to-end (enum, prompt, ingestion mapping for `swimming_area`) but
+  ZERO such POIs exist in either region; the graph holds `beach` (17). Either
+  the prompt maps a swim ask to beach, or the ingestion mapping widens.
+- Catalogue rebuild atomicity: inverting wipe-then-load to merge-then-sweep
+  trades the honest-empty window for a briefly-stale one; Community Neo4j has
+  no real swap. Which lie is preferable is a product call.
+- frontend is on next 15.1.3 already — the "upgrade next 14" item was stale and
+  now says 15 to 16.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -2597,20 +2663,6 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
       "plan": "redesign"
     },
     {
-      "title": "Audit the other scripts that scan the whole graph (check_graph_connectivity, build_routes, build_trailheads) against the 10 s db.transaction.timeout - a client timeout cannot raise a server ceiling, so an unbounded scan now fails rather than running long",
-      "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Decide what settings.default_bbox is still FOR now that routing derives its own: ingestion bounds, or a stale global that should go",
-      "est": 0.25,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
       "title": "Decide the wording of fragilities #15 against CLAUDE.md: the doc describes a flagged model-generated-Cypher capability while CLAUDE.md says the LLM never writes Cypher, flatly. One of the two should move",
       "est": 0.25,
       "owner": "oscar",
@@ -2653,14 +2705,7 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
       "plan": "redesign"
     },
     {
-      "title": "Align the POI vocabulary the intent model emits with the one the graph carries - golden g10 asks for poi_types ['bathing_water'] and retrieves nothing",
-      "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Mount a plugins volume for Neo4j so GDS survives a container recreate - it came back this time only because graphdatascience.ninja happened to be reachable",
+      "title": "Decide the swim answer for golden g10: bathing_water is wired end-to-end but zero exist in either region while beach holds 17 - map the ask to beach in the prompt, or widen the ingestion mapping (amenity/leisure values beyond swimming_area)",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -2676,13 +2721,6 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
     {
       "title": "Decide whether readback should render the parameters that RAN rather than re-deriving them from the intent - the claims it hand-maintains are what two review findings were about",
       "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Reinstall GDS and stop the recreate hazard: mount the Neo4j plugins dir as a volume and seed GDS once from a reachable source (graphdatascience.ninja is down here; github/maven work), or pin a local jar. Until then routing runs on the shortestPath fallback",
-      "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2737,13 +2775,6 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
       "plan": "redesign"
     },
     {
-      "title": "Add an ESLint config to frontend/ - npm run lint currently prompts interactively and does nothing",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
       "title": "Judge the 164 overlap findings in QGIS: duplicate, bridge, or a legitimately shared stretch. The only QA rule that cannot be automated",
       "est": 2,
       "owner": "oscar",
@@ -2751,8 +2782,8 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
       "plan": "redesign"
     },
     {
-      "title": "Add a SAC ceiling to load/legality.py so alpine terrain is not bike-routable without an explicit mtb:scale or bicycle=yes (198 edges at T4+, 15 with any MTB grade). Needs a reload",
-      "est": 1,
+      "title": "Re-run the pipeline load so the SAC bike ceiling (landed 2026-08-27 in load/legality.py, tests pinned) reaches the stored routable_bike column - 198 edges at T4+ affected, then refresh the review bundle",
+      "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2800,13 +2831,6 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
       "plan": "redesign"
     },
     {
-      "title": "Replace the tags.get('highway', 'path') default with None plus an explicit skip, so an untagged way fails loudly instead of becoming routable",
-      "est": 0.25,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
       "title": "Investigate the off-road drop from 87% to 74%: comfort.json layered on hike.json is not biting as hard as the standalone model did (67% in the gate test)",
       "est": 0.5,
       "owner": "oscar",
@@ -2821,7 +2845,7 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
       "plan": "redesign"
     },
     {
-      "title": "Upgrade next 14 to 16, clearing the deferred postcss and sharp advisories",
+      "title": "Upgrade next 15 to 16, clearing the deferred postcss and sharp advisories (the old item said 14; package.json is on ^15.1.3)",
       "est": 1,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -2856,8 +2880,8 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
       "plan": "redesign"
     },
     {
-      "title": "Use profile_m rather than per-edge ascent_m when assembling a route, and swap ascent/descent on any piece the assembly reverses",
-      "est": 0.5,
+      "title": "Fix export/route_documents.py against the ratified join rule (ascent/descent from the profile, never summed per piece): ROUTE sums unswapped per-edge ascent_m and build_profile concatenates unreversed. edge_route records no orientation, so this needs per-edge direction inference along the merged line - and ST_LineMerge collapses out-and-backs, rings are seam-ambiguous, 131 multi-piece routes have no single line. Needs a design pass first",
+      "est": 2,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2919,14 +2943,14 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
       "plan": "redesign"
     },
     {
-      "title": "Reload Neo4j from the P4 catalogue and add a count assertion to the audit: live graph holds 627 generated routes while the catalogue holds 1,371 - the 751 mapped routes cannot be offered to chat users",
-      "est": 0.5,
+      "title": "Re-emit the 752 mapped route documents at the current schema and reload Neo4j so chat can offer them (the loader now prints the 627-of-1,379 gap on every run; audit is 627/627 clean) - BLOCKED behind the route_documents.py direction fix, which re-emitting would bake in",
+      "est": 1,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Wire or retire estimate_loops: queries.cypher:540 documents chat/narrowing.py as its consumer and that file does not exist",
+      "title": "Wire or retire estimate_loops: the comment now says chat/narrowing.py is query-loop Phase 3, planned - building Phase 3 wires it, dropping Phase 3 should delete it",
       "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -2935,13 +2959,6 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
     {
       "title": "Generate short hike loops near Lecco (smaller target_m band): the catalogue has none under 18 km, so 'a short loop hike near Lecco' returns an empty block and golden g27/g49 cannot be pinned",
       "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Fix docs/plan.md stale framings: Context still motivates the two-source Trailforks graph, and the LLM-boundary section cites backend/app/intents/schema.py, a pre-rename path",
-      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -3154,6 +3171,13 @@ Trailforks story and its LLM-boundary section cites a pre-rename path.
     {
       "date": "2026-08-23",
       "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-27",
+      "model": "fable-5",
       "credits": null,
       "person": "oscar",
       "hours": null
