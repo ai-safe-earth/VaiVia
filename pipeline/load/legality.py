@@ -54,6 +54,15 @@ BIKEABLE_HIGHWAYS = WALKABLE_HIGHWAYS - {"steps"}
 FORBIDDING = frozenset({"private", "no", "military", "customers"})
 PERMITTING = frozenset({"yes", "designated", "permissive", "destination"})
 
+# Alpine terrain is not bike terrain by default. sac_scale T4+ means hands-on
+# ground (fixed ropes, exposure); "missing tag permits" must not extend a bike
+# onto it. An explicit mtb:scale (someone graded it for riding) or an explicit
+# bicycle permission lifts the ceiling — measured before adding: 198 edges at
+# T4+, only 15 of them carrying any MTB grade.
+BIKE_SAC_CEILING = frozenset(
+    {"alpine_hiking", "demanding_alpine_hiking", "difficult_alpine_hiking"}
+)
+
 
 def _mode_allowed(tags: dict[str, str], mode_key: str) -> tuple[bool, str | None]:
     """(allowed, reason-if-not) for one access mode over general + specific keys."""
@@ -81,4 +90,14 @@ def routable_bike(tags: dict[str, str]) -> tuple[bool, str | None]:
     highway = tags.get("highway")
     if highway not in BIKEABLE_HIGHWAYS:
         return False, f"highway={highway}"
-    return _mode_allowed(tags, "bicycle")
+    allowed, why = _mode_allowed(tags, "bicycle")
+    if not allowed:
+        return False, why
+    sac = tags.get("sac_scale")
+    if (
+        sac in BIKE_SAC_CEILING
+        and "mtb:scale" not in tags
+        and tags.get("bicycle") not in PERMITTING
+    ):
+        return False, f"sac_scale={sac}"
+    return True, None
