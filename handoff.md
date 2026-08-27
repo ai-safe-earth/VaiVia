@@ -1973,6 +1973,44 @@ Found while verifying, for the owner:
 - frontend is on next 15.1.3 already — the "upgrade next 14" item was stale and
   now says 15 to 16.
 
+## Session 2026-08-27 (third) — the decisions, asked and implemented
+
+The five open decisions were put to the owner one by one and ratified; four are
+implemented in the same session, one is folded into the next rebuild.
+
+**The direction model for mapped routes** (the central one). A loop is walkable
+either way, so a single-line circular is now TWO documents — `-fwd` and `-rev`
+on the shared digest, exactly the pair the ids and schema carried support for
+since 2.0 — with the steep-up gentle-descent direction `recommended` (schema
+2.1, decided by mean climbing gradient per direction). An out-and-back stretch
+(the same way twice in one relation) contributes ascent AND descent, one per
+pass, and its profile is honestly absent. The inference lives in
+`export/orientation.py` (pure, 10 tests): edge direction from
+`ST_LineLocatePoint` fractions along the piece, modular on closed rings so the
+seam edge does not read backwards, pieces chained in member order by nearest
+endpoints. `Pasturo - Grignone (via estiva)` now reads 1,827 m up / 83 m down
+where the direction-blind sum scrambled it.
+
+**Multi-piece routes**: ≥ 0.9 matched are offered with gaps visible; below 0.9
+held (`MULTI_PIECE_FLOOR` in the emitter). **Swim asks** map to beach
+(golden 50/50, adversarial 7/7 after the prompt change; bathing_water reserved
+for an explicitly named swimming area — poi_types is a conjunction, so emitting
+both would have retrieved nothing). **Trailheads real write and the SAC
+reload** both wait for the next full rebuild. **The reload window** stays
+wipe-then-load: honest-empty beats briefly-stale.
+
+Backend accepts schema 2.0 and 2.1; the loader lifts `recommended` onto
+`:Route` and its count note now reasons in GROUNDS (a pair is two documents
+over one ground) and names what the floor deliberately holds.
+
+Verified live, end to end: 744 mapped documents emitted (704 grounds + 40
+circular pairs; 47 clipped multi-piece routes held; 1 same-ground relation
+folded; warnings fell 140 to 56 once pieces stopped warning), the graph loads
+1,371 routes, `audit_catalogue_documents` reports 1,371/1,371 with 0 desyncs,
+and 687 mapped routes pass the chat gate — all 84 multi-piece ones among them.
+Sentiero dei Giganti (3 pieces, 27.1 km) reads 1,823 m up / 1,819 m down; the
+massi erratici pair recommends the direction climbing 502 m over the one
+climbing 316 m. The review bundle is refreshed.
 <!-- pmctl:handoff v1 -->
 ```json
 {
@@ -2596,6 +2634,26 @@ Found while verifying, for the owner:
         {
           "date": "2026-08-27",
           "text": "check_intents_live is only the adversarial containment gate; its golden half lives in golden_questions.json so there is one checker and one dataset"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "Mapped-route directions: a single-line circular is emitted in both directions with the steep-up gentle-descent one recommended (mean climbing gradient per direction, schema 2.1 'recommended'); an out-and-back way contributes its ascent and its descent, one per pass, with the profile absent"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "Multi-piece mapped routes at or above 0.9 matched_fraction are offered with their gaps visible; below 0.9 they are held until coverage grows - the multi-piece matched floor is 0.9"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "The trailheads real write and the SAC-ceiling load re-run both land with the next full pipeline rebuild, not standalone"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "A swim ask maps to beach; bathing_water is reserved for an explicitly named swimming area (zero exist in-region, and poi_types is a conjunction)"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "Catalogue reload keeps wipe-then-load's honest empty window; Community Neo4j has no atomic swap and a briefly-stale catalogue is the worse lie"
         }
       ]
     }
@@ -2705,13 +2763,6 @@ Found while verifying, for the owner:
       "plan": "redesign"
     },
     {
-      "title": "Decide the swim answer for golden g10: bathing_water is wired end-to-end but zero exist in either region while beach holds 17 - map the ask to beach in the prompt, or widen the ingestion mapping (amenity/leisure values beyond swimming_area)",
-      "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
       "title": "Decide whether catalogue_view should guard with an allowlist of fields it can map rather than the current blocklist of constraints it cannot",
       "est": 0.5,
       "owner": "oscar",
@@ -2782,8 +2833,8 @@ Found while verifying, for the owner:
       "plan": "redesign"
     },
     {
-      "title": "Re-run the pipeline load so the SAC bike ceiling (landed 2026-08-27 in load/legality.py, tests pinned) reaches the stored routable_bike column - 198 edges at T4+ affected, then refresh the review bundle",
-      "est": 0.5,
+      "title": "Next full pipeline rebuild (owner-ratified 2026-08-27 to batch these): re-run load (SAC bike ceiling reaches stored routable_bike, 198 T4+ edges), run the trailheads real write (283 -> 281, catalogue routes cascade), rebuild the catalogue at --min-off-road 0.3, refresh the review bundle",
+      "est": 1.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2803,21 +2854,7 @@ Found while verifying, for the owner:
       "plan": "redesign"
     },
     {
-      "title": "Rebuild trailheads and the catalogue at --min-off-road 0.3 so lakeside and valley routes exist at all; 220 of 266 trailheads are currently unbuilt",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
       "title": "Rotate the exposed OpenAI API key and the Supabase database and account passwords before any deployment",
-      "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Make a catalogue rebuild atomic: CLEAR_ROUTES then MERGE leaves it briefly empty, and a live query in that window honestly returns nothing",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -2866,7 +2903,7 @@ Found while verifying, for the owner:
       "plan": "redesign"
     },
     {
-      "title": "Decide the matched_fraction floor a generated route must clear, so a 27-route tail like BI-12 (2 of 646 ways matched) cannot become a route under a famous name",
+      "title": "Decide whether SINGLE-LINE mapped routes need a matched_fraction floor too - the 0.9 multi-piece floor is ratified (2026-08-27) and holds the clipped fragments, but a single-line route with a low matched share still emits unfiltered",
       "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -2875,13 +2912,6 @@ Found while verifying, for the owner:
     {
       "title": "Fetch GLO-30 tile N46 E009 and re-run curate.elevation, closing the 75 edges (56.8 km) north of 46.0001 that have no profile",
       "est": 0.25,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Fix export/route_documents.py against the ratified join rule (ascent/descent from the profile, never summed per piece): ROUTE sums unswapped per-edge ascent_m and build_profile concatenates unreversed. edge_route records no orientation, so this needs per-edge direction inference along the merged line - and ST_LineMerge collapses out-and-backs, rings are seam-ambiguous, 131 multi-piece routes have no single line. Needs a design pass first",
-      "est": 2,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2938,13 +2968,6 @@ Found while verifying, for the owner:
     {
       "title": "Generate the second catalogue mixing high-anchor car parks with the car-free starts, and scale --starts once the shape is judged good",
       "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Re-emit the 752 mapped route documents at the current schema and reload Neo4j so chat can offer them (the loader now prints the 627-of-1,379 gap on every run; audit is 627/627 clean) - BLOCKED behind the route_documents.py direction fix, which re-emitting would bake in",
-      "est": 1,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"

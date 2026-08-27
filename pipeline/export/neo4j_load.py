@@ -369,9 +369,11 @@ def main() -> None:
                 f"({generated:,} generated + {mapped:,} mapped, of which "
                 f"{held:,} are held below the {MULTI_PIECE_FLOOR} multi-piece "
                 f"matched floor) but {grounds:,} distinct grounds were on "
-                "disk to load. A route without a document cannot be selected "
-                "— emit the missing set (draw.emit for generated, "
-                "export.route_documents for mapped) and re-run this load."
+                "disk to load. A small residual is usually same-ground "
+                "relations folded into one document (the export run's notes "
+                "name them); anything larger is a missing set — emit it "
+                "(draw.emit for generated, export.route_documents for "
+                "mapped) and re-run this load."
             )
         conn.execute(
             "INSERT INTO provenance.build_run (run_id, stage, parameters, counts, finished_at)"
