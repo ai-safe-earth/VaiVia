@@ -46,6 +46,23 @@ Assembly itself is a check: the ordered pieces must `ST_LineMerge` to **exactly 
 LineString**. A MultiLineString means a gap, which is filed as a `qa.finding` pointing at
 the break — a broken route is never stored with a straight line across the hole.
 
+### Mapped-route direction (owner-ratified 2026-08-27, `export/orientation.py`)
+
+`edge_route` records membership, not orientation, so for a mapped route the walk is
+**inferred**: an edge's direction is where its endpoints sit along its piece of the merged
+line (`ST_LineLocatePoint`, modular on a closed ring so the seam edge does not read
+backwards); pieces chain in member order, each facing whichever way puts its start nearest
+the previous piece's end. Ascent, descent and the profile follow the walk — the inversion
+the split table already specifies for directional tags. When the walk cannot be honestly
+known, the climb is absent, never a direction-blind sum.
+
+| rule | consequence |
+|---|---|
+| a single-line **circular** is walked either way | **two documents**, `-fwd`/`-rev`; the one climbing the steeper side is `recommended` (higher mean climbing gradient — steep up, gentle descent) |
+| a **twice-walked** way (out-and-back leg) | contributes its ascent AND its descent, one per pass; the profile is absent — two passes have no honest order along a collapsed corridor |
+| a **multi-piece** route at ≥ 0.9 `matched_fraction` | offered, gaps visible (`continuity`, `quality`); per-piece inferred climb |
+| a multi-piece route **below 0.9** | held, not emitted — a fragment must not wear a full route's name (BI-12: 2 of 646 ways) |
+
 ## Route-relation membership (`source_map.edge_route`, written 2026-08-20)
 
 The **Positional** row of the split table, realised. A member of an OSM route relation is
