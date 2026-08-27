@@ -2,45 +2,35 @@
 
 Last updated 2026-08-27.
 
-The project was renamed from `get-out-door` to **VaiVia** on 2026-08-17. The
-GitHub remote is now `https://github.com/ai-safe-earth/VaiVia.git` and the local
-root folder is `A02_VaiVia`. README, LICENSE and CONTRIBUTING have been rewritten
-under the new name, and the in-code identifiers followed and are **merged to
-`main`** (PRs #2 and #3): package names (`vaivia`, `vaivia-gateway`,
-`vaivia-frontend`, both lockfiles relocked), the compose container
-(`vaivia-neo4j`), page title and headings, the Overpass User-Agent default, the
-FastAPI title, the `graph-model` skill description, and the doc and
-`.env.example` headers. All three unit suites pass after the rename (148 / 34 /
-33).
+## What VaiVia is
 
-Two things the rename touched that are worth knowing. The compose **volumes**
-(`neo4j_data`, `neo4j_logs`) are unchanged, so the ingested graph survives; only
-the container is renamed and `up -d` recreates it. And renaming the root folder
-broke every console-script shim in `backend/.venv` (Windows `.exe` launchers
-hardcode the absolute interpreter path, so `uv run black` failed with "Failed to
-canonicalize script path"); deleting `.venv` and re-running `uv sync` fixes it.
-Anyone else who pulls after the folder rename will hit the same thing.
+A trail-query product over OSM for Lecco and Bergamo. Four tiers — Next.js
+frontend, Fastify gateway (the only public service), FastAPI backend, Neo4j —
+plus `pipeline/`, a PostGIS working store where the value lives. **The route
+document is the product**: the pipeline emits one JSON per route and Neo4j, the
+API and the frontend are all readers of it. The data is OSM throughout, with
+open-licensed enrichment; no Trailforks data has ever entered the system.
 
-## Where the project stands
+## Where the data stands
 
-A trail-query chatbot backed by a Neo4j knowledge graph. A working four-tier
-monorepo: Next.js frontend, Fastify gateway, FastAPI backend, Neo4j graph.
+- **Network** — 101,951 edges, 9,238.0 km, height on every edge, 98%+ of
+  vertices in one component. 752 OSM route relations joined as the naming layer.
+- **Catalogue** — 627 generated routes in six families (foot/mtb ×
+  loop/destination/out_and_back), all drawn over the current network, all
+  published to Neo4j and served as documents from `review/routes/`.
+- The mapped OSM relations were withdrawn from the published catalogue on
+  2026-08-26 and are a naming and QA layer now. That takes the 302 named CAI
+  *sentieri* out of the answerable set until routes are generated over them.
+- **Open QA queue** — 164 overlaps, judgement only; every automatable topology
+  defect is at zero. 370 islands remain deliberately, as a coverage fact. The
+  review surface is `review/vaivia-qa.gpkg` + a generated `review/README.md`.
 
-**The data story changed on 2026-08-18.** It was "OSM geometry fused with
-Trailforks curation"; Trailforks turned out to be legally unavailable and OSM
-turned out to be enough, so it is now OSM throughout, with open-licensed
-enrichment (Wikipedia/Wikidata) over the marquee places. Supabase supplied auth
-and Postgres and is currently **switched off** — see the auth note below.
+## Verification
 
-The product works end to end against real infrastructure and has been driven in
-a real browser: sign-in, resumed conversation history, a live streamed chat turn
-grounded in the graph, and the trail drawn on the map — all of it pinned by a
-repeatable Playwright suite. Status stays amber for one reason only: three
-credentials were shared in plaintext during development and must be rotated
-before anything deploys. Everything else that remains is Phase 6 hardening
-(embeddings, deploy plumbing), not unverified core.
+252 pipeline, 331 backend, 96 frontend, 40 gateway unit tests, plus 4 Playwright
+e2e against the live stack. CI runs the four unit suites and stays offline.
 
-## What is built and how far it is verified
+## In flight
 
 | Piece | State | Verification |
 |---|---|---|
@@ -2873,35 +2863,35 @@ climbing 316 m. The review bundle is refreshed.
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
-    },
+    }
+  ],
+  "blockers": [
     {
-      "title": "Name the trailheads. 37 of 266 have one; route names now cover 81% so this is no longer blocking, but 'starts at' is still often blank",
-      "est": 1,
+      "text": "OpenAI API key was shared in plaintext and must be rotated before any deployment",
+      "severity": "high",
       "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
+      "since": "2026-08-15"
     },
     {
       "title": "Upgrade next 15 to 16, clearing the deferred postcss and sharp advisories (the old item said 14; package.json is on ^15.1.3)",
       "est": 1,
       "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
+      "since": "2026-08-16"
     },
     {
-      "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check",
-      "est": 2,
+      "text": "The Supabase account password is 12345678 and was shared in plaintext; it must be changed before any deployment",
+      "severity": "high",
       "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
+      "since": "2026-08-16"
     },
     {
-      "title": "Judge the 131 routes that come out in more than one piece in qa.v_route: coverage clipping at the bbox edge, or a real gap along a named route that the topology rules cannot see",
-      "est": 1,
+      "text": "Trailforks is unavailable and this is settled: API-only with a granted key, and the Outside terms need prior written consent for commercial, in-software and AI use, which VaiVia is all three of. Nothing was ever taken (fetch_live is a stub, the fixture is synthetic), so the position is clean and the product moved to OSM. Blocks nothing unless someone tries to use their data. See docs/licensing.md",
+      "severity": "medium",
       "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
+      "since": "2026-08-15"
+    }
+  ],
+  "nextSteps": [
     {
       "title": "Decide whether SINGLE-LINE mapped routes need a matched_fraction floor too - the 0.9 multi-piece floor is ratified (2026-08-27) and holds the clipped fragments, but a single-line route with a low matched share still emits unfiltered",
       "est": 0.25,
@@ -2910,8 +2900,8 @@ climbing 316 m. The review bundle is refreshed.
       "plan": "redesign"
     },
     {
-      "title": "Fetch GLO-30 tile N46 E009 and re-run curate.elevation, closing the 75 edges (56.8 km) north of 46.0001 that have no profile",
-      "est": 0.25,
+      "title": "Decide how the named CAI sentieri come back into the answerable corpus, now that withdrawing the relations took 302 of them out: generate routes ALONG named relations so the names ride on ground we drew, or re-admit mapped routes through a measured quality gate (warnings 0, single piece, >= 500 m, a matched_fraction floor). The first is the honest one; the second is cheaper",
+      "est": 2,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
@@ -2924,35 +2914,28 @@ climbing 316 m. The review bundle is refreshed.
       "plan": "redesign"
     },
     {
-      "title": "Look at the 33 car parks over 100 m from the network in qa.v_place_link: a missing access road in OSM, or a polygon somewhere odd",
+      "title": "Rotate the exposed OpenAI API key and the Supabase database and account passwords before any deployment",
       "est": 0.5,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Name the trailheads from a nearby named feature - qa.v_start.names is empty for most car parks and 'start from vertex 43128' is not an answer",
+      "title": "Calibrate duration: DIN 33466 rates the classic Grigna ascent at 10 hours where guidebooks say 6-8, and the route-document schema deliberately refuses the field until the figure is one a walker would trust",
       "est": 1,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Review the refreshed bundle in QGIS: colour network by steepness_class, route by continuity_class, place_link by distance_band, start by reachability_class",
-      "est": 0.5,
+      "title": "Decide whether a lane exit out of a settlement is a start after all: 2,990 are recorded with 'the town continuing' and reviewable in qa.v_urban_exit, so it is a one-word change either way",
+      "est": 0.25,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Calibrate duration before adding it to the route document: DIN 33466 gives 10 h for the Grigna ascent against a guidebook 6-8, and the schema deliberately refuses the field until then",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Make Neo4j, the API and the frontend read the route document rather than each deriving route fields - the inversion docs/route-document.md ratifies",
+      "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check against /healthz",
       "est": 2,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -2996,206 +2979,24 @@ climbing 316 m. The review bundle is refreshed.
   ],
   "sessions": [
     {
-      "date": "2026-08-15",
-      "model": "fable-5",
-      "credits": 69,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-16",
-      "model": "opus-5",
-      "credits": 175,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-16",
-      "model": "fable-5",
-      "credits": 61,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-17",
-      "model": "opus-5",
-      "credits": 7,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-17",
-      "model": "opus-5",
-      "credits": 41,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-18",
-      "model": "opus-5",
-      "credits": 31,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-18",
-      "model": "opus-5",
-      "credits": 79,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-18",
-      "model": "opus-5",
-      "credits": 98,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-19",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-20",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-20",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-20",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-20",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-20",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-20",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-20",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-21",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-21",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-21",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-21",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-21",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-21",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-21",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-21",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
       "date": "2026-08-22",
       "model": "opus-5",
-      "credits": null,
       "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-22",
-      "model": "opus-5",
       "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-22",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-22",
-      "model": "opus-5",
-      "credits": null,
-      "person": "oscar",
       "hours": null
     },
     {
       "date": "2026-08-23",
       "model": "opus-5",
-      "credits": null,
       "person": "oscar",
+      "credits": null,
+      "hours": null
+    },
+    {
+      "date": "2026-08-26",
+      "model": "opus-5",
+      "person": "oscar",
+      "credits": null,
       "hours": null
     },
     {

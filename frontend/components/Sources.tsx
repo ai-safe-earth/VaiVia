@@ -13,6 +13,10 @@ interface Props {
   /** Distance of the proximity match that linked the two sources, in metres.
    *  Same story: rendered when the API exposes it. */
   matchDistanceM?: number | null;
+  /** The route DOCUMENT's own attribution line — every source with its
+   *  licence, joined by the API from provenance.sources. Rendered the moment
+   *  the detail arrives; the ODbL constant is only the pre-detail floor. */
+  attribution?: string | null;
 }
 
 /**
@@ -22,10 +26,13 @@ interface Props {
  * product's central data decision, so it is stated on every route, collapsed
  * by default and one click from the answer.
  */
-export function Sources({ id, osmWayIds, matchDistanceM }: Props) {
+export function Sources({ id, osmWayIds, matchDistanceM, attribution }: Props) {
   const [open, setOpen] = useState(false);
-  // One source: OpenStreetMap. There is no second one — see the note below.
-  const count = 1;
+  // Pre-detail, one source is the honest floor (OpenStreetMap); once the
+  // document's attribution arrives it is the truth — Copernicus joined it
+  // the day the DEM reached a user-facing number, exactly as the
+  // accumulate-obligations rule in data-sources.md promises.
+  const count = attribution ? attribution.split(";").length : 1;
 
   return (
     <div className="sources">
@@ -53,7 +60,7 @@ export function Sources({ id, osmWayIds, matchDistanceM }: Props) {
             <span className="value">
               {osmWayIds && osmWayIds.length > 0
                 ? `OSM ways ${osmWayIds.join(' ')}`
-                : 'OpenStreetMap, ODbL'}
+                : (attribution ?? 'OpenStreetMap, ODbL')}
             </span>
           </div>
 

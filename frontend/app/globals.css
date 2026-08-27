@@ -531,6 +531,51 @@ body {
   color: var(--vv-flare);
 }
 
+/* The compact card's two lines: what it is and how big, then how it will
+   treat you. Baselines aligned, figures keeping their lime key. */
+.route-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--vv-s3);
+  margin: 0 0 var(--vv-s1);
+}
+
+.route-line1 .route-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.route-figure {
+  white-space: nowrap;
+}
+
+.route-figure .unit {
+  margin-left: 2px;
+}
+
+.route-line2 {
+  display: flex;
+  align-items: center;
+  gap: var(--vv-s3);
+  margin: 0 0 var(--vv-s2);
+  color: var(--vv-muted);
+}
+
+.route-line2 .detail-toggle {
+  margin-left: auto;
+  margin-bottom: 0;
+}
+
+/* The exigent warning wears the flare: a safety fact, not a mood. */
+.exigent {
+  color: var(--vv-flare);
+}
+
+.detail-block {
+  margin: 0 0 var(--vv-s3);
+}
+
 /* A card whose map line could not be fetched says so on the card. Flare for
    the retryable failure, muted for the settled "left the catalogue". */
 .line-note {

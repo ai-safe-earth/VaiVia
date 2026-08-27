@@ -143,12 +143,21 @@ class RouteDetail(BaseModel):
     """
 
     route_id: str
+    kind: str | None
     shape: str | None
     profile: RouteProfile | None
     profile_quality: Literal["ok", "approximate"] | None
     measures: dict[str, float | None]
     continuity: dict[str, object]
     surface: dict[str, object]
+    #: The document's difficulty block WHOLE — grade, exigent grade, the
+    #: distribution, and the rule that produced the number, because the rule
+    #: ships with the figure so nobody has to guess how it was derived.
+    difficulty: dict[str, object] | None
+    #: Carried, never filtered on: warnings, matched_fraction, unprofiled
+    #: edges. A quarantined route never reaches a card, but an emitted
+    #: warning belongs on the card that shows the route.
+    quality: dict[str, object] | None
     places: list[dict[str, object]]
     attribution: str
 
