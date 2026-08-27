@@ -36,7 +36,7 @@ import uuid
 from pathlib import Path
 
 from core import connect
-from export.document import Span, build_document
+from export.document import Span, build_document, published
 from export.orientation import (
     Edge,
     Piece,
