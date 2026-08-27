@@ -28,9 +28,12 @@ from typing import Any
 from chat.composer import (
     ComposedPlan,
     TrailSearchIntent,
+    apply_delta,
     capped_difficulty,
     catalogue_view,
     compose,
+    standing_dump,
+    standing_load,
 )
 from chat.intents import RouteIntent
 from chat.llm import LLMClient, results_to_json
@@ -169,15 +172,38 @@ class ChatOrchestrator:
         ]
         await self._store.add_message(conversation_id, "user", message)
 
-        plan_result = await self._llm.extract_plan(message, history)
+        # The conversation's standing plan: what earlier turns put in force.
+        # The model sees it (to emit a delta against it); apply_delta merges
+        # it (latest-wins, in Python). Both halves read the same jsonb.
+        last_intent = await self._store.last_standing(conversation_id)
+        standing_raw = (last_intent or {}).get("standing")
+
+        plan_result = await self._llm.extract_plan(
+            message, history, standing=standing_raw
+        )
         subqueries = plan_result.envelope.subqueries
         plan = compose(subqueries)
+        # reset discards the plan in force BEFORE refine is considered: it is
+        # the only way to clear a constraint (a delta can change one but not
+        # unset it), and it must also stop a clarify turn carrying the old
+        # plan forward below.
+        if plan_result.envelope.reset:
+            standing_raw = None
+        refined = False
+        if plan_result.envelope.refine and not plan.is_clarify:
+            standing = standing_load(standing_raw)
+            if standing is not None:
+                plan = apply_delta(standing, plan)
+                refined = True
         yield ChatEvent("intent", {"subqueries": [s.model_dump() for s in subqueries]})
         logger.info(
             "plan composed",
             extra={
+                "conversation_id": conversation_id,
                 "subqueries": len(subqueries),
                 "clarify": plan.is_clarify,
+                "refined": refined,
+                "reset": plan_result.envelope.reset,
                 "routes": len(plan.routes),
                 "theme": bool(plan.theme),
             },
@@ -221,11 +247,20 @@ class ChatOrchestrator:
                 yield ChatEvent("token", {"delta": delta})
 
         answer = "".join(answer_parts)
+        # A clarify turn carries the PREVIOUS standing forward: the question
+        # did not change what is in force, and last_standing reads only the
+        # newest assistant row — dropping it here would end the conversation's
+        # memory at every clarification.
         message_id = await self._store.add_message(
             conversation_id,
             "assistant",
             answer,
-            intent={"subqueries": [s.model_dump() for s in subqueries]},
+            intent={
+                "subqueries": [s.model_dump() for s in subqueries],
+                "standing": (
+                    standing_dump(plan) if not plan.is_clarify else standing_raw
+                ),
+            },
             result_refs=refs,
         )
 

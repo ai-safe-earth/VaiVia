@@ -75,7 +75,9 @@ class UnusableLLM:
     that reaches this one is a wiring bug, so it fails loudly.
     """
 
-    async def extract_plan(self, message: Any, history: Any) -> Any:
+    async def extract_plan(
+        self, message: Any, history: Any, standing: Any = None
+    ) -> Any:
         raise AssertionError("test reached the real LLM seam; inject a stub")
 
     async def stream_answer(self, message: Any, results_json: Any, history: Any) -> Any:

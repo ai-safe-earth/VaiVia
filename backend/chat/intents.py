@@ -118,9 +118,22 @@ class PlanEnvelope(BaseModel):
     atomic subqueries. The composer (chat/composer.py) — Python, not the model —
     merges these into named parameterized templates. Length is deliberately
     unconstrained here (strict mode rejects array bounds); the composer caps it.
+
+    `refine` marks the message as a MODIFICATION of the conversation's standing
+    plan ("shorter", "easier than that") rather than a self-contained ask. The
+    subqueries then carry only the changed constraints, and the composer merges
+    them onto the persisted plan (apply_delta) — in Python, like every other
+    plan decision. A bool: it carries no query, template or identifier, so the
+    containment property is untouched.
     """
 
     subqueries: list[Intent] = Field(default_factory=list)
+    refine: bool = False
+    #: "start over", "forget that", "delete the constraints": the standing
+    #: plan is DISCARDED before this turn is considered. The counterpart of
+    #: refine, and the only way to clear a constraint (a delta can change one
+    #: but not unset it — apply_delta's known ceiling).
+    reset: bool = False
 
 
 def to_strict_schema(model: type[BaseModel]) -> dict[str, Any]:

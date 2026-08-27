@@ -6,17 +6,12 @@ import { useEffect, useRef, useState } from 'react';
 import { AppHeader } from '@/components/AppHeader';
 import { AuthPanel } from '@/components/AuthPanel';
 import { ChatPanel } from '@/components/ChatPanel';
-import { ConversationList } from '@/components/ConversationList';
 import { FavoritesView } from '@/components/FavoritesView';
 import { ElevationPanel, MapLayerTabs } from '@/components/MapChrome';
 import { fetchFavorites, setFavorite, type FavoritesList } from '@/lib/api';
 import { applyToggle, belongsToCurrentUser, savedIds } from '@/lib/favorites';
 import { onSession, signOut, type AuthUser } from '@/lib/auth';
-import {
-  listConversations,
-  loadMessages,
-  type ConversationSummary,
-} from '@/lib/conversations';
+import { listConversations, loadMessages } from '@/lib/conversations';
 import { profileFromDetail } from '@/lib/profile';
 import { isAuthConfigured } from '@/lib/supabaseClient';
 import type { ChatMessage, Loop, RouteDetail } from '@/lib/types';
@@ -50,15 +45,15 @@ export default function Home() {
     FavoritesList | null | undefined
   >(undefined);
   const [showFavorites, setShowFavorites] = useState(false);
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [history, setHistory] = useState<ChatMessage[]>([]);
-  // The remount key changes only on explicit navigation (picking a stored
-  // conversation, "+ New chat"). It must NOT track `selected` directly: when a
-  // fresh chat's first turn is assigned an id, `selected` updates so the list
-  // highlights it — and keying on that would remount the panel mid-stream and
-  // destroy the answer as it arrives.
-  const [panelKey, setPanelKey] = useState('new-0');
+  // ONE continuous conversation (owner decision, 2026-08-26): the app resumes
+  // the most recent conversation on sign-in and history scrolls back. resumed
+  // is set exactly once per sign-in, before the panel is shown, so the panel
+  // key never changes mid-stream — a fresh chat's first turn assigning an id
+  // does not remount the panel and destroy the answer as it arrives.
+  // undefined = still resolving (render no panel yet), null = start fresh.
+  const [resumed, setResumed] = useState<
+    { id: string | null; messages: ChatMessage[] } | undefined
+  >(undefined);
 
   // Who is signed in NOW, readable from a continuation that started under
   // whoever was signed in THEN.
@@ -72,9 +67,7 @@ export default function Home() {
     // than letting the next account's fetch overwrite it, is what stops a
     // second sign-in seeing the first one's saved routes -- for a moment if
     // the fetch succeeds, and indefinitely if it fails.
-    setConversations([]);
-    setSelected(null);
-    setHistory([]);
+    setResumed(undefined);
     setFavoriteIds(new Set());
     setFavoritesList(undefined);
     if (!user) return;
@@ -83,9 +76,16 @@ export default function Home() {
     // this account's, so it is dropped rather than rendered.
     const forUser = user.id;
     const stillCurrent = () => belongsToCurrentUser(forUser, userRef.current?.id);
+    // Resume the single conversation: newest id, its transcript, its cards
+    // (loadMessages rehydrates them from the stored result_refs). Any failure
+    // degrades to a fresh chat rather than blocking sign-in.
     void listConversations()
-      .then((list) => stillCurrent() && setConversations(list))
-      .catch(() => stillCurrent() && setConversations([]));
+      .then(async (list) => {
+        const id = list[0]?.id ?? null;
+        const messages = id ? await loadMessages(id).catch(() => []) : [];
+        if (stillCurrent()) setResumed({ id, messages });
+      })
+      .catch(() => stillCurrent() && setResumed({ id: null, messages: [] }));
     void fetchFavorites()
       .then((list) => stillCurrent() && receiveFavorites(list))
       .catch(() => stillCurrent() && setFavoritesList(null));
@@ -113,32 +113,6 @@ export default function Home() {
     });
   }
 
-  async function selectConversation(id: string | null) {
-    setShowFavorites(false);
-    setGeometry(null);
-    setRouteDetail(null);
-    if (id === null) {
-      setSelected(null);
-      setHistory([]);
-      setPanelKey(`new-${Date.now()}`); // always a fresh panel, even new -> new
-      return;
-    }
-    // Load before switching so the remounted panel starts with its history.
-    const messages = await loadMessages(id).catch(() => []);
-    setHistory(messages);
-    setSelected(id);
-    setPanelKey(id);
-  }
-
-  function conversationCreated(id: string) {
-    // Highlight the new conversation, but leave panelKey alone — the panel
-    // that created it is mid-stream and must not be remounted.
-    setSelected(id);
-    void listConversations()
-      .then(setConversations)
-      .catch(() => {});
-  }
-
   const authRequired = isAuthConfigured();
   if (authRequired && user === undefined) return null;
   if (authRequired && !user) {
@@ -159,13 +133,6 @@ export default function Home() {
           onFavorites={user ? () => setShowFavorites((open) => !open) : undefined}
           favoritesOpen={showFavorites}
         />
-        {user && conversations.length > 0 && (
-          <ConversationList
-            conversations={conversations}
-            selected={selected}
-            onSelect={(id) => void selectConversation(id)}
-          />
-        )}
         {showFavorites && (
           <FavoritesView
             initial={favoritesList}
@@ -178,20 +145,20 @@ export default function Home() {
         )}
         {/* The chat panel is HIDDEN behind the favorites view, never replaced.
             Rendering one or the other unmounted the panel and remounted it
-            seeded from `history`, which only selectConversation writes — so a
-            look at Saved routes wiped the transcript of the conversation you
-            were having. */}
-        <ChatPanel
-          key={panelKey}
-          hidden={showFavorites}
-          onGeometry={setGeometry}
-          onDetail={setRouteDetail}
-          initialConversationId={selected}
-          initialMessages={history}
-          onConversationCreated={conversationCreated}
-          favorites={user ? favoriteIds : undefined}
-          onToggleFavorite={user ? toggleFavorite : undefined}
-        />
+            seeded from the resume snapshot — so a look at Saved routes wiped
+            the transcript of the conversation you were having. */}
+        {(!authRequired || resumed !== undefined) && (
+          <ChatPanel
+            key={`${user?.id ?? 'anon'}:${resumed?.id ?? 'fresh'}`}
+            hidden={showFavorites}
+            onGeometry={setGeometry}
+            onDetail={setRouteDetail}
+            initialConversationId={resumed?.id ?? null}
+            initialMessages={resumed?.messages ?? []}
+            favorites={user ? favoriteIds : undefined}
+            onToggleFavorite={user ? toggleFavorite : undefined}
+          />
+        )}
         {/* Trail geometry, paths and POIs in every answer are OSM-derived, so
             the credit belongs in the app chrome and not only on the map — a
             user reading results never has to open the map to see it. */}

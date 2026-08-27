@@ -203,8 +203,15 @@ Phase 2 only.
 - [ ] P5 `feat/compact-card` — the two-line card; exigent warning; three-
   valued bike state; surface distribution, places, real provenance and QA
   warnings on expand.
-- [ ] P6 `feat/chat-standing-plan` — persisted standing plan (query-loop
-  Phase 2); resume rehydrates cards from result_refs.
+- [x] P6 `feat/chat-standing-plan` — persisted standing plan (query-loop
+  Phase 2); resume rehydrates cards from result_refs. Landed 2026-08-26: the
+  executed plan persists as `messages.intent.standing` (same jsonb, no
+  migration); `PlanEnvelope.refine` marks a delta turn and
+  `composer.apply_delta` merges it latest-wins in Python; a clarify carries
+  the standing forward. Resume is single-conversation (the tabs are gone):
+  `GET /routes/by-ids` hydrates stored loop_ids back into cards.
+  `scripts.dump_conversation` renders any conversation as markdown with
+  BUG/FIX/NOTE user turns flagged — the feedback-log surface.
 - [ ] P7 `feat/custom-route-jobs` — Supabase 0004, pipeline-side worker,
   atomic publication, gateway quota on the creating POST.
 - [ ] P8 `feat/direction-documents` — the `-rev` siblings and `reverse_of`

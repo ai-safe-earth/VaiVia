@@ -138,7 +138,11 @@ export function MapView({ geometry }: Props) {
     };
 
     if (instance.isStyleLoaded()) draw();
-    else instance.once('load', draw);
+    // 'idle', not 'load': load fires exactly once per map, so an update
+    // arriving while the style is transiently busy after the initial load
+    // registered on an event that would never fire again — and was silently
+    // dropped, forever. idle fires after every render settles.
+    else instance.once('idle', draw);
   }, [geometry]);
 
   // The drawn line's caveat (a multi-piece route served as its longest piece

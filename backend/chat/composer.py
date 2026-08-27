@@ -389,3 +389,139 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
         )
 
     return ComposedPlan(search=search, theme=theme, routes=routes, loop=loop)
+
+
+# ── The standing plan ────────────────────────────────────────────────────────
+# A conversation's constraints in force, persisted per assistant turn in
+# messages.intent["standing"] and merged with each refinement turn's delta.
+# Latest-wins, never tightest-wins: "actually, longer" must RAISE a max where
+# merge_searches would keep the old tighter one. Python end to end — the model
+# only says WHICH constraints changed (PlanEnvelope.refine + the delta
+# subqueries); what they change is decided here.
+
+#: Field names shared by TrailSearchIntent and LoopSearchIntent that a
+#: cross-kind delta may carry over. `activity` is excluded: the two intents
+#: spell it in different vocabularies, and a wrong guess there flips which
+#: catalogue is searched.
+_CROSS_FIELDS = (
+    "min_distance_m",
+    "max_distance_m",
+    "max_duration_min",
+    "max_difficulty_level",
+    "poi_types",
+)
+
+
+def _is_set(intent: TrailSearchIntent | LoopSearchIntent, name: str) -> bool:
+    """Did the model actually emit this field? Strict outputs force every
+    field to appear, so "set" means "differs from the default" — the same
+    reading has_constraints uses. The known ceiling: a delta cannot RESET a
+    field to its default (family_friendly back to False, "any difficulty").
+    """
+    # ponytail: deltas can change but not clear a constraint; upgrade path is
+    # an explicit cleared_fields list on the envelope if review shows the need.
+    default = type(intent).model_fields[name].get_default(call_default_factory=True)
+    return getattr(intent, name) != default
+
+
+def _overlay(base, delta):
+    """Same-kind merge: every field the delta set replaces the base's."""
+    merged = base.model_copy()
+    for name in type(base).model_fields:
+        if name != "kind" and _is_set(delta, name):
+            setattr(merged, name, getattr(delta, name))
+    return merged
+
+
+def _cross_overlay(base, delta):
+    """Cross-kind merge: "shorter" against a standing loop often arrives as a
+    trail_search (or vice versa). The shared constraint names carry over; the
+    base keeps its kind, so the same catalogue answers."""
+    merged = base.model_copy()
+    for name in _CROSS_FIELDS:
+        if name in type(delta).model_fields and _is_set(delta, name):
+            setattr(merged, name, getattr(delta, name))
+    return merged
+
+
+def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
+    """Merge a refinement turn's delta onto the conversation's standing plan.
+
+    Only called when the model set `refine` and this turn is not a clarify
+    (a clarify poisons the turn before it gets here). A route ask with nothing
+    else is a change of subject — "now route me from A to B" — and starts
+    fresh even under a stray refine flag.
+
+    Standing ROUTES are never carried: a route is a one-shot answer, not a
+    constraint in force, and carrying it re-ran "Lecco to Bergamo" under
+    every later ask of the conversation (owner session, 2026-08-26).
+    """
+    if standing.is_clarify:
+        return delta
+    if delta.routes and not (delta.search or delta.loop or delta.theme):
+        return delta
+
+    merged = ComposedPlan(
+        search=standing.search,
+        theme=standing.theme,
+        loop=standing.loop,
+    )
+    if delta.search is not None:
+        if merged.search is not None:
+            merged.search = _overlay(merged.search, delta.search)
+        elif merged.loop is not None and delta.loop is None:
+            merged.loop = _cross_overlay(merged.loop, delta.search)
+        else:
+            merged.search = delta.search
+    if delta.loop is not None:
+        if merged.loop is not None:
+            merged.loop = _overlay(merged.loop, delta.loop)
+        elif merged.search is not None and delta.search is None:
+            merged.search = _cross_overlay(merged.search, delta.loop)
+        else:
+            merged.loop = delta.loop
+    if delta.theme:
+        merged.theme = delta.theme
+    if delta.routes:
+        merged.routes = list(delta.routes)
+    return merged
+
+
+def standing_dump(plan: ComposedPlan) -> dict | None:
+    """The executed plan as the jsonb the next turn reloads. None for clarify
+    (a question in force is not a plan in force)."""
+    if plan.is_clarify:
+        return None
+    return {
+        "search": plan.search.model_dump() if plan.search else None,
+        "loop": plan.loop.model_dump() if plan.loop else None,
+        "theme": plan.theme,
+        "routes": [r.model_dump() for r in plan.routes],
+    }
+
+
+def standing_load(data: dict | None) -> ComposedPlan | None:
+    """The inverse, defensive: jsonb written by an older build, or by nothing,
+    must degrade to "no standing plan", never to a crash mid-turn."""
+    if not isinstance(data, dict):
+        return None
+    try:
+        plan = ComposedPlan(
+            search=(
+                TrailSearchIntent.model_validate(data["search"])
+                if data.get("search")
+                else None
+            ),
+            loop=(
+                LoopSearchIntent.model_validate(data["loop"])
+                if data.get("loop")
+                else None
+            ),
+            theme=data.get("theme") or None,
+            routes=[RouteIntent.model_validate(r) for r in data.get("routes") or []],
+        )
+    except Exception:  # noqa: BLE001 — malformed history is "no standing plan"
+        return None
+    if not (plan.search or plan.loop or plan.theme or plan.routes):
+        return None
+    return plan

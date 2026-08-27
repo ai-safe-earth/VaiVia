@@ -13,7 +13,7 @@ class StubLLM:
     def __init__(self, intent: dict) -> None:
         self.intent = intent
 
-    async def extract_plan(self, message, history):
+    async def extract_plan(self, message, history, standing=None):
         return PlanResult(
             envelope=PlanEnvelope.model_validate({"subqueries": [self.intent]}),
             usage=Usage(10, 5),
