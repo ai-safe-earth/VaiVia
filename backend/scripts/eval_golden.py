@@ -222,7 +222,9 @@ async def main() -> None:
             if not (args.graph and wants_execution and not plan.is_clarify):
                 continue
 
-            results, _ = await orchestrator._execute(plan)  # noqa: SLF001 — eval reuses the real path
+            results, _ = await orchestrator._execute(
+                plan
+            )  # noqa: SLF001 — eval reuses the real path
             for expected, key in (
                 (expected_trails, "trails"),
                 (expected_loops, "loops"),
