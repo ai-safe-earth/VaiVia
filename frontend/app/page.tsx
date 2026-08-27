@@ -129,10 +129,6 @@ export default function Home() {
       <div className="chat-column">
         <AppHeader
           email={user?.email}
-          onNewChat={() => {
-            setShowFavorites(false);
-            setEpoch((current) => current + 1);
-          }}
           onSignOut={user ? () => void signOut() : undefined}
           onFavorites={user ? () => setShowFavorites((open) => !open) : undefined}
           favoritesOpen={showFavorites}
@@ -159,6 +155,7 @@ export default function Home() {
             onDetail={setRouteDetail}
             initialConversationId={epoch > 0 ? null : (resumed?.id ?? null)}
             initialMessages={epoch > 0 ? [] : (resumed?.messages ?? [])}
+            onClear={() => setEpoch((current) => current + 1)}
             favorites={user ? favoriteIds : undefined}
             onToggleFavorite={user ? toggleFavorite : undefined}
           />

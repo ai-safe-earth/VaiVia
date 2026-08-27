@@ -55,6 +55,9 @@ interface Props {
   initialMessages?: ChatMessage[];
   /** Fired when the backend assigns an id to a brand-new conversation. */
   onConversationCreated?: (id: string) => void;
+  /** Clear chat: the page bumps its remount epoch — an explicit user action,
+   *  never an SSE event, so the mid-stream remount bug stays impossible. */
+  onClear?: () => void;
   /** Saved-route ids + toggle, owned by the page so a bookmark here and one
    *  in the favorites view are the same state. Absent when signed out. */
   favorites?: Set<string>;
@@ -74,6 +77,7 @@ export function ChatPanel({
   initialConversationId = null,
   initialMessages = [],
   onConversationCreated,
+  onClear,
   favorites,
   onToggleFavorite,
   hidden = false,
@@ -169,7 +173,7 @@ export function ChatPanel({
         properties: {
           ...(geometry.properties ?? {}),
           selected: true,
-          difficulty_band: trailBand(trail.difficulty_level),
+          difficulty_band: trailBand(trail.difficulty_level, trail.activity),
         },
       },
     );
@@ -578,6 +582,13 @@ export function ChatPanel({
           aria-label="Your message"
           disabled={busy}
         />
+        {/* type="button" is load-bearing: a submit-typed button placed
+            before .ask would become the form's default submit. */}
+        {onClear && (
+          <button type="button" className="clear" onClick={onClear}>
+            Clear chat
+          </button>
+        )}
         <button className="ask" type="submit" disabled={busy || !input.trim()}>
           {busy ? '…' : 'Ask'}
         </button>

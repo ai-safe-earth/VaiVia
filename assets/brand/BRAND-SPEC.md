@@ -55,7 +55,9 @@ a 1px border; flare darkens to #C4451F for text.
 - Two accents only. Do not add a third for any reason. Amendment
   2026-08-27: --vv-amber is a data-encoding colour for the map's moderate
   difficulty band (lime = easy, amber = moderate, flare = hard, muted =
-  ungraded), not an accent — never a button, label or action colour.
+  ungraded), not an accent — never a button, label or action colour. The four
+  bands are hike-only: every mtb route wears --vv-ground (near-black) on the
+  map, encoding activity rather than grade.
 
 ---
 

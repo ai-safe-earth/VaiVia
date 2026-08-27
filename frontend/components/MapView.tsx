@@ -3,7 +3,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { focusedRouteId, noteOf } from '@/lib/mapTurn';
 
@@ -47,7 +47,28 @@ const STYLE: maplibregl.StyleSpecification = {
       tileSize: 256,
       attribution: OSM_ATTRIBUTION,
     },
+    opentopo: {
+      type: 'raster',
+      tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution:
+        '© OpenStreetMap contributors, SRTM | style © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+    },
+    satellite: {
+      type: 'raster',
+      // Esri tiles are {z}/{y}/{x}, not {z}/{x}/{y}.
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+      attribution:
+        'Imagery © Esri — Esri, Maxar, Earthstar Geographics, GIS User Community',
+    },
   },
+  // All three basemaps live in the style from construction and a switch only
+  // flips visibility — map.setStyle would destroy the selection source and
+  // its layers, which are added at runtime. Desaturation is the default
+  // basemap's; terrain and satellite are shown as themselves.
   layers: [
     {
       id: 'osm',
@@ -59,8 +80,28 @@ const STYLE: maplibregl.StyleSpecification = {
         'raster-contrast': 0.15,
       },
     },
+    {
+      id: 'opentopo',
+      type: 'raster',
+      source: 'opentopo',
+      layout: { visibility: 'none' },
+    },
+    {
+      id: 'satellite',
+      type: 'raster',
+      source: 'satellite',
+      layout: { visibility: 'none' },
+    },
   ],
 };
+
+const BASEMAPS = [
+  { id: 'osm', label: 'Map' },
+  { id: 'opentopo', label: 'Terrain' },
+  { id: 'satellite', label: 'Satellite' },
+] as const;
+
+type BasemapId = (typeof BASEMAPS)[number]['id'];
 
 interface Props {
   geometry: GeoJSON.Feature | GeoJSON.FeatureCollection | GeoJSON.Geometry | null;
@@ -69,6 +110,20 @@ interface Props {
 export function MapView({ geometry }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
+  const [basemap, setBasemap] = useState<BasemapId>('osm');
+
+  const switchBasemap = (id: BasemapId) => {
+    setBasemap(id);
+    const instance = map.current;
+    if (!instance) return;
+    for (const layer of BASEMAPS) {
+      instance.setLayoutProperty(
+        layer.id,
+        'visibility',
+        layer.id === id ? 'visible' : 'none',
+      );
+    }
+  };
 
   useEffect(() => {
     if (!container.current || map.current) return;
@@ -133,23 +188,15 @@ export function MapView({ geometry }: Props) {
           token('--vv-flare', '#FF6B3D'),
           'ungraded',
           token('--vv-muted', '#A7ADA6'),
+          // All mtb routes wear the palette's near-black (owner decision
+          // 2026-08-27); the ramp above is hike-only.
+          'mtb',
+          token('--vv-ground', '#0D0F0E'),
           token('--vv-lime', '#CCFF3B'),
         ];
-        // The picked route wears a light casing under a wider, full-opacity
-        // line; its siblings dim. Width alone was not perceptible once the
-        // lines stopped sharing one colour. Both layers are created once and
-        // restyle through setData — the expressions are all data-driven.
-        instance.addLayer({
-          id: 'selection-casing',
-          type: 'line',
-          source: 'selection',
-          paint: {
-            'line-color': token('--vv-text', '#F2F3F0'),
-            'line-width': ['case', selected, 7, 0],
-            'line-opacity': ['case', selected, 1, 0],
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-        });
+        // The picked route is wider and full-opacity; its siblings dim. No
+        // casing (owner decision 2026-08-27). The layer is created once and
+        // restyles through setData — the expressions are all data-driven.
         instance.addLayer({
           id: 'selection-line',
           type: 'line',
@@ -187,6 +234,18 @@ export function MapView({ geometry }: Props) {
       data-selected-route={focusedRouteId(geometry) ?? undefined}
     >
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
+      <nav className="basemap" aria-label="Basemap">
+        {BASEMAPS.map((layer) => (
+          <button
+            key={layer.id}
+            type="button"
+            className={basemap === layer.id ? 'active' : undefined}
+            onClick={() => switchBasemap(layer.id)}
+          >
+            {layer.label}
+          </button>
+        ))}
+      </nav>
       {note && <div className="map-note vv-body-sm">{note}</div>}
     </div>
   );

@@ -103,25 +103,6 @@ body {
   color: var(--vv-lime);
 }
 
-/* New chat: a quiet secondary beside the wordmark — the one lime block in
-   the chrome stays reserved for the account action. */
-.header-new {
-  flex: none;
-  margin-left: var(--vv-s9);
-  padding: 7px var(--vv-s3);
-  border: 1px solid var(--vv-line);
-  background: transparent;
-  color: var(--vv-text);
-  font: 400 9.5px/1 var(--vv-sans);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.header-new:hover {
-  border-color: var(--vv-lime);
-}
-
 .app-header .spacer {
   flex: 1;
 }
@@ -184,7 +165,12 @@ body {
 
 .turn-user {
   background: var(--vv-panel);
-  padding: var(--vv-s5) var(--vv-s7);
+  /* An inset, framed block (owner decision 2026-08-27): the quoted ask must
+     read apart from the answer at a glance, not only by the panel tint. The
+     shorthand border replaces .turn's border-bottom — no doubled hairline. */
+  border: 1px solid var(--vv-line);
+  margin: var(--vv-s3) var(--vv-s4);
+  padding: var(--vv-s3) var(--vv-s4);
 }
 
 .turn-assistant {
@@ -287,6 +273,20 @@ body {
   cursor: pointer;
 }
 
+/* Compact type inside cards (owner decision 2026-08-27): the token scale
+   stays app-wide; cards alone step down so five results read at a glance. */
+.route-card .vv-title {
+  font-size: 18px;
+}
+
+.route-card .vv-figure {
+  font-size: 16px;
+}
+
+.route-card .vv-subtitle {
+  font-size: 13px;
+}
+
 .route-card:hover .route-name {
   color: var(--vv-lime);
 }
@@ -302,12 +302,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--vv-s7) var(--vv-s7) 0;
+  padding: var(--vv-s4) var(--vv-s5) 0;
 }
 
 .route-kind {
   display: block;
-  padding: var(--vv-s7) var(--vv-s7) 0;
+  padding: var(--vv-s4) var(--vv-s5) 0;
 }
 
 .route-kind-row .route-kind {
@@ -338,14 +338,14 @@ body {
 
 .route-name {
   margin: 0;
-  padding: var(--vv-s7) var(--vv-s7) 0;
+  padding: var(--vv-s4) var(--vv-s5) 0;
 }
 
 .figures {
   display: flex;
   align-items: flex-end;
   gap: var(--vv-s4);
-  padding: var(--vv-s4) var(--vv-s7);
+  padding: var(--vv-s3) var(--vv-s5);
 }
 
 .figure {
@@ -367,14 +367,14 @@ body {
    is ever flare. */
 .sac {
   display: flex;
-  gap: 5px;
-  height: 25px;
+  gap: 4px;
+  height: 16px;
   align-items: center;
 }
 
 .sac i {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   transform: rotate(45deg);
   border: 1px solid var(--vv-muted);
 }
@@ -391,7 +391,7 @@ body {
 }
 
 .key-facts > div {
-  padding: var(--vv-s3) var(--vv-s7);
+  padding: var(--vv-s3) var(--vv-s5);
   min-width: 0;
 }
 
@@ -577,6 +577,38 @@ body {
 /* The drawn line's caveat, over the map: a multi-piece route served as its
    longest piece must say so where the line is. Panel ground, hairline, no
    radius -- the notice idiom on the map surface. */
+/* Basemap switcher: top-left overlay (top-right is navigation). The old
+   layer-tab grammar: flush buttons, hairline dividers, active = lime block. */
+.basemap {
+  position: absolute;
+  top: var(--vv-s3);
+  left: var(--vv-s3);
+  z-index: 2;
+  display: flex;
+  border: 1px solid var(--vv-line);
+  background: var(--vv-ground);
+}
+
+.basemap button {
+  padding: var(--vv-s2) var(--vv-s4);
+  border: 0;
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.basemap button + button {
+  border-left: 1px solid var(--vv-line);
+}
+
+.basemap button.active {
+  background: var(--vv-lime);
+  color: var(--vv-ground);
+}
+
 .map-note {
   position: absolute;
   left: var(--vv-s3);
@@ -709,8 +741,14 @@ body {
 
 .feedback-why {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: var(--vv-s2);
   margin-top: var(--vv-s3);
+}
+
+.feedback-why input {
+  align-self: stretch;
 }
 
 .feedback-why input {
@@ -798,6 +836,25 @@ body {
 
 .composer input:focus-visible {
   outline-offset: -2px;
+}
+
+/* Clear chat: the quiet neighbour of Ask — resets the conversation via the
+   page's remount epoch. Muted until hovered; never the lime block. */
+.composer .clear {
+  flex: none;
+  padding: 0 var(--vv-s4);
+  border: 0;
+  border-left: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-muted);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.composer .clear:hover {
+  color: var(--vv-lime);
 }
 
 .composer .ask {

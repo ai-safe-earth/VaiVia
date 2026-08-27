@@ -22,13 +22,10 @@ describe('loopBand', () => {
     expect(loopBand(hike('not_a_grade'))).toBe('ungraded');
   });
 
-  it('bands MTB by S-scale', () => {
-    expect(loopBand(mtb('0'))).toBe('easy');
-    expect(loopBand(mtb('1'))).toBe('easy');
-    expect(loopBand(mtb('2'))).toBe('moderate');
-    expect(loopBand(mtb('3'))).toBe('moderate');
-    expect(loopBand(mtb('4'))).toBe('hard');
-    expect(loopBand(mtb(null))).toBe('ungraded');
+  it('every mtb loop is the mtb band, graded or not', () => {
+    expect(loopBand(mtb('0'))).toBe('mtb');
+    expect(loopBand(mtb('4'))).toBe('mtb');
+    expect(loopBand(mtb(null))).toBe('mtb');
   });
 });
 
@@ -39,5 +36,10 @@ describe('trailBand', () => {
     expect(trailBand(3)).toBe('hard');
     expect(trailBand(4)).toBe('hard');
     expect(trailBand(null)).toBe('ungraded');
+  });
+
+  it('an mtb trail is the mtb band; mixed stays level-banded', () => {
+    expect(trailBand(2, 'mtb')).toBe('mtb');
+    expect(trailBand(2, 'mixed')).toBe('moderate');
   });
 });

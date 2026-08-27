@@ -56,7 +56,7 @@ test.describe('VaiVia smoke', () => {
     await expect(page.getByLabel('Password')).toBeVisible();
   });
 
-  test('resumes the stored conversation and New chat starts fresh', async ({ page }) => {
+  test('resumes the stored conversation and Clear chat starts fresh', async ({ page }) => {
     await page.goto('/');
     await page.getByLabel('Email').fill(EMAIL!);
     await page.getByLabel('Password').fill(PASSWORD!);
@@ -74,8 +74,8 @@ test.describe('VaiVia smoke', () => {
       .catch(() => false);
     test.skip(!hasStored, 'no stored conversation for this account yet');
 
-    // "New chat" resets to the empty state with suggestions.
-    await page.getByRole('button', { name: 'New chat' }).click();
+    // "Clear chat" resets to the empty state with suggestions.
+    await page.getByRole('button', { name: 'Clear chat' }).click();
     await expect(page.getByText('Ask for a trail the way you would ask a local.')).toBeVisible();
     await expect(page.locator('.turn-user')).toHaveCount(0);
   });
@@ -141,7 +141,9 @@ test.describe('VaiVia smoke', () => {
     // When the search found more than the prose narrates, the fold offers
     // the rest five at a time. Not every ask overflows, so this is
     // conditional — but when the control is there, it must reveal.
-    const showMore = page.locator('.show-more');
+    // .last(): a resumed transcript can hold older answers with their own
+    // folds; the live turn's control is the one under test.
+    const showMore = page.locator('.show-more').last();
     if (await showMore.isVisible()) {
       const before = await page.locator('.route-card').count();
       await showMore.click();
@@ -156,9 +158,12 @@ test.describe('VaiVia smoke', () => {
     const feedback = page.locator('.feedback').last();
     await expect(feedback).toBeVisible();
     await feedback.getByLabel('Bad answer').click();
-    const why = feedback.getByLabel('What could be improved?');
-    await expect(why).toBeVisible();
-    await why.fill('e2e: automated check, please ignore');
+    const wrong = feedback.getByLabel("What's wrong?");
+    await expect(wrong).toBeVisible();
+    await wrong.fill('e2e: automated check, please ignore');
+    await feedback
+      .getByLabel('How should it be instead?')
+      .fill('e2e: also automated, also ignore');
     await feedback.getByRole('button', { name: 'Send' }).click();
     await expect(feedback.getByText('Noted — thank you')).toBeVisible();
 

@@ -20,7 +20,7 @@ export const SAC_ORDER = [
   'difficult_alpine_hiking',
 ];
 
-export type DifficultyBand = 'easy' | 'moderate' | 'hard' | 'ungraded';
+export type DifficultyBand = 'easy' | 'moderate' | 'hard' | 'ungraded' | 'mtb';
 
 function bandOfRank(rank: number): DifficultyBand {
   if (rank <= 0) return 'ungraded';
@@ -29,24 +29,24 @@ function bandOfRank(rank: number): DifficultyBand {
   return 'hard';
 }
 
-/** T1–T2 / S0–S1 easy, T3–T4 / S2–S3 moderate, T5–T6 / S4+ hard. */
+/** T1–T2 easy, T3–T4 moderate, T5–T6 hard; every mtb route is 'mtb' —
+ *  activity, not grade, is what the map encodes for bikes (owner decision
+ *  2026-08-27). */
 export function loopBand(
   loop: Pick<Loop, 'activity' | 'sac_max' | 'mtb_scale'>,
 ): DifficultyBand {
-  if (loop.activity === 'mtb') {
-    if (loop.mtb_scale === null || loop.mtb_scale === undefined) return 'ungraded';
-    const s = Number(loop.mtb_scale);
-    if (Number.isNaN(s)) return 'ungraded';
-    if (s <= 1) return 'easy';
-    if (s <= 3) return 'moderate';
-    return 'hard';
-  }
+  if (loop.activity === 'mtb') return 'mtb';
   const rank = loop.sac_max ? SAC_ORDER.indexOf(loop.sac_max) + 1 : 0;
   return bandOfRank(rank);
 }
 
-/** Trails carry a 1–4 difficulty_level rather than a SAC grade. */
-export function trailBand(level: number | null | undefined): DifficultyBand {
+/** Trails carry a 1–4 difficulty_level rather than a SAC grade; an mtb trail
+ *  is 'mtb' like every mtb loop ('mixed' stays level-banded). */
+export function trailBand(
+  level: number | null | undefined,
+  activity?: string | null,
+): DifficultyBand {
+  if (activity === 'mtb') return 'mtb';
   if (level == null) return 'ungraded';
   if (level <= 1) return 'easy';
   if (level <= 2) return 'moderate';
