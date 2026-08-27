@@ -1,6 +1,6 @@
 # Handoff — VaiVia
 
-Last updated 2026-08-21.
+Last updated 2026-08-27.
 
 The project was renamed from `get-out-door` to **VaiVia** on 2026-08-17. The
 GitHub remote is now `https://github.com/ai-safe-earth/VaiVia.git` and the local
@@ -62,7 +62,7 @@ before anything deploys. Everything else that remains is Phase 6 hardening
 | Query decomposition + composer | Complete | Model decomposes into atomic subqueries; Python composer merges tightest-wins, drops vacuous 0-bounds, clarifies with suggestions when under-specified; 17/17 live containment (adversarial 7/7 clarify) |
 | Semantic + filters in chat | Complete | New `semantic_search_trails_filtered` template (vector pool → NULL-idiom filters); degrades to structured search with `semantic_unavailable` while the index is cold |
 | Trailforks links | Complete | `trailforks_url` stored at ingestion (from `alias`/explicit URL, never guessed), returned by all trail templates, linked on TrailCard and cited by the answer prompt |
-| Golden dataset eval | Complete | `fixtures/golden_questions.json` (24 questions incl. Bergamo + season-hazard cases) + `scripts/eval_golden.py`; live: decomposition 24/24, retrieval 16/21 ranked-first (misses: no bathing_water POI in either bbox; model over-constraining ambiguous phrasings) |
+| Golden dataset eval | Complete, three-stage | `fixtures/golden_questions.json` (50 entries incl. Italian and multiturn) + `scripts/eval_golden.py` (`--graph` retrieval incl. `expect_loops` id pins, `--answers` raw-answer code checks); scores per run in `backend/eval_runs.jsonl` (latest: decomposition 50/50, retrieval 18/20, answers 42/44) |
 | NEAR_POI proximity edges | Complete, live-verified | `(:Trail)-[:NEAR_POI {distance_m}]->(:POI)` at ingestion (500 m); fixture walks now anchor near a lake/hut, so lake and hut filters return the right trail live |
 | POI full-text lookup | Complete, live-verified | `poi_name_fulltext` Lucene index; route resolution queries it first with escaped input (`core/text.py`), CONTAINS as fallback |
 | Richer embedding input | Complete | Input now adds activity/difficulty, seasons, and POIs along the way; sha-gated job re-embedded only changed trails |
@@ -1875,13 +1875,45 @@ were among the eight deleted, which is the right thing to do with a merged
 branch -- but it was luck rather than judgement, and the lesson is to fetch
 before reasoning about what a remote branch contains.
 
+## Session 2026-08-27 — eval hardening, and the docs that explain it
+
+Branch `feat/eval-hardening` (stacked on the unmerged `feat/chat-standing-plan`; the PR
+stack onto `develop` is still to open). Four commits.
+
+The eval audit's surviving findings were implemented. The answer stage — the prose
+carrying the never-invent / never-link / never-name-trailforks rules — is now measured:
+`eval_golden --answers` captures the RAW model stream before `strip_links_stream`
+(production repairs what the eval measures) and runs code checks only, reusing
+`sanitize.find_link`. The dataset grew 34 → 50: `check_intents_live`'s golden half moved
+in (that script is now only the 7/7 adversarial gate), eight Italian/mixed entries added
+(all pass decomposition first try), and `expect_loops` pins catalogue routes by
+geometry-stable `vv2-` id — only g30 is pinnable: the catalogue has no ≤15 km hike loop
+near Lecco, and Bergamo's catalogue is not in Neo4j. Every run appends a score line to
+`backend/eval_runs.jsonl` (committed), which is now the source this handoff cites.
+
+Measuring paid immediately. First run 34/44: the prompt demanded every loop be named
+AND brevity — contradictory, so the rule was relaxed (best one or two by name, cards
+carry the rest), prompt and checker in one commit; re-run 42/44 with the two residuals
+genuinely naming no loop. Counting live shapes also showed 167 of 627 loaded routes carry
+`out_and_back`, a shape the answer prompt never described (factory added it 2026-08-25);
+the prompt now explains it.
+
+An `explain-doc` skill (uploaded by the owner) was installed project-local
+(`.claude/skills/explain-doc/`) and applied twice: `docs/explain/eval-pipeline.html`
+(the harness, its decisions, the feedback loop) and `docs/explain/plan-state.html`
+(the one-look system picture, the three load-bearing invariants, phase status).
+Discovered while writing them, now in nextSteps: live Neo4j holds 627 routes against the
+P4 catalogue's 1,371 (the 751 mapped routes are not loaded); `queries.cypher:540` points
+at `chat/narrowing.py` which does not exist; `docs/plan.md`'s Context still tells the
+Trailforks story and its LLM-boundary section cites a pre-rename path.
+
 <!-- pmctl:handoff v1 -->
 ```json
 {
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-23",
+  "updated": "2026-08-27",
   "deadline": null,
   "people": [
     "oscar"
@@ -2153,7 +2185,7 @@ before reasoning about what a remote branch contains.
         },
         {
           "date": "2026-08-16",
-          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) \u2014 never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
+          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) — never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
         },
         {
           "date": "2026-08-16",
@@ -2161,7 +2193,7 @@ before reasoning about what a remote branch contains.
         },
         {
           "date": "2026-08-16",
-          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node \u2014 the lake's node sits ~400 m off its own shoreline path"
+          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node — the lake's node sits ~400 m off its own shoreline path"
         },
         {
           "date": "2026-08-16",
@@ -2478,6 +2510,26 @@ before reasoning about what a remote branch contains.
         {
           "date": "2026-08-21",
           "text": "One filter block by construction: query_loader gains fragment/include so search_loops and estimate_loops cannot drift - a count can never disagree with the search it counts (byte-identical, tested)"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "Eval scores live in a committed backend/eval_runs.jsonl appended by every eval_golden run; the handoff cites it instead of carrying numbers"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "Answer-stage eval grades the RAW model stream before strip_links_stream and uses code checks only; a faithfulness judge is deferred until error analysis exists, error analysis deferred to launch"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "The answer prompt's loop rule relaxed: present the best one or two loops by name and let the cards carry the rest; prompt and checker change in the same commit so the score line brackets one semantic change"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "expect_loops pins catalogue routes by geometry-stable vv2 id, never by name, because name_routes rewrites names every run"
+        },
+        {
+          "date": "2026-08-27",
+          "text": "check_intents_live is only the adversarial containment gate; its golden half lives in golden_questions.json so there is one checker and one dataset"
         }
       ]
     }
@@ -2865,6 +2917,41 @@ before reasoning about what a remote branch contains.
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
+    },
+    {
+      "title": "Reload Neo4j from the P4 catalogue and add a count assertion to the audit: live graph holds 627 generated routes while the catalogue holds 1,371 - the 751 mapped routes cannot be offered to chat users",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Wire or retire estimate_loops: queries.cypher:540 documents chat/narrowing.py as its consumer and that file does not exist",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Generate short hike loops near Lecco (smaller target_m band): the catalogue has none under 18 km, so 'a short loop hike near Lecco' returns an empty block and golden g27/g49 cannot be pinned",
+      "est": 0.5,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Fix docs/plan.md stale framings: Context still motivates the two-source Trailforks graph, and the LLM-boundary section cites backend/app/intents/schema.py, a pre-rename path",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
+    },
+    {
+      "title": "Open the PR stack onto develop: feat/chat-standing-plan first, then feat/eval-hardening",
+      "est": 0.25,
+      "owner": "oscar",
+      "phase": "Phase 6 - Beta hardening",
+      "plan": "redesign"
     }
   ],
   "sessions": [
@@ -3067,6 +3154,13 @@ before reasoning about what a remote branch contains.
     {
       "date": "2026-08-23",
       "model": "opus-5",
+      "credits": null,
+      "person": "oscar",
+      "hours": null
+    },
+    {
+      "date": "2026-08-27",
+      "model": "fable-5",
       "credits": null,
       "person": "oscar",
       "hours": null
