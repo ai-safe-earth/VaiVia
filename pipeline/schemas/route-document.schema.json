@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-2.0.json",
+  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-2.1.json",
   "title": "VaiVia route document",
   "description": "The product: one route, as every reader consumes it. PostGIS holds the value; this is what is delivered. See docs/route-document.md for the reasoning behind each block. Readers outlive producers, so this is versioned and additive: a new field is a minor version, a removed or re-meaning field is a major one.",
   "type": "object",
@@ -18,6 +18,7 @@
     "continuity",
     "direction",
     "reverse_of",
+    "recommended",
     "terminals",
     "categories",
     "divergence",
@@ -590,6 +591,13 @@
         "null"
       ],
       "description": "The sibling direction's id, carried from day one so the :rev documents land as pure additions; null for undirected shapes."
+    },
+    "recommended": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Of a direction pair, whether THIS direction is the one to suggest: the steep side climbed, the gentle side descended (owner rule 2026-08-27, decided by the profile's mean climbing gradient in each direction). Null when the route is undirected, has no emitted sibling, or has no profile to judge from. Schema 2.1."
     },
     "categories": {
       "type": "object",

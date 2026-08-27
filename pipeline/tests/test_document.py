@@ -113,11 +113,23 @@ def test_warnings_say_what_a_reader_needs_before_trusting_the_document():
         pieces=3, edges_without_profile=2, matched_fraction=0.05, places=0
     )
 
-    assert len(warnings) == 4
-    assert any("3 disconnected pieces" in w for w in warnings)
+    assert len(warnings) == 3
     assert any("no altitude profile" in w for w in warnings)
     assert any("fragment" in w for w in warnings)
     assert any("no named place" in w for w in warnings)
+
+
+def test_being_in_pieces_alone_is_described_not_warned():
+    # Owner rule 2026-08-27: the multi-piece matched floor holds clipped
+    # fragments back entirely, so an EMITTED multi-piece document is one the
+    # policy chose to offer — continuity carries pieces and reason, and the
+    # chat gate (warnings = 0) must not re-hide what the floor ratified.
+    assert (
+        quality_warnings(
+            pieces=3, edges_without_profile=0, matched_fraction=0.95, places=2
+        )
+        == []
+    )
 
 
 def test_a_clean_route_carries_no_warnings():

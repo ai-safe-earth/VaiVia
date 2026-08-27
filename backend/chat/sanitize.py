@@ -47,6 +47,20 @@ _RUN_OF_SPACES = re.compile(r"[ \t]{2,}")
 _SPACE_BEFORE_PUNCT = re.compile(r"[ \t]+([,.;:!?])")
 
 
+def find_link(text: str) -> str | None:
+    """The first link-shaped thing in ``text``, or None.
+
+    Detection half of :func:`unlink`, for callers that must report rather than
+    repair — the eval checks the RAW answer with this, because production has
+    already stripped what the model tried to link (scripts/eval_golden.py).
+    """
+    for pattern in (_MARKDOWN_LINK, _BARE_URL, _BARE_DOMAIN):
+        match = pattern.search(text)
+        if match:
+            return match.group(0)
+    return None
+
+
 def unlink(text: str) -> str:
     """Remove every link from ``text``, keeping the words around it readable."""
     text = _MARKDOWN_LINK.sub(r"\1", text)

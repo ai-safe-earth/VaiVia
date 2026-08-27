@@ -215,7 +215,10 @@ def test_a_route_in_pieces_validates_and_says_so(validator):
     validator.validate(doc)
 
     assert doc["continuity"]["continuous"] is False
-    assert any("disconnected pieces" in w for w in doc["quality"]["warnings"])
+    # Pieces are DESCRIBED (continuity), not warned (owner rule 2026-08-27):
+    # the multi-piece floor already held the clipped fragments back, and the
+    # chat gate must not re-hide what the floor ratified.
+    assert not any("disconnected pieces" in w for w in doc["quality"]["warnings"])
 
 
 def test_attribution_is_required_by_the_contract_not_merely_supplied(validator):
