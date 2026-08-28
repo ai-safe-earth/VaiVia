@@ -3,7 +3,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { focusedRouteId, noteOf } from '@/lib/mapTurn';
 
@@ -47,32 +47,7 @@ const STYLE: maplibregl.StyleSpecification = {
       tileSize: 256,
       attribution: OSM_ATTRIBUTION,
     },
-    opentopo: {
-      type: 'raster',
-      tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      // OpenTopoMap serves nothing past z17; without this cap MapLibre
-      // requests native z18+ tiles, gets 404s, and the basemap goes blank
-      // exactly where someone zooms in on a trailhead. Capped, it overscales.
-      maxzoom: 17,
-      attribution:
-        '© OpenStreetMap contributors, SRTM | style © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
-    },
-    satellite: {
-      type: 'raster',
-      // Esri tiles are {z}/{y}/{x}, not {z}/{x}/{y}.
-      tiles: [
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      ],
-      tileSize: 256,
-      attribution:
-        'Imagery © Esri — Esri, Maxar, Earthstar Geographics, GIS User Community',
-    },
   },
-  // All three basemaps live in the style from construction and a switch only
-  // flips visibility — map.setStyle would destroy the selection source and
-  // its layers, which are added at runtime. Desaturation is the default
-  // basemap's; terrain and satellite are shown as themselves.
   layers: [
     {
       id: 'osm',
@@ -84,28 +59,8 @@ const STYLE: maplibregl.StyleSpecification = {
         'raster-contrast': 0.15,
       },
     },
-    {
-      id: 'opentopo',
-      type: 'raster',
-      source: 'opentopo',
-      layout: { visibility: 'none' },
-    },
-    {
-      id: 'satellite',
-      type: 'raster',
-      source: 'satellite',
-      layout: { visibility: 'none' },
-    },
   ],
 };
-
-const BASEMAPS = [
-  { id: 'osm', label: 'Map' },
-  { id: 'opentopo', label: 'Terrain' },
-  { id: 'satellite', label: 'Satellite' },
-] as const;
-
-type BasemapId = (typeof BASEMAPS)[number]['id'];
 
 interface Props {
   geometry: GeoJSON.Feature | GeoJSON.FeatureCollection | GeoJSON.Geometry | null;
@@ -114,30 +69,6 @@ interface Props {
 export function MapView({ geometry }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
-  const [basemap, setBasemap] = useState<BasemapId>('osm');
-
-  const switchBasemap = (id: BasemapId) => {
-    const instance = map.current;
-    if (!instance) return;
-    try {
-      for (const layer of BASEMAPS) {
-        instance.setLayoutProperty(
-          layer.id,
-          'visibility',
-          layer.id === id ? 'visible' : 'none',
-        );
-      }
-    } catch {
-      // The style loads one frame after mount and setLayoutProperty throws
-      // until then. Nothing switched, so the state must not claim it did —
-      // the active button would lie. A later click simply works. (Not
-      // isStyleLoaded(): that also waits for tiles, and would dead-click
-      // the switcher during ordinary tile streaming.)
-      return;
-    }
-    setBasemap(id);
-  };
-
   useEffect(() => {
     if (!container.current || map.current) return;
     map.current = new maplibregl.Map({
@@ -174,17 +105,7 @@ export function MapView({ geometry }: Props) {
       if (source) {
         source.setData(data);
       } else {
-        // The attribution rides the SELECTION source, not only the osm tile
-        // source: every line we draw is OSM-derived (ODbL), and switching to
-        // Satellite hides the osm layer — an unused source's credit vanishes
-        // from the attribution control. This keeps the OSM credit on screen
-        // whenever a route is drawn, whatever the basemap. (Identical
-        // strings are deduplicated, so the default basemap shows one.)
-        instance.addSource('selection', {
-          type: 'geojson',
-          data,
-          attribution: OSM_ATTRIBUTION,
-        });
+        instance.addSource('selection', { type: 'geojson', data });
         // Styling is data-driven on `properties.selected` so several routes can
         // be shown at once with one of them picked out. A feature without that
         // property — a trail, or a single route — reads as unselected, and the
@@ -257,18 +178,6 @@ export function MapView({ geometry }: Props) {
       data-selected-route={focusedRouteId(geometry) ?? undefined}
     >
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
-      <nav className="basemap" aria-label="Basemap">
-        {BASEMAPS.map((layer) => (
-          <button
-            key={layer.id}
-            type="button"
-            className={basemap === layer.id ? 'vv-label active' : 'vv-label'}
-            onClick={() => switchBasemap(layer.id)}
-          >
-            {layer.label}
-          </button>
-        ))}
-      </nav>
       {note && <div className="map-note vv-body-sm">{note}</div>}
     </div>
   );
