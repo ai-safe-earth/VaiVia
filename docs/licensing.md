@@ -198,10 +198,10 @@ a test pins that no ingested row may carry a url at all. `alias` stays in the
 fixture unused, because a synthetic record is allowed to look like the real
 shape — it just may not become a link.
 
-**Closed 2026-08-28 — third-party basemaps withdrawn the day after they landed.**
+**Closed 2026-08-28 — third-party basemaps withdrawn the day they landed.**
 A Terrain basemap (tile.opentopomap.org) and a Satellite basemap (Esri
-World_Imagery via server.arcgisonline.com) were added on 2026-08-27 without an
-entry here. Neither had reviewed terms: OpenTopoMap is a volunteer-run CC-BY-SA
+World_Imagery via server.arcgisonline.com) were added earlier the same day
+without an entry here. Neither had reviewed terms: OpenTopoMap is a volunteer-run CC-BY-SA
 server whose policy discourages production load, and Esri routes production
 basemap use through an API key. The owner withdrew both on 2026-08-28 (they also
 made the near-black mtb route lines unreadable); the OSM raster basemap is again
