@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { sendFeedback } from '@/lib/api';
 
@@ -22,13 +22,32 @@ export function Feedback({ messageId, conversationId }: Props) {
   const [vote, setVote] = useState<1 | -1 | null>(null);
   const [askWhy, setAskWhy] = useState(false);
   const [comment, setComment] = useState('');
+  const [expected, setExpected] = useState('');
   const [sent, setSent] = useState(false);
+
+  // The why-form's submit chains on the last cast, so the bare vote POST and
+  // the texted one can never commit out of order (a delayed bare downvote
+  // landing last would null the texts the user just sent).
+  const pending = useRef<Promise<unknown> | null>(null);
 
   const cast = (next: 1 | -1) => {
     setVote(next);
     setAskWhy(next === -1);
     setSent(false);
-    void sendFeedback(messageId, conversationId, next).catch(() => undefined);
+    // A downvote carries whatever is typed (or already sent), so re-tapping
+    // the thumb never wipes the stored answer; a flip to +1 still clears —
+    // the documented upsert semantics (the comment was about the old vote).
+    pending.current = (
+      next === -1
+        ? sendFeedback(
+            messageId,
+            conversationId,
+            -1,
+            comment.trim() || undefined,
+            expected.trim() || undefined,
+          )
+        : sendFeedback(messageId, conversationId, next)
+    ).catch(() => undefined);
   };
 
   return (
@@ -60,9 +79,17 @@ export function Feedback({ messageId, conversationId }: Props) {
           className="feedback-why"
           onSubmit={(event) => {
             event.preventDefault();
-            void sendFeedback(messageId, conversationId, -1, comment).catch(
-              () => undefined,
-            );
+            void (pending.current ?? Promise.resolve())
+              .then(() =>
+                sendFeedback(
+                  messageId,
+                  conversationId,
+                  -1,
+                  comment.trim() || undefined,
+                  expected.trim() || undefined,
+                ),
+              )
+              .catch(() => undefined);
             setAskWhy(false);
             setSent(true);
           }}
@@ -71,11 +98,19 @@ export function Feedback({ messageId, conversationId }: Props) {
             type="text"
             value={comment}
             maxLength={2000}
-            placeholder="What could be improved?"
-            aria-label="What could be improved?"
+            placeholder="What's wrong?"
+            aria-label="What's wrong?"
             onChange={(event) => setComment(event.target.value)}
           />
-          <button type="submit" disabled={!comment.trim()}>
+          <input
+            type="text"
+            value={expected}
+            maxLength={2000}
+            placeholder="How should it be instead?"
+            aria-label="How should it be instead?"
+            onChange={(event) => setExpected(event.target.value)}
+          />
+          <button type="submit" disabled={!comment.trim() && !expected.trim()}>
             Send
           </button>
         </form>

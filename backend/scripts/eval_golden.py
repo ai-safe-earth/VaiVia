@@ -44,6 +44,7 @@ import asyncio
 import datetime
 import json
 import logging
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -114,16 +115,21 @@ def check_answer(answer: str, view: dict[str, Any]) -> list[str]:
         problems.append("names trailforks")
     if any(line.lstrip().startswith("#") for line in answer.splitlines()):
         problems.append("markdown header in answer")
-    # The prompt asks for the best one or two loops by name, not all of them
-    # (relaxed 2026-08-27: demanding every name made the model choose between
-    # coverage and brevity). Case-insensitive: a destination route is named
-    # "To Monte X" and the prompt itself says to write "out and back to
-    # Monte X". Whether a mentioned name is EXACTLY as given is judge
-    # territory; this checks that loops were presented by name at all.
-    lowered = answer.lower()
-    names = {loop["name"] for loop in view.get("loops") or [] if loop.get("name")}
-    if names and not any(name.lower() in lowered for name in names):
-        problems.append(f"no loop named; the view offered {sorted(names)}")
+    # The count rule (owner decision 2026-08-27): the reply is a count-first
+    # sentence, so when the view carries a total the answer must state it as
+    # digits — a count the cards contradict is worse than none. The prompt
+    # demands BOTH totals when both are present, so both are checked.
+    # Digit-bounded, not a substring: total 5 must not pass on "15 routes" or
+    # "12.5 km"; commas are stripped first so "1,035" still states 1035.
+    # Zero is exempt: the empty-block rule asks for "nothing matched" prose,
+    # and demanding the digit 0 would punish the answer the prompt requires.
+    # (Residual leniency: when both totals are the same number, one mention
+    # satisfies both — indistinguishable without parsing the sentence.)
+    plain = answer.replace(",", "")
+    for field in ("total_loops", "total_trails"):
+        total = view.get(field)
+        if total and not re.search(rf"(?<!\d)(?<!\d\.){total}(?!\.?\d)", plain):
+            problems.append(f"count missing: answer must state {total} ({field})")
     return problems
 
 

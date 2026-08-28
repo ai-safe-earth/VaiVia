@@ -69,7 +69,6 @@ interface Props {
 export function MapView({ geometry }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
-
   useEffect(() => {
     if (!container.current || map.current) return;
     map.current = new maplibregl.Map({
@@ -133,23 +132,15 @@ export function MapView({ geometry }: Props) {
           token('--vv-flare', '#FF6B3D'),
           'ungraded',
           token('--vv-muted', '#A7ADA6'),
+          // All mtb routes wear the palette's near-black (owner decision
+          // 2026-08-27); the ramp above is hike-only.
+          'mtb',
+          token('--vv-ground', '#0D0F0E'),
           token('--vv-lime', '#CCFF3B'),
         ];
-        // The picked route wears a light casing under a wider, full-opacity
-        // line; its siblings dim. Width alone was not perceptible once the
-        // lines stopped sharing one colour. Both layers are created once and
-        // restyle through setData — the expressions are all data-driven.
-        instance.addLayer({
-          id: 'selection-casing',
-          type: 'line',
-          source: 'selection',
-          paint: {
-            'line-color': token('--vv-text', '#F2F3F0'),
-            'line-width': ['case', selected, 7, 0],
-            'line-opacity': ['case', selected, 1, 0],
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-        });
+        // The picked route is wider and full-opacity; its siblings dim. No
+        // casing (owner decision 2026-08-27). The layer is created once and
+        // restyles through setData — the expressions are all data-driven.
         instance.addLayer({
           id: 'selection-line',
           type: 'line',

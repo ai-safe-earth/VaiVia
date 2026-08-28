@@ -193,7 +193,7 @@ async def test_loops_execute_against_the_catalogue(db):
         [{"id": "th1:15000:0", "distance_m": 15300.0, "score": 0.9}],
     )
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
-    rows, near_resolved = await orchestrator._loops(  # noqa: SLF001 — real path
+    rows, near_resolved, _total = await orchestrator._loops(  # noqa: SLF001 — real path
         LoopSearchIntent(max_distance_m=16000, poi_types=["peak"])
     )
     assert [r["id"] for r in rows] == ["th1:15000:0"]
@@ -434,7 +434,7 @@ async def test_an_unresolvable_place_is_reported_not_ignored(db):
     db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
 
-    rows, near_resolved = await orchestrator._loops(  # noqa: SLF001
+    rows, near_resolved, _total = await orchestrator._loops(  # noqa: SLF001
         LoopSearchIntent(near="Atlantis")
     )
     assert near_resolved is False
@@ -536,3 +536,34 @@ async def test_the_factory_params_are_supplied_and_deliberately_unmapped(db):
     assert params["regions"] is None
     assert params["start_classes"] is None
     assert params["max_urban_share"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_true_total_rides_the_results_event(db) -> None:
+    """estimate_loops's count reaches results as total_loops — the number the
+    answer states. The estimate runs only when the page filled (a short page
+    is its own population), and an empty estimate leaves total_loops unset."""
+    from chat.composer import ComposedPlan
+    from chat.intents import LoopSearchIntent
+    from chat.orchestrator import CARD_RESULT_LIMIT, ChatOrchestrator
+
+    full_page = [
+        {"id": f"th1:{i}:0", "distance_m": 15300.0} for i in range(CARD_RESULT_LIMIT)
+    ]
+    db.when("search_loops", full_page)
+    db.when("estimate_loops", [{"total": 37, "rows": []}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    plan = ComposedPlan(loop=LoopSearchIntent(max_distance_m=16000))
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["total_loops"] == 37
+
+    db.when("estimate_loops", [])
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert "total_loops" not in results
+
+    # A short page needs no estimate: the total is the page itself.
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["total_loops"] == 1
+    estimate_calls = [name for name, _ in db.calls if name == "estimate_loops"]
+    assert len(estimate_calls) == 2  # the two full-page turns above, only

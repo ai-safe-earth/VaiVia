@@ -2,7 +2,7 @@
 /** The user half of the eval loop: thumbs render only on stored assistant
  *  turns, a vote posts on click, and a downvote asks what could be improved. */
 
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatPanel } from '@/components/ChatPanel';
@@ -52,19 +52,35 @@ describe('Feedback', () => {
     expect(container.querySelectorAll('.feedback')).toHaveLength(1);
   });
 
-  it('posts a vote on click and asks why on a downvote', () => {
+  it('posts a vote on click and asks both questions on a downvote', async () => {
     const { getByLabelText } = mount();
     fireEvent.click(getByLabelText('Bad answer'));
-    expect(api.sendFeedback).toHaveBeenCalledWith('m1', 'conv-1', -1);
-
-    const why = getByLabelText('What could be improved?');
-    fireEvent.change(why, { target: { value: 'wrong lake' } });
-    fireEvent.submit(why.closest('form')!);
-    expect(api.sendFeedback).toHaveBeenLastCalledWith(
+    // The bare downvote carries the (still empty) texts, so a later re-tap
+    // can never null what the form stored.
+    expect(api.sendFeedback).toHaveBeenCalledWith(
       'm1',
       'conv-1',
       -1,
-      'wrong lake',
+      undefined,
+      undefined,
+    );
+
+    const wrong = getByLabelText("What's wrong?");
+    fireEvent.change(wrong, { target: { value: 'wrong lake' } });
+    fireEvent.change(getByLabelText('How should it be instead?'), {
+      target: { value: 'the one by Lecco' },
+    });
+    fireEvent.submit(wrong.closest('form')!);
+    // The submit chains behind the vote POST (ordering fix), so it lands a
+    // microtask later.
+    await waitFor(() =>
+      expect(api.sendFeedback).toHaveBeenLastCalledWith(
+        'm1',
+        'conv-1',
+        -1,
+        'wrong lake',
+        'the one by Lecco',
+      ),
     );
   });
 
@@ -72,6 +88,6 @@ describe('Feedback', () => {
     const { getByLabelText, queryByLabelText } = mount();
     fireEvent.click(getByLabelText('Good answer'));
     expect(api.sendFeedback).toHaveBeenCalledWith('m1', 'conv-1', 1);
-    expect(queryByLabelText('What could be improved?')).toBeNull();
+    expect(queryByLabelText("What's wrong?")).toBeNull();
   });
 });

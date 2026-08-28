@@ -50,9 +50,9 @@ export default function Home() {
   const [resumed, setResumed] = useState<
     { id: string | null; messages: ChatMessage[] } | undefined
   >(undefined);
-  // Bumped by the header's New chat button. Part of the panel key, so a fresh
-  // chat is an explicit remount — the key must never change from an SSE event
-  // (that was the mid-stream remount bug).
+  // Bumped by the composer's Clear chat button. Part of the panel key, so a
+  // fresh chat is an explicit remount — the key must never change from an SSE
+  // event (that was the mid-stream remount bug).
   const [epoch, setEpoch] = useState(0);
 
   // Who is signed in NOW, readable from a continuation that started under
@@ -129,10 +129,6 @@ export default function Home() {
       <div className="chat-column">
         <AppHeader
           email={user?.email}
-          onNewChat={() => {
-            setShowFavorites(false);
-            setEpoch((current) => current + 1);
-          }}
           onSignOut={user ? () => void signOut() : undefined}
           onFavorites={user ? () => setShowFavorites((open) => !open) : undefined}
           favoritesOpen={showFavorites}
@@ -159,6 +155,13 @@ export default function Home() {
             onDetail={setRouteDetail}
             initialConversationId={epoch > 0 ? null : (resumed?.id ?? null)}
             initialMessages={epoch > 0 ? [] : (resumed?.messages ?? [])}
+            onClear={() => {
+              // The drawn route and its profile belong to the conversation
+              // being discarded — a cleared chat clears its map.
+              setGeometry(null);
+              setRouteDetail(null);
+              setEpoch((current) => current + 1);
+            }}
             favorites={user ? favoriteIds : undefined}
             onToggleFavorite={user ? toggleFavorite : undefined}
           />

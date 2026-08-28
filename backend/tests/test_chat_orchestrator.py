@@ -394,6 +394,8 @@ async def test_injection_that_produces_a_search_still_only_reads(db):
     # The region also poses the ask to the route catalogue (as a start-place
     # name to resolve), so more read-only templates run -- and ONLY read-only
     # templates, with the payload always a bound parameter, never query text.
+    # No estimate_loops here: the unstubbed search returns an empty page, and
+    # a short page is its own total (see _loops).
     assert [name for name, _ in db.calls] == [
         "search_trails",
         "poi_by_name_fulltext",

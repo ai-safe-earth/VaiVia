@@ -26,7 +26,8 @@ Two consequences that drive every decision below:
 
 ## 2. Colour
 
-    --vv-ground   #0D0F0E   page background, pin cores, text on lime
+    --vv-ground   #0D0F0E   page background, pin cores, text on lime; also the
+                            map's mtb route line (data encoding, 2026-08-27)
     --vv-panel    #1A1E1B   inset panels, quoted user message, hairline steps
     --vv-line     #2A2E2B   structural hairlines (1px)
     --vv-line-2   #1A1E1B   internal/secondary hairlines (1px)
@@ -55,7 +56,9 @@ a 1px border; flare darkens to #C4451F for text.
 - Two accents only. Do not add a third for any reason. Amendment
   2026-08-27: --vv-amber is a data-encoding colour for the map's moderate
   difficulty band (lime = easy, amber = moderate, flare = hard, muted =
-  ungraded), not an accent — never a button, label or action colour.
+  ungraded), not an accent — never a button, label or action colour. The four
+  bands are hike-only: every mtb route wears --vv-ground (near-black) on the
+  map, encoding activity rather than grade.
 
 ---
 

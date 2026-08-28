@@ -156,6 +156,12 @@ export interface ChatResults {
   /** Circular routes selected from the catalogue. Render on presence, not
    *  on `kind`: a loops+theme turn is still labelled trail_search. */
   loops?: Loop[];
+  /** True population behind the capped loops page ("I found N routes"),
+   *  from estimate_loops. Absent when the estimate returned nothing. */
+  total_loops?: number;
+  /** Trails counterpart — today the page length, not an estimate (the trail
+   *  graph is small); see orchestrator._execute. */
+  total_trails?: number;
   /** Every route in the plan; `route`/`geometry` mirror the first resolved one. */
   routes?: RouteBlock[];
   route?: RouteResult | null;

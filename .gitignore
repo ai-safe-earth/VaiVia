@@ -85,3 +85,6 @@ Oscar_continua_desde_aqui.md
 # seed the neo4j_plugins volume without reaching graphdatascience.ninja.
 # See CONTRIBUTING "Neo4j plugins" and docs/fragilities.md #16.
 infra/neo4j/plugins/
+
+# Browser-automation debris (playwright MCP)
+.playwright-mcp/

@@ -103,25 +103,6 @@ body {
   color: var(--vv-lime);
 }
 
-/* New chat: a quiet secondary beside the wordmark — the one lime block in
-   the chrome stays reserved for the account action. */
-.header-new {
-  flex: none;
-  margin-left: var(--vv-s9);
-  padding: 7px var(--vv-s3);
-  border: 1px solid var(--vv-line);
-  background: transparent;
-  color: var(--vv-text);
-  font: 400 9.5px/1 var(--vv-sans);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.header-new:hover {
-  border-color: var(--vv-lime);
-}
-
 .app-header .spacer {
   flex: 1;
 }
@@ -184,7 +165,12 @@ body {
 
 .turn-user {
   background: var(--vv-panel);
-  padding: var(--vv-s5) var(--vv-s7);
+  /* An inset, framed block (owner decision 2026-08-27): the quoted ask must
+     read apart from the answer at a glance, not only by the panel tint. The
+     shorthand border replaces .turn's border-bottom — no doubled hairline. */
+  border: 1px solid var(--vv-line);
+  margin: var(--vv-s3) var(--vv-s4);
+  padding: var(--vv-s3) var(--vv-s4);
 }
 
 .turn-assistant {
@@ -287,6 +273,20 @@ body {
   cursor: pointer;
 }
 
+/* Compact type inside cards (owner decision 2026-08-27): the token scale
+   stays app-wide; cards alone step down so five results read at a glance. */
+.route-card .vv-title {
+  font-size: 18px;
+}
+
+.route-card .vv-figure {
+  font-size: 16px;
+}
+
+.route-card .vv-subtitle {
+  font-size: 13px;
+}
+
 .route-card:hover .route-name {
   color: var(--vv-lime);
 }
@@ -302,12 +302,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--vv-s7) var(--vv-s7) 0;
+  padding: var(--vv-s4) var(--vv-s5) 0;
 }
 
 .route-kind {
   display: block;
-  padding: var(--vv-s7) var(--vv-s7) 0;
+  padding: var(--vv-s4) var(--vv-s5) 0;
 }
 
 .route-kind-row .route-kind {
@@ -338,14 +338,14 @@ body {
 
 .route-name {
   margin: 0;
-  padding: var(--vv-s7) var(--vv-s7) 0;
+  padding: var(--vv-s4) var(--vv-s5) 0;
 }
 
 .figures {
   display: flex;
   align-items: flex-end;
   gap: var(--vv-s4);
-  padding: var(--vv-s4) var(--vv-s7);
+  padding: var(--vv-s3) var(--vv-s5);
 }
 
 .figure {
@@ -362,28 +362,6 @@ body {
   margin-top: var(--vv-s1);
 }
 
-/* SAC T1–T6 as 8px rotated squares. Filled to the route's grade, hollow
-   beyond it — there is no user-stated limit in the payload, so nothing here
-   is ever flare. */
-.sac {
-  display: flex;
-  gap: 5px;
-  height: 25px;
-  align-items: center;
-}
-
-.sac i {
-  width: 8px;
-  height: 8px;
-  transform: rotate(45deg);
-  border: 1px solid var(--vv-muted);
-}
-
-.sac i.on {
-  background: var(--vv-lime);
-  border-color: var(--vv-lime);
-}
-
 .key-facts {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -391,7 +369,7 @@ body {
 }
 
 .key-facts > div {
-  padding: var(--vv-s3) var(--vv-s7);
+  padding: var(--vv-s3) var(--vv-s5);
   min-width: 0;
 }
 
@@ -709,13 +687,16 @@ body {
 
 .feedback-why {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: var(--vv-s2);
   margin-top: var(--vv-s3);
 }
 
 .feedback-why input {
-  flex: 1;
-  min-width: 0;
+  /* stretch, not flex: the container went column, so width comes from the
+     cross axis (the row-era flex: 1 / min-width: 0 pair is gone with it). */
+  align-self: stretch;
   padding: var(--vv-s1) var(--vv-s3);
   border: 1px solid var(--vv-line);
   background: transparent;
@@ -798,6 +779,29 @@ body {
 
 .composer input:focus-visible {
   outline-offset: -2px;
+}
+
+/* Clear chat: the quiet neighbour of Ask — resets the conversation via the
+   page's remount epoch. Muted until hovered; never the lime block. Type and
+   resting colour come from .vv-label on the button. */
+.composer .clear {
+  flex: none;
+  padding: 0 var(--vv-s4);
+  border: 0;
+  border-left: 1px solid var(--vv-line);
+  background: transparent;
+  cursor: pointer;
+}
+
+.composer .clear:hover {
+  color: var(--vv-lime);
+}
+
+/* Disabled while an answer streams (a mid-stream clear would orphan the
+   stream); after :hover so it wins the tie and the lime never shows. */
+.composer .clear:disabled {
+  color: var(--vv-muted);
+  cursor: not-allowed;
 }
 
 .composer .ask {

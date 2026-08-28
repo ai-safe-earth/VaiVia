@@ -337,32 +337,36 @@ class ChatOrchestrator:
         if trail_result is not None:
             trails, semantic_unavailable = trail_result
             results["trails"] = trails
+            # No estimate template for trails: the shown length is the count
+            # (the trail graph is small and the page rarely fills its cap).
+            results["total_trails"] = len(trails)
             if semantic_unavailable:
                 results["semantic_unavailable"] = True
             refs["trail_ids"] = [r["id"] for r in trails]
 
         if loop_result is not None:
-            loops, near_resolved = loop_result
-            if implicit_loops:
+            loops, near_resolved, total_loops = loop_result
+            if not near_resolved:
                 # A region we cannot place is a constraint the catalogue cannot
                 # honour, which is exactly when catalogue_view declines to pose
                 # the ask — it just cannot know that until resolution has run.
-                # And an implicit block that came back empty is omitted rather
-                # than making the answer apologise for a list nobody asked for.
-                if near_resolved and loops:
-                    results["loops"] = loops
-                    refs["loop_ids"] = [r["id"] for r in loops]
-            elif not near_resolved:
-                # Asked for explicitly, so silence would be the wrong answer:
-                # name the place we could not find rather than presenting
-                # routes from anywhere as routes from there — the rule the
-                # routing path already applies with unknown_place.
-                results["loops"] = []
-                results["loops_unknown_place"] = loop_intent.near
-                refs["loop_ids"] = []
-            else:
+                # An implicit block stays silent about it; an explicit ask must
+                # not: silence would be the wrong answer, so name the place we
+                # could not find rather than presenting routes from anywhere as
+                # routes from there — the rule the routing path already applies
+                # with unknown_place.
+                if not implicit_loops:
+                    results["loops"] = []
+                    results["loops_unknown_place"] = loop_intent.near
+                    refs["loop_ids"] = []
+            elif loops or not implicit_loops:
+                # One publish site for both the implicit and the explicit turn.
+                # An implicit block that came back empty is omitted rather than
+                # making the answer apologise for a list nobody asked for.
                 results["loops"] = loops
                 refs["loop_ids"] = [r["id"] for r in loops]
+                if total_loops is not None:
+                    results["total_loops"] = total_loops
 
         if route_result is not None:
             routes, route_refs = route_result
@@ -382,8 +386,10 @@ class ChatOrchestrator:
 
         return results, refs
 
-    async def _loops(self, intent: Any) -> tuple[list[dict[str, Any]], bool]:
-        """Select from the precomputed catalogue; returns (rows, near_resolved).
+    async def _loops(
+        self, intent: Any
+    ) -> tuple[list[dict[str, Any]], bool, int | None]:
+        """Select from the catalogue; returns (rows, near_resolved, total).
 
         Everything costly ran offline in the pipeline's generator, so this is a
         filter over (:Route) ordered by the score computed there.
@@ -446,8 +452,7 @@ class ChatOrchestrator:
         # silently. The answer presents distance and climb, which are measured.
 
         settings = get_settings()
-        rows = await self._db.run_named(
-            "search_loops",
+        params: dict[str, Any] = dict(
             activities=activities,
             mtb_only=mtb_only,
             # Ceilings compare against sac_max — the EXIGENT grade, the hardest
@@ -474,9 +479,20 @@ class ChatOrchestrator:
             regions=None,
             start_classes=None,
             max_urban_share=None,
-            limit=CARD_RESULT_LIMIT,
         )
-        return rows, near_resolved
+        rows = await self._db.run_named(
+            "search_loops", **params, limit=CARD_RESULT_LIMIT
+        )
+        # The true population behind the capped page, for "I found N routes".
+        # A short page IS its population — estimate_loops shares search_loops'
+        # filter fragments byte-for-byte (pinned in test_query_loader), so the
+        # extra round-trip only adds information when LIMIT may have
+        # truncated. facet_cap=0: only the count is wanted.
+        total: int | None = len(rows)
+        if len(rows) >= CARD_RESULT_LIMIT:
+            est = await self._db.run_named("estimate_loops", **params, facet_cap=0)
+            total = est[0].get("total") if est else None
+        return rows, near_resolved, total
 
     async def _search(
         self, intent: TrailSearchIntent, theme: str | None
