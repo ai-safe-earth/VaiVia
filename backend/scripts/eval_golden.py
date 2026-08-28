@@ -44,6 +44,7 @@ import asyncio
 import datetime
 import json
 import logging
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -115,13 +116,20 @@ def check_answer(answer: str, view: dict[str, Any]) -> list[str]:
     if any(line.lstrip().startswith("#") for line in answer.splitlines()):
         problems.append("markdown header in answer")
     # The count rule (owner decision 2026-08-27): the reply is a count-first
-    # sentence, so when the view carries the true total the answer must state
-    # it as digits — a count the cards contradict is worse than none.
+    # sentence, so when the view carries a total the answer must state it as
+    # digits — a count the cards contradict is worse than none. The prompt
+    # demands BOTH totals when both are present, so both are checked.
+    # Digit-bounded, not a substring: total 5 must not pass on "15 routes" or
+    # "12.5 km"; commas are stripped first so "1,035" still states 1035.
     # Zero is exempt: the empty-block rule asks for "nothing matched" prose,
     # and demanding the digit 0 would punish the answer the prompt requires.
-    total = view.get("total_loops")
-    if total and str(total) not in answer:
-        problems.append(f"count missing: answer must state {total}")
+    # (Residual leniency: when both totals are the same number, one mention
+    # satisfies both — indistinguishable without parsing the sentence.)
+    plain = answer.replace(",", "")
+    for field in ("total_loops", "total_trails"):
+        total = view.get(field)
+        if total and not re.search(rf"(?<!\d)(?<!\d\.){total}(?!\.?\d)", plain):
+            problems.append(f"count missing: answer must state {total} ({field})")
     return problems
 
 

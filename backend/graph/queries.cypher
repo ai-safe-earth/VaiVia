@@ -551,7 +551,8 @@ LIMIT $limit
 // capped, the intermediate collect is not. Every matching route is held in
 // memory before the slice, so peak memory tracks the catalogue rather than
 // $facet_cap. That is fine at the catalogue's size (~1k routes, bounded by
-// the export, and this template has no caller yet) and it is the price of
+// the export; the one caller — chat/orchestrator.py _loops — runs it with
+// facet_cap=0, and only when search_loops filled its page) and is the price of
 // one pass over one stream -- an exact count and its sample cannot be taken
 // separately without two queries that can disagree. Revisit if the catalogue
 // grows by an order of magnitude.

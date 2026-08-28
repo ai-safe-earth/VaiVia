@@ -1,7 +1,7 @@
 """The answer-stage eval checks are themselves code, so they get checked.
 
 check_answer grades the RAW model answer against the code-checkable rules of
-ANSWER_SYSTEM_PROMPT (no links, no trailforks, no headers, named loops named).
+ANSWER_SYSTEM_PROMPT (no links, no trailforks, no headers, the totals stated).
 Production repairs links after the fact (sanitize.strip_links_stream); the
 eval measures whether the model obeyed BEFORE the repair — which is why these
 detectors must not false-positive on ordinary trail prose.
@@ -57,6 +57,27 @@ def test_the_stated_count_passes() -> None:
     view = {"total_loops": 12, "loops": [{"id": "vv2-abc", "name": "Anello"}]}
     answer = "I found 12 routes — add a distance to narrow them down."
     assert check_answer(answer, view) == []
+
+
+def test_a_count_hiding_inside_another_number_fails() -> None:
+    """Digit-bounded, not substring: total 5 is not stated by "15 routes" or
+    by a "12.5 km" distance — those were the false passes of the naive `in`."""
+    view = {"total_loops": 5, "loops": []}
+    assert check_answer("I found 15 routes for you.", view) != []
+    assert check_answer("A fine outing of 12.5 km.", view) != []
+
+
+def test_a_comma_grouped_count_still_passes() -> None:
+    view = {"total_loops": 1035, "loops": []}
+    assert check_answer("I found 1,035 routes — narrow them down.", view) == []
+
+
+def test_the_trails_total_is_checked_too() -> None:
+    """The prompt demands total_trails as digits exactly like total_loops."""
+    view = {"total_trails": 7, "trails": [{"id": "t1"}]}
+    problems = check_answer("I found some nice trails.", view)
+    assert any("count missing" in p for p in problems)
+    assert check_answer("I found 7 named trails.", view) == []
 
 
 def test_a_zero_total_needs_no_digit() -> None:

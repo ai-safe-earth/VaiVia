@@ -583,9 +583,16 @@ export function ChatPanel({
           disabled={busy}
         />
         {/* type="button" is load-bearing: a submit-typed button placed
-            before .ask would become the form's default submit. */}
+            before .ask would become the form's default submit. Disabled while
+            streaming: a mid-stream clear would remount the panel and orphan
+            the SSE loop, whose late results still paint the page's map. */}
         {onClear && (
-          <button type="button" className="clear" onClick={onClear}>
+          <button
+            type="button"
+            className="clear vv-label"
+            onClick={onClear}
+            disabled={busy}
+          >
             Clear chat
           </button>
         )}

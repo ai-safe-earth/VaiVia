@@ -51,6 +51,10 @@ const STYLE: maplibregl.StyleSpecification = {
       type: 'raster',
       tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
       tileSize: 256,
+      // OpenTopoMap serves nothing past z17; without this cap MapLibre
+      // requests native z18+ tiles, gets 404s, and the basemap goes blank
+      // exactly where someone zooms in on a trailhead. Capped, it overscales.
+      maxzoom: 17,
       attribution:
         '© OpenStreetMap contributors, SRTM | style © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
     },
@@ -113,16 +117,25 @@ export function MapView({ geometry }: Props) {
   const [basemap, setBasemap] = useState<BasemapId>('osm');
 
   const switchBasemap = (id: BasemapId) => {
-    setBasemap(id);
     const instance = map.current;
     if (!instance) return;
-    for (const layer of BASEMAPS) {
-      instance.setLayoutProperty(
-        layer.id,
-        'visibility',
-        layer.id === id ? 'visible' : 'none',
-      );
+    try {
+      for (const layer of BASEMAPS) {
+        instance.setLayoutProperty(
+          layer.id,
+          'visibility',
+          layer.id === id ? 'visible' : 'none',
+        );
+      }
+    } catch {
+      // The style loads one frame after mount and setLayoutProperty throws
+      // until then. Nothing switched, so the state must not claim it did —
+      // the active button would lie. A later click simply works. (Not
+      // isStyleLoaded(): that also waits for tiles, and would dead-click
+      // the switcher during ordinary tile streaming.)
+      return;
     }
+    setBasemap(id);
   };
 
   useEffect(() => {
@@ -161,7 +174,17 @@ export function MapView({ geometry }: Props) {
       if (source) {
         source.setData(data);
       } else {
-        instance.addSource('selection', { type: 'geojson', data });
+        // The attribution rides the SELECTION source, not only the osm tile
+        // source: every line we draw is OSM-derived (ODbL), and switching to
+        // Satellite hides the osm layer — an unused source's credit vanishes
+        // from the attribution control. This keeps the OSM credit on screen
+        // whenever a route is drawn, whatever the basemap. (Identical
+        // strings are deduplicated, so the default basemap shows one.)
+        instance.addSource('selection', {
+          type: 'geojson',
+          data,
+          attribution: OSM_ATTRIBUTION,
+        });
         // Styling is data-driven on `properties.selected` so several routes can
         // be shown at once with one of them picked out. A feature without that
         // property — a trail, or a single route — reads as unselected, and the
@@ -239,7 +262,7 @@ export function MapView({ geometry }: Props) {
           <button
             key={layer.id}
             type="button"
-            className={basemap === layer.id ? 'active' : undefined}
+            className={basemap === layer.id ? 'vv-label active' : 'vv-label'}
             onClick={() => switchBasemap(layer.id)}
           >
             {layer.label}

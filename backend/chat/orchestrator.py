@@ -346,26 +346,23 @@ class ChatOrchestrator:
 
         if loop_result is not None:
             loops, near_resolved, total_loops = loop_result
-            if implicit_loops:
+            if not near_resolved:
                 # A region we cannot place is a constraint the catalogue cannot
                 # honour, which is exactly when catalogue_view declines to pose
                 # the ask — it just cannot know that until resolution has run.
-                # And an implicit block that came back empty is omitted rather
-                # than making the answer apologise for a list nobody asked for.
-                if near_resolved and loops:
-                    results["loops"] = loops
-                    refs["loop_ids"] = [r["id"] for r in loops]
-                    if total_loops is not None:
-                        results["total_loops"] = total_loops
-            elif not near_resolved:
-                # Asked for explicitly, so silence would be the wrong answer:
-                # name the place we could not find rather than presenting
-                # routes from anywhere as routes from there — the rule the
-                # routing path already applies with unknown_place.
-                results["loops"] = []
-                results["loops_unknown_place"] = loop_intent.near
-                refs["loop_ids"] = []
-            else:
+                # An implicit block stays silent about it; an explicit ask must
+                # not: silence would be the wrong answer, so name the place we
+                # could not find rather than presenting routes from anywhere as
+                # routes from there — the rule the routing path already applies
+                # with unknown_place.
+                if not implicit_loops:
+                    results["loops"] = []
+                    results["loops_unknown_place"] = loop_intent.near
+                    refs["loop_ids"] = []
+            elif loops or not implicit_loops:
+                # One publish site for both the implicit and the explicit turn.
+                # An implicit block that came back empty is omitted rather than
+                # making the answer apologise for a list nobody asked for.
                 results["loops"] = loops
                 refs["loop_ids"] = [r["id"] for r in loops]
                 if total_loops is not None:
@@ -487,10 +484,14 @@ class ChatOrchestrator:
             "search_loops", **params, limit=CARD_RESULT_LIMIT
         )
         # The true population behind the capped page, for "I found N routes".
-        # Same filter fragments as search_loops, so total is by construction
-        # the count that search paged. facet_cap=0: only the count is wanted.
-        est = await self._db.run_named("estimate_loops", **params, facet_cap=0)
-        total = est[0].get("total") if est else None
+        # A short page IS its population — estimate_loops shares search_loops'
+        # filter fragments byte-for-byte (pinned in test_query_loader), so the
+        # extra round-trip only adds information when LIMIT may have
+        # truncated. facet_cap=0: only the count is wanted.
+        total: int | None = len(rows)
+        if len(rows) >= CARD_RESULT_LIMIT:
+            est = await self._db.run_named("estimate_loops", **params, facet_cap=0)
+            total = est[0].get("total") if est else None
         return rows, near_resolved, total
 
     async def _search(

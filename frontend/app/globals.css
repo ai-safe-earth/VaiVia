@@ -362,28 +362,6 @@ body {
   margin-top: var(--vv-s1);
 }
 
-/* SAC T1–T6 as 8px rotated squares. Filled to the route's grade, hollow
-   beyond it — there is no user-stated limit in the payload, so nothing here
-   is ever flare. */
-.sac {
-  display: flex;
-  gap: 4px;
-  height: 16px;
-  align-items: center;
-}
-
-.sac i {
-  width: 6px;
-  height: 6px;
-  transform: rotate(45deg);
-  border: 1px solid var(--vv-muted);
-}
-
-.sac i.on {
-  background: var(--vv-lime);
-  border-color: var(--vv-lime);
-}
-
 .key-facts {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -574,11 +552,9 @@ body {
   color: var(--vv-flare);
 }
 
-/* The drawn line's caveat, over the map: a multi-piece route served as its
-   longest piece must say so where the line is. Panel ground, hairline, no
-   radius -- the notice idiom on the map surface. */
 /* Basemap switcher: top-left overlay (top-right is navigation). The old
-   layer-tab grammar: flush buttons, hairline dividers, active = lime block. */
+   layer-tab grammar: flush buttons, hairline dividers, active = lime block.
+   Label type comes from .vv-label on the buttons; text (not muted) at rest. */
 .basemap {
   position: absolute;
   top: var(--vv-s3);
@@ -594,9 +570,6 @@ body {
   border: 0;
   background: transparent;
   color: var(--vv-text);
-  font: 400 9.5px/1 var(--vv-sans);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -609,6 +582,9 @@ body {
   color: var(--vv-ground);
 }
 
+/* The drawn line's caveat, over the map: a multi-piece route served as its
+   longest piece must say so where the line is. Panel ground, hairline, no
+   radius -- the notice idiom on the map surface. */
 .map-note {
   position: absolute;
   left: var(--vv-s3);
@@ -748,12 +724,9 @@ body {
 }
 
 .feedback-why input {
+  /* stretch, not flex: the container went column, so width comes from the
+     cross axis (the row-era flex: 1 / min-width: 0 pair is gone with it). */
   align-self: stretch;
-}
-
-.feedback-why input {
-  flex: 1;
-  min-width: 0;
   padding: var(--vv-s1) var(--vv-s3);
   border: 1px solid var(--vv-line);
   background: transparent;
@@ -839,22 +812,26 @@ body {
 }
 
 /* Clear chat: the quiet neighbour of Ask — resets the conversation via the
-   page's remount epoch. Muted until hovered; never the lime block. */
+   page's remount epoch. Muted until hovered; never the lime block. Type and
+   resting colour come from .vv-label on the button. */
 .composer .clear {
   flex: none;
   padding: 0 var(--vv-s4);
   border: 0;
   border-left: 1px solid var(--vv-line);
   background: transparent;
-  color: var(--vv-muted);
-  font: 400 9.5px/1 var(--vv-sans);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
 .composer .clear:hover {
   color: var(--vv-lime);
+}
+
+/* Disabled while an answer streams (a mid-stream clear would orphan the
+   stream); after :hover so it wins the tie and the lime never shows. */
+.composer .clear:disabled {
+  color: var(--vv-muted);
+  cursor: not-allowed;
 }
 
 .composer .ask {

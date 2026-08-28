@@ -1,11 +1,13 @@
 /**
  * Difficulty banding for the map: which of the palette's data-encoding
  * colours a route line wears (lime = easy, amber = moderate, flare = hard,
- * muted = ungraded — BRAND-SPEC amendment 2026-08-27).
+ * muted = ungraded — BRAND-SPEC amendment 2026-08-27). The bands are
+ * hike-only: every mtb route is the 'mtb' band (near-black --vv-ground),
+ * encoding activity rather than grade (owner decision 2026-08-27).
  *
- * The band follows the EXIGENT grade (sac_max / mtb_scale), the same owner
- * rule the card squares follow: on anything user-facing the grade is a
- * safety promise, and "a T2 walk with a T4 move" is a T4.
+ * The hike band follows the EXIGENT grade (sac_max), the same owner rule the
+ * card squares follow: on anything user-facing the grade is a safety
+ * promise, and "a T2 walk with a T4 move" is a T4.
  */
 
 import type { Loop } from './types';
@@ -33,7 +35,7 @@ function bandOfRank(rank: number): DifficultyBand {
  *  activity, not grade, is what the map encodes for bikes (owner decision
  *  2026-08-27). */
 export function loopBand(
-  loop: Pick<Loop, 'activity' | 'sac_max' | 'mtb_scale'>,
+  loop: Pick<Loop, 'activity' | 'sac_max'>,
 ): DifficultyBand {
   if (loop.activity === 'mtb') return 'mtb';
   const rank = loop.sac_max ? SAC_ORDER.indexOf(loop.sac_max) + 1 : 0;

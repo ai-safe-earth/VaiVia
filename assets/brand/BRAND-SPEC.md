@@ -26,7 +26,8 @@ Two consequences that drive every decision below:
 
 ## 2. Colour
 
-    --vv-ground   #0D0F0E   page background, pin cores, text on lime
+    --vv-ground   #0D0F0E   page background, pin cores, text on lime; also the
+                            map's mtb route line (data encoding, 2026-08-27)
     --vv-panel    #1A1E1B   inset panels, quoted user message, hairline steps
     --vv-line     #2A2E2B   structural hairlines (1px)
     --vv-line-2   #1A1E1B   internal/secondary hairlines (1px)

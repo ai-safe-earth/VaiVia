@@ -541,12 +541,16 @@ async def test_the_factory_params_are_supplied_and_deliberately_unmapped(db):
 @pytest.mark.asyncio
 async def test_the_true_total_rides_the_results_event(db) -> None:
     """estimate_loops's count reaches results as total_loops — the number the
-    answer states — and is simply absent when the estimate returns nothing."""
+    answer states. The estimate runs only when the page filled (a short page
+    is its own population), and an empty estimate leaves total_loops unset."""
     from chat.composer import ComposedPlan
     from chat.intents import LoopSearchIntent
-    from chat.orchestrator import ChatOrchestrator
+    from chat.orchestrator import CARD_RESULT_LIMIT, ChatOrchestrator
 
-    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    full_page = [
+        {"id": f"th1:{i}:0", "distance_m": 15300.0} for i in range(CARD_RESULT_LIMIT)
+    ]
+    db.when("search_loops", full_page)
     db.when("estimate_loops", [{"total": 37, "rows": []}])
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
     plan = ComposedPlan(loop=LoopSearchIntent(max_distance_m=16000))
@@ -556,3 +560,10 @@ async def test_the_true_total_rides_the_results_event(db) -> None:
     db.when("estimate_loops", [])
     results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
     assert "total_loops" not in results
+
+    # A short page needs no estimate: the total is the page itself.
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["total_loops"] == 1
+    estimate_calls = [name for name, _ in db.calls if name == "estimate_loops"]
+    assert len(estimate_calls) == 2  # the two full-page turns above, only
