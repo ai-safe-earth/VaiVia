@@ -47,6 +47,10 @@ Consequences worth stating:
   A consumer that renders the geometry somewhere else cannot strip the ODbL obligation by
   accident, because it never had to fetch it separately.
 - **Two runs of the same route produce byte-identical JSON** apart from `provenance.run_id`, the one field naming the run itself. Any other diff means the data moved.
+- **The network ships the same way.** `export.pack` emits the routable network as one
+  versioned artefact (`packs/<run_id>/`, format in `shared/routes/vaivia_routes/pack.py`)
+  and the backend's on-demand planner is a reader of it — routes it draws are documents
+  assembled at ask time from that pack, never a second definition (`docs/route-design.md`).
 
 ## What is in it
 

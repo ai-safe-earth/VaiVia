@@ -35,6 +35,11 @@ jobs:
       # Pure-function tests only: CI has no PostGIS, and the tests are written
       # to need none (the same offline rule the backend suite follows).
       - run: uv run pytest tests/ -v
+      # shared/routes has no environment of its own; the pipeline's carries
+      # it as an editable path dependency (pyproject [tool.uv.sources]).
+      - run: uv run ruff check ../shared/routes
+      - run: uv run black --check ../shared/routes
+      - run: uv run pytest ../shared/routes/tests -v
 
   gateway:
     runs-on: ubuntu-latest

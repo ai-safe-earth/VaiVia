@@ -2604,11 +2604,14 @@ dependencies = [
     { name = "jsonschema" },
     { name = "matplotlib" },
     { name = "neo4j" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "osmium" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pyproj" },
     { name = "shapely" },
     { name = "sqlalchemy" },
+    { name = "vaivia-routes" },
 ]
 
 [package.dev-dependencies]
@@ -2631,11 +2634,13 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "neo4j", specifier = ">=5.0" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "osmium", specifier = ">=4.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pyproj", specifier = ">=3.6" },
     { name = "shapely", specifier = ">=2.0" },
     { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "vaivia-routes", editable = "../shared/routes" },
 ]
 
 [package.metadata.requires-dev]
@@ -2650,6 +2655,18 @@ notebook = [
     { name = "jupyter-client", specifier = ">=8" },
     { name = "nbconvert", specifier = ">=7" },
 ]
+
+[[package]]
+name = "vaivia-routes"
+version = "0.1.0"
+source = { editable = "../shared/routes" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=1.26" }]
 
 [[package]]
 name = "wcwidth"
