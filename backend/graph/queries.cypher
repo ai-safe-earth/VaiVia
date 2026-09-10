@@ -540,9 +540,10 @@ LIMIT $limit
 
 // name: estimate_loops
 // The count-driven loop's estimate: how many routes THIS plan would return,
-// plus a bounded sample of facet rows so Python can pick the most-narrowing
-// next question (chat/narrowing.py — planned as query-loop Phase 3, not yet
-// written). Same two fragments as search_loops, so
+// plus a bounded sample of facet rows for a Python-side narrowing question
+// (query-loop Phase 3, unwritten — its only caller passes facet_cap=0, so the
+// rows are not collected and the COUNT is what reaches the answer as
+// total_loops). Same two fragments as search_loops, so
 // the count is exactly the population search_loops would page through -- they
 // cannot drift. total is exact even though rows is capped: both aggregate the
 // same stream, and the cap slices only the collected list.

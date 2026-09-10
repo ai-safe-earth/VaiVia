@@ -7,6 +7,9 @@ import { sendFeedback } from '@/lib/api';
 interface Props {
   messageId: string;
   conversationId: string;
+  /** Judge ONE route of the answer rather than the answer as a whole. Its
+   *  own row server-side, so the two votes never overwrite each other. */
+  routeId?: string;
 }
 
 /**
@@ -15,10 +18,14 @@ interface Props {
  * improved, and the answer rides a second upsert. Fire-and-forget with a
  * silent catch: a lost vote is not worth interrupting the conversation for.
  *
+ * The same question, in the same two-field shape, is what a route card asks
+ * inside its detail (`routeId`): one standard ask, so every downvote in the
+ * ledger reads the same way whatever it is about.
+ *
  * Existing votes are deliberately NOT fetched on resume — re-voting is a
  * harmless upsert, so the thumbs simply render unpressed.
  */
-export function Feedback({ messageId, conversationId }: Props) {
+export function Feedback({ messageId, conversationId, routeId }: Props) {
   const [vote, setVote] = useState<1 | -1 | null>(null);
   const [askWhy, setAskWhy] = useState(false);
   const [comment, setComment] = useState('');
@@ -45,19 +52,27 @@ export function Feedback({ messageId, conversationId }: Props) {
             -1,
             comment.trim() || undefined,
             expected.trim() || undefined,
+            routeId,
           )
-        : sendFeedback(messageId, conversationId, next)
+        : sendFeedback(messageId, conversationId, next, undefined, undefined, routeId)
     ).catch(() => undefined);
   };
+
+  // What is being judged, said in the question and in both thumbs: a card's
+  // thumbs sit inside an answer that has thumbs of its own, and two "Good
+  // answer" buttons on one screen is a screen reader saying nothing.
+  const subject = routeId ? 'route' : 'answer';
 
   return (
     <div className="feedback">
       <div className="feedback-row">
-        <span className="vv-label">Was this helpful?</span>
+        <span className="vv-label">
+          {routeId ? 'Was this route right?' : 'Was this helpful?'}
+        </span>
         <button
           type="button"
           className="feedback-thumb"
-          aria-label="Good answer"
+          aria-label={`Good ${subject}`}
           aria-pressed={vote === 1}
           onClick={() => cast(1)}
         >
@@ -66,7 +81,7 @@ export function Feedback({ messageId, conversationId }: Props) {
         <button
           type="button"
           className="feedback-thumb"
-          aria-label="Bad answer"
+          aria-label={`Bad ${subject}`}
           aria-pressed={vote === -1}
           onClick={() => cast(-1)}
         >
@@ -87,6 +102,7 @@ export function Feedback({ messageId, conversationId }: Props) {
                   -1,
                   comment.trim() || undefined,
                   expected.trim() || undefined,
+                  routeId,
                 ),
               )
               .catch(() => undefined);

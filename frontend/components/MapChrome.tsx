@@ -1,12 +1,15 @@
 'use client';
 
 /**
- * Map chrome: the elevation panel along the bottom of the map column.
+ * The elevation profile drawing, shared by every card that shows one.
  *
- * The layer tab strip that used to sit along the top (Route, plus disabled
- * Places / Hazards / Coverage placeholders) was removed 2026-08-27 — what
- * each placeholder was waiting on is recorded in handoff.md; the layers
- * return here when the API can feed them.
+ * The panel that used to hold it along the bottom of the map column went with
+ * the two-pane layout (2026-08-28): the profile belongs to a route, so it is
+ * drawn inside that route's card — in the transcript and in the map layer's
+ * route panel, which are the same card. The layer tab strip that sat along the
+ * top of the map (Route, plus disabled Places / Hazards / Coverage) was
+ * removed 2026-08-27; both return on the map layer's top edge when the API can
+ * feed them.
  */
 
 export interface Profile {
@@ -46,42 +49,5 @@ export function ElevationProfile({
         </p>
       )}
     </>
-  );
-}
-
-/**
- * The elevation profile panel under the map: the bars, three labels beneath.
- * With no profile the labels keep their places with an em dash rather than a
- * number: a zero would be a measurement, and we do not have one.
- */
-export function ElevationPanel({
-  profile,
-  quality,
-}: {
-  profile?: Profile;
-  quality?: 'ok' | 'approximate' | null;
-}) {
-  return (
-    <section className="map-panel" aria-label="Elevation profile">
-      {profile ? (
-        <ElevationProfile profile={profile} quality={quality} />
-      ) : (
-        <p className="profile-pending vv-body-sm">
-          No profile yet — pick a route to see its heights drawn here.
-        </p>
-      )}
-
-      <div className="profile-labels">
-        <span className="vv-label">
-          start {profile ? `${Math.round(profile.startM)} m` : '—'}
-        </span>
-        <span className="vv-label">
-          max {profile ? `${Math.round(profile.maxM)} m` : '—'}
-        </span>
-        <span className="vv-label">
-          end {profile ? `${Math.round(profile.endM)} m` : '—'}
-        </span>
-      </div>
-    </section>
   );
 }

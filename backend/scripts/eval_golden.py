@@ -22,9 +22,17 @@ Run from backend/:
     uv run python -m scripts.eval_golden                     # decomposition only
     uv run python -m scripts.eval_golden --graph             # + live retrieval
     uv run python -m scripts.eval_golden --graph --answers   # + answer checks
+    uv run python -m scripts.eval_golden --only g27,g49      # rerun two entries
 
-Every run appends one JSON line (date, commit, scores) to eval_runs.jsonl in
-backend/, so scores stay comparable across prompt changes.
+Every FULL run appends one JSON line to eval_runs.jsonl in backend/: date,
+commit, the scores, and — since 2026-08-29 — which entries failed and how each
+retrieval expectation landed. The aggregates say a score moved; the per-entry
+maps say WHICH question moved, which is the difference between a trend and a
+lead. Both live on the same line, so `tail -2` is the whole diff tooling.
+
+--only runs a subset and deliberately does NOT log: a partial total in the
+trend is worse than a gap in it. Use it to read one failure again without
+paying for the other forty-nine.
 
 Dataset: fixtures/golden_questions.json. Expectations address the COMPOSED
 plan ("search.<field>", "loop.<field>", "theme", "routes", "clarify");
@@ -62,6 +70,22 @@ from chat.sanitize import find_link
 
 DATASET = Path(__file__).resolve().parent.parent / "fixtures" / "golden_questions.json"
 RUN_LOG = Path(__file__).resolve().parent.parent / "eval_runs.jsonl"
+
+
+def select(entries: list[dict[str, Any]], only: str | None) -> list[dict[str, Any]]:
+    """The entries this run covers.
+
+    An id that is not in the dataset is a typo, and a typo that silently ran
+    zero entries would print a clean 0/0 and read as a pass.
+    """
+    if not only:
+        return entries
+    wanted = [part.strip() for part in only.split(",") if part.strip()]
+    known = {entry["id"] for entry in entries}
+    unknown = [name for name in wanted if name not in known]
+    if unknown:
+        raise SystemExit(f"--only: no such entry id: {', '.join(unknown)}")
+    return [entry for entry in entries if entry["id"] in set(wanted)]
 
 
 def check_plan(expected: dict[str, Any], plan: ComposedPlan) -> list[str]:
@@ -183,11 +207,16 @@ async def main() -> None:
         action="store_true",
         help="also stream answers and run the code-checkable prompt rules",
     )
+    parser.add_argument(
+        "--only",
+        metavar="IDS",
+        help="run only these dataset ids (comma-separated); not logged",
+    )
     args = parser.parse_args()
     if args.answers and not args.graph:
         parser.error("--answers needs --graph: answers are grounded in results")
 
-    entries = json.loads(DATASET.read_text(encoding="utf-8"))
+    entries = select(json.loads(DATASET.read_text(encoding="utf-8")), args.only)
     client = OpenAIClient()
 
     orchestrator = None
@@ -207,6 +236,10 @@ async def main() -> None:
     plan_pass = plan_total = 0
     hit_first = hit_any = retrieval_total = 0
     answer_pass = answer_total = 0
+    # What the aggregates cannot say: which entry. Stage-prefixed so a line
+    # tells decomposition drift from answer drift without rerunning anything.
+    failed: dict[str, list[str]] = {}
+    retrieval_marks: dict[str, str] = {}
     try:
         for entry in entries:
             turns = entry.get("turns") or [entry["question"]]
@@ -214,6 +247,8 @@ async def main() -> None:
             problems = check_plan(entry.get("expect", {}), plan)
             plan_total += 1
             plan_pass += not problems
+            if problems:
+                failed[entry["id"]] = [f"plan: {problem}" for problem in problems]
             label = " | ".join(turns)
             print(
                 f"[{'PASS' if not problems else 'FAIL'}] {entry['id']} "
@@ -244,6 +279,9 @@ async def main() -> None:
                 hit_first += first_ok
                 hit_any += any_ok
                 marker = "first" if first_ok else ("hit" if any_ok else "MISS")
+                # Keyed by entry AND block: one entry may pin both, and "g30
+                # missed" would not say which half.
+                retrieval_marks[f"{entry['id']}.{key}"] = marker.lower()
                 print(f"         {key} [{marker}]: {retrieved}")
 
             if args.answers:
@@ -259,6 +297,10 @@ async def main() -> None:
                 answer_problems = check_answer(answer, view)
                 answer_total += 1
                 answer_pass += not answer_problems
+                if answer_problems:
+                    failed.setdefault(entry["id"], []).extend(
+                        f"answer: {problem}" for problem in answer_problems
+                    )
                 print(f"         answer [{'PASS' if not answer_problems else 'FAIL'}]")
                 for problem in answer_problems:
                     print(f"         {problem}")
@@ -281,6 +323,14 @@ async def main() -> None:
     if args.answers:
         print(f"answers:       {answer_pass}/{answer_total} passed")
         summary["answers"] = [answer_pass, answer_total]
+    # Last, so the aggregates stay at the head of the line where a human reads
+    # them; the maps are what you grep once a number has moved.
+    summary["failed"] = failed
+    if args.graph:
+        summary["retrieval"] = retrieval_marks
+    if args.only:
+        print("\n--only: partial run, not appended to eval_runs.jsonl")
+        return
     log_run(summary)
 
 

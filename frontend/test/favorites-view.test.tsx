@@ -85,16 +85,18 @@ afterEach(cleanup);
 
 function renderView() {
   const onGeometry = vi.fn();
+  const onPick = vi.fn();
   const view = render(
     <FavoritesView
       initial={SAVED}
       onGeometry={onGeometry}
+      onPick={onPick}
       favorites={new Set(['f1'])}
       onToggleFavorite={() => undefined}
     />,
   );
   const card = view.container.querySelector<HTMLElement>('[data-route-id="f1"]')!;
-  return { onGeometry, view, card };
+  return { onGeometry, onPick, view, card };
 }
 
 describe('a saved card draws its own verified line, or says it cannot', () => {
@@ -104,6 +106,12 @@ describe('a saved card draws its own verified line, or says it cannot', () => {
     await waitFor(() => expect(onGeometry).toHaveBeenCalled());
     const drawn = onGeometry.mock.calls.at(-1)?.[0] as GeoJSON.Feature;
     expect(drawn.properties).toMatchObject({ route_id: 'f1', selected: true });
+  });
+
+  it('picks the route, so the map layer comes up over the saved list', () => {
+    const { onPick, card } = renderView();
+    fireEvent.click(card);
+    expect(onPick.mock.calls[0]![0]).toMatchObject({ id: 'f1' });
   });
 
   it('a failed line clears the map, says so on the card, and a re-select retries', async () => {

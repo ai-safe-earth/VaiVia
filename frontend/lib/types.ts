@@ -183,3 +183,11 @@ export interface ChatMessage {
   streaming?: boolean;
   error?: string;
 }
+
+/** The stored turn a route card came from — both halves, because a vote is
+ *  addressed to (conversation, message, route) and the map layer holds a card
+ *  that has left the panel that knew them. */
+export interface FeedbackTurn {
+  messageId: string;
+  conversationId: string;
+}

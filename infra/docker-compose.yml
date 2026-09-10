@@ -90,41 +90,6 @@ services:
       timeout: 5s
       retries: 10
 
-  graphhopper:
-    # Geometry and elevation; Neo4j keeps meaning (docs/routing-engine.md).
-    # Dev-only port binding, like Neo4j: it is an internal service, and nothing
-    # but the gateway is public.
-    image: israelhikingmap/graphhopper:latest
-    container_name: vaivia-graphhopper
-    ports:
-      - "127.0.0.1:${GRAPHHOPPER_PORT:-8989}:8989"
-    environment:
-      # Import needs headroom; the served graph for one region is far smaller.
-      JAVA_OPTS: "-Xmx${GRAPHHOPPER_HEAP:-4g} -Xms1g"
-    # The image entrypoint hardcodes `-c config-example.yml`, so it must be
-    # overridden rather than appended to — appending leaves the stock config
-    # winning and our profiles silently absent.
-    entrypoint: ./graphhopper.sh
-    command: ["-c", "/data/config.yml", "-i", "/data/data/region.osm"]
-    volumes:
-      # config.yml, custom_models/ and data/ are the committed inputs; the
-      # extract itself and the caches are generated and gitignored.
-      - ./graphhopper/config.yml:/data/config.yml:ro
-      - ./graphhopper/custom_models:/data/custom_models:ro
-      - ./graphhopper/data:/data/data
-      - graphhopper_cache:/data/graph-cache
-      - graphhopper_srtm:/data/srtm-cache
-    networks:
-      - internal
-    healthcheck:
-      # Import takes minutes on a cold cache, so start_period is generous —
-      # a shorter one just marks a healthy service unhealthy while it works.
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8989/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 300s
-
   postgis:
     # The geodata pipeline's working store (pipeline/, docs/plan.md): staging,
     # curated route map, QA layers. Deliberately NOT the Supabase Postgres —

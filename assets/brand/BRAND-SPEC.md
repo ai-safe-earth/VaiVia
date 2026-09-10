@@ -26,8 +26,7 @@ Two consequences that drive every decision below:
 
 ## 2. Colour
 
-    --vv-ground   #0D0F0E   page background, pin cores, text on lime; also the
-                            map's mtb route line (data encoding, 2026-08-27)
+    --vv-ground   #0D0F0E   page background, pin cores, text on lime
     --vv-panel    #1A1E1B   inset panels, quoted user message, hairline steps
     --vv-line     #2A2E2B   structural hairlines (1px)
     --vv-line-2   #1A1E1B   internal/secondary hairlines (1px)
@@ -35,7 +34,6 @@ Two consequences that drive every decision below:
     --vv-muted    #A7ADA6   labels, captions, placeholders, secondary text
     --vv-lime     #CCFF3B   route, primary action, confirmed data
     --vv-flare    #FF6B3D   hazard, stale data, missing coverage
-    --vv-amber    #FFC53B   data encoding only: the map's moderate difficulty band
     --vv-map      #12150F   map canvas base
 
 Light fallback (print, email, third-party embeds only — NOT the app):
@@ -54,11 +52,12 @@ a 1px border; flare darkens to #C4451F for text.
 - Contrast: every pairing above clears WCAG AA at 9px. Do not tint text with
   opacity — use --vv-muted. Opacity is reserved for the coverage texture.
 - Two accents only. Do not add a third for any reason. Amendment
-  2026-08-27: --vv-amber is a data-encoding colour for the map's moderate
-  difficulty band (lime = easy, amber = moderate, flare = hard, muted =
-  ungraded), not an accent — never a button, label or action colour. The four
-  bands are hike-only: every mtb route wears --vv-ground (near-black) on the
-  map, encoding activity rather than grade.
+  2026-08-28: every route line is --vv-lime. Selection is encoded by width and
+  opacity (4px at full opacity for the picked route, 2px at 0.4 for its
+  siblings), never by colour, so the map says which route you asked about and
+  nothing else. This withdraws the 2026-08-27 amendment, which spent the third
+  colour on a difficulty ramp (lime/amber/flare/muted) and made every mtb route
+  near-black: --vv-amber leaves the palette and the two accents stand.
 
 ---
 
@@ -98,7 +97,14 @@ Scale — use these exact values:
 
 - Spacing scale: 6, 9, 12, 14, 16, 18, 20, 22, 26, 34, 46px. Pick from it.
 - Panel padding: 16px 18px on mobile, 16px 20px on web.
-- Chat panel width on desktop: 400px fixed, map takes the rest.
+- ONE column at every width (amendment 2026-08-28, replacing "chat panel 400px
+  on desktop, map takes the rest"): header, stage, credit, capped at 720px and
+  centred with a hairline on each side. The conversation is the base layer of
+  the stage; the composer is the app's bottom edge and never leaves it; the map
+  is a layer that slides up over the conversation when a route is tapped and
+  goes back down on Escape, on Back, or when the next question is asked. Cards
+  were drawn for a 400px column and a full-bleed transcript is a second layout
+  in all but name.
 - Borders: 1px solid var(--vv-line) between structural blocks;
   1px solid var(--vv-line-2) between rows inside a block.
 - border-radius: 0 everywhere. Exceptions: app icon (platform mask) and the
@@ -171,6 +177,11 @@ with a ground-stroke mic icon (mobile: circle allowed). Input area flush,
 placeholder in --vv-muted at 13.5px. Web variant: text input flex:1 plus a
 lime "ASK" block, Label-ish 12px 600 +0.06em uppercase, ground text.
 
+Amendment 2026-08-29: input text is 16px under `(pointer: coarse)`, 13.5px
+elsewhere. Under 16px iOS Safari zooms the page in on focus and does not zoom
+back out, which leaves the whole layout oversized — a typographic rule is not
+worth a broken screen. The same applies to the sign-in inputs.
+
 ### Buttons
     Primary     lime fill, ground text, 600 12.5px, +0.06em, uppercase, 19px 18px
     Secondary   transparent, --vv-text, left hairline, same metrics
@@ -181,11 +192,18 @@ radius. Buttons never have icons.
 ### Map chrome
 Layer tabs sit as a flush row along the top of the map with hairline dividers;
 the active tab is a lime block with ground text, inactive are --vv-text,
-unavailable are --vv-muted.
+unavailable are --vv-muted. (Not built: the strip was removed 2026-08-27 and
+returns on the map layer's top edge when the API can feed the layers.)
 
-Bottom panel: elevation profile as 2px-gap bars, --vv-lime, with hazard
-segments in --vv-flare. Below the bars, three Labels — start, max, end.
-Attribution is the last row, Body-small in --vv-muted, above a hairline.
+Attribution is the last row of the map, Body-small in --vv-muted, above a
+hairline — and the app's own ODbL credit is the last row of the shell, on
+screen with the map up and with the map down.
+
+Below the map's attribution, the picked route's card: the SAME card as the
+transcript's, opened on arrival, at most 45% of the layer and scrolling. The
+elevation profile lives in that card (amendment 2026-08-28, replacing the
+map's own bottom panel) — 2px-gap bars in --vv-lime, three Labels beneath:
+start, max, end. A profile belongs to a route, so it is drawn on the route.
 
 ### Map style (for the tile layer / route rendering)
 Base canvas --vv-map. Route line --vv-lime at 3px, no casing needed on dark.

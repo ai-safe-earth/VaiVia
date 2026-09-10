@@ -11,7 +11,6 @@
  * the component while its test stays green.
  */
 
-import type { DifficultyBand } from './difficulty';
 
 export interface RevealPlan {
   /** Drop what is drawn: this reveal comes from another answer. */
@@ -142,7 +141,6 @@ export function needsFetch(entry: LineEntry | undefined): boolean {
 export function drawableFeatures(
   entries: ReadonlyMap<string, LineEntry>,
   selectedId: string | null,
-  bands?: ReadonlyMap<string, DifficultyBand>,
 ): GeoJSON.Feature[] | null {
   if (selectedId !== null && entries.get(selectedId)?.status !== 'ok') return null;
   const features: GeoJSON.Feature[] = [];
@@ -154,7 +152,6 @@ export function drawableFeatures(
         ...(entry.feature.properties ?? {}),
         id,
         selected: id === selectedId,
-        difficulty_band: bands?.get(id) ?? 'ungraded',
       },
     });
   }

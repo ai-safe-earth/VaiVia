@@ -139,15 +139,27 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-function renderPanel(messages: ChatMessage[] = TRANSCRIPT) {
+function renderPanel(
+  messages: ChatMessage[] = TRANSCRIPT,
+  conversationId: string | null = null,
+) {
   const onGeometry = vi.fn();
   const onDetail = vi.fn();
+  const onPick = vi.fn();
+  const onAsk = vi.fn();
   const view = render(
-    <ChatPanel onGeometry={onGeometry} onDetail={onDetail} initialMessages={messages} />,
+    <ChatPanel
+      onGeometry={onGeometry}
+      onDetail={onDetail}
+      onPick={onPick}
+      onAsk={onAsk}
+      initialMessages={messages}
+      initialConversationId={conversationId}
+    />,
   );
   const card = (id: string) =>
     view.container.querySelector<HTMLElement>(`[data-route-id="${id}"]`)!;
-  return { onGeometry, onDetail, view, card };
+  return { onGeometry, onDetail, onPick, onAsk, view, card };
 }
 
 describe('the mutants the review named', () => {
@@ -402,5 +414,132 @@ describe('a click during the in-flight line batch', () => {
       expect(lastDrawn(onGeometry)).toEqual({ ids: ['b1', 'b2'], selected: ['b1'] }),
     );
     expect(onGeometry.mock.calls.length).toBeGreaterThan(emissions);
+  });
+});
+
+/**
+ * The one-UI shell (2026-08-28) hands the panel three wires: which tap raises
+ * the map, when the map comes back down, and what the Saved-routes view is
+ * allowed to hide. Each test below is one of those wires — the map layer
+ * itself lives on the page, so this is the whole of what the panel promises.
+ */
+describe("the map layer's wiring", () => {
+  it('a card BODY tap picks the route, so the page can raise the map', async () => {
+    const { onPick, card } = renderPanel();
+
+    fireEvent.click(card('a1'));
+
+    await waitFor(() => expect(onPick).toHaveBeenCalledTimes(1));
+    expect(onPick.mock.calls[0]![0]).toMatchObject({ id: 'a1' });
+  });
+
+  /* The turn rides with the pick, or the map panel's card has nothing to
+   * attach a vote to. Both halves are pinned because the wiring is three
+   * hops long (here → page.pickedTurn → the panel's LoopCard) and every hop
+   * survives being deleted: the props are optional by design. */
+  it('a card from a STORED turn picks with the turn, so the panel can ask', async () => {
+    const stored: ChatMessage[] = [
+      { role: 'user', content: 'first ask' },
+      {
+        role: 'assistant',
+        content: 'answer A',
+        messageId: 'm1',
+        results: { kind: 'loop_search', answered_count: 2, loops: A },
+      },
+    ];
+    const { onPick, card, view } = renderPanel(stored, 'conv-1');
+
+    fireEvent.click(card('a1'));
+    await waitFor(() => expect(onPick).toHaveBeenCalledTimes(1));
+    expect(onPick.mock.calls[0]![1]).toEqual({
+      messageId: 'm1',
+      conversationId: 'conv-1',
+    });
+
+    // And the transcript's own card asks it in place, once opened.
+    fireEvent.click(card('a2').querySelector<HTMLElement>('.detail-toggle')!);
+    expect(view.getByLabelText('Bad route')).toBeTruthy();
+  });
+
+  it('a card of a still-streaming turn picks with no turn (the known gap)', async () => {
+    // The id arrives with `done`. Until then there is nothing to vote
+    // against, and inventing one would attach the vote to the wrong row.
+    const { onPick, card, view } = renderPanel(TRANSCRIPT, 'conv-1');
+
+    fireEvent.click(card('a1'));
+    await waitFor(() => expect(onPick).toHaveBeenCalledTimes(1));
+    expect(onPick.mock.calls[0]![1]).toBeUndefined();
+
+    fireEvent.click(card('a2').querySelector<HTMLElement>('.detail-toggle')!);
+    expect(view.queryByLabelText('Bad route')).toBeNull();
+  });
+
+  it('"See more" draws the line but does NOT raise the map', async () => {
+    const { onGeometry, onPick, card } = renderPanel();
+
+    const seeMore = card('a1').querySelector<HTMLElement>('.detail-toggle')!;
+    fireEvent.click(seeMore);
+
+    // The same selection the body tap makes — under the transcript, where the
+    // reader still is.
+    await waitFor(() => expect(lastDrawn(onGeometry)?.selected).toEqual(['a1']));
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('asking brings the map down before the answer starts', () => {
+    const { onAsk, view } = renderPanel();
+
+    fireEvent.change(view.getByLabelText('Your message'), {
+      target: { value: 'something else' },
+    });
+    fireEvent.submit(view.container.querySelector('form')!);
+
+    expect(onAsk).toHaveBeenCalled();
+  });
+
+  it('an empty submit is not an ask, so the map stays where it is', () => {
+    const { onAsk, view } = renderPanel();
+
+    fireEvent.submit(view.container.querySelector('form')!);
+
+    expect(onAsk).not.toHaveBeenCalled();
+  });
+
+  it('a fresh answer empties the route panel it was asked from', async () => {
+    api.sendChat.mockImplementation(async function* () {
+      yield { type: 'conversation', conversationId: 'conv-1' };
+      yield {
+        type: 'results',
+        results: { kind: 'loop_search', answered_count: 2, loops: B },
+      };
+      yield { type: 'done', usage: { input_tokens: 0, output_tokens: 0 } };
+    });
+    const { onPick, view, card } = renderPanel(TRANSCRIPT.slice(0, 2));
+
+    fireEvent.click(card('a1'));
+    await waitFor(() => expect(onPick).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(view.getByLabelText('Your message'), {
+      target: { value: 'something shorter' },
+    });
+    fireEvent.submit(view.container.querySelector('form')!);
+
+    // The panel card was a1's; the new answer owns the map, so the panel is
+    // emptied rather than left describing a route this turn never returned.
+    // No turn rides with the emptying: there is no card left to judge.
+    await waitFor(() => expect(onPick).toHaveBeenLastCalledWith(null, undefined));
+  });
+
+  it('hidden hides the transcript and NOT the composer', () => {
+    const view = render(
+      <ChatPanel onGeometry={vi.fn()} initialMessages={TRANSCRIPT} hidden />,
+    );
+
+    // The Saved-routes view owns the transcript; the composer is the bottom
+    // edge of the app and stays askable behind it.
+    expect(view.container.querySelector<HTMLElement>('.messages')!.style.display).toBe(
+      'none',
+    );
+    expect(view.getByLabelText('Your message')).toBeTruthy();
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 
 import { SAC_ORDER } from '@/lib/difficulty';
 import { distance, distanceFigure, elevationFigure } from '@/lib/format';
@@ -9,13 +9,20 @@ import { profileFromDetail } from '@/lib/profile';
 import type { Loop, RouteDetail } from '@/lib/types';
 
 import { Icon } from './brand';
+import { Feedback } from './Feedback';
 import { ElevationProfile } from './MapChrome';
 import { Sources } from './Sources';
 
 interface Props {
   loop: Loop;
   selected: boolean;
-  onSelect: (loop: Loop) => void;
+  /** Absent in the map layer's route panel: that card IS the selection, so
+   *  there is nothing for a tap on it to pick. Without a handler it is not a
+   *  button either — a focusable div that does nothing is worse than plain
+   *  text. */
+  onSelect?: (loop: Loop) => void;
+  /** Open on mount. The panel card's tap already asked for the numbers. */
+  defaultOpen?: boolean;
   /** The document detail, fetched by the parent on first expand: undefined =
    *  not asked yet / loading, null = route left the catalogue. */
   detail?: RouteDetail | null;
@@ -31,6 +38,12 @@ interface Props {
    *  data, so the mark only exists with an account. */
   favorited?: boolean;
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
+  /** The stored turn that offered this route. With both, the open card asks
+   *  whether the route was right — the vote is about (this ask, this route),
+   *  which is the pair an `expect_loops` pin is written from. Absent for a
+   *  saved route or a still-streaming turn: no question was asked of it. */
+  messageId?: string;
+  conversationId?: string;
 }
 
 /** sac_scale in words. The scale runs past what a route catalogue should be
@@ -76,13 +89,30 @@ export function LoopCard({
   loop,
   selected,
   onSelect,
+  defaultOpen = false,
   detail,
   onExpand,
   line,
   favorited = false,
   onToggleFavorite,
+  messageId,
+  conversationId,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
+  const activate = onSelect ? () => onSelect(loop) : undefined;
+  const activateByKey = onSelect
+    ? (event: KeyboardEvent) => {
+        // The card's own keys only, never a descendant's: Enter on "See more"
+        // and a space typed into the feedback field both bubble to here, and
+        // both used to raise the map — the second one also swallowing the
+        // space, so the answer could not be typed.
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(loop);
+        }
+      }
+    : undefined;
   const length = distanceFigure(loop.distance_m);
   const climb = elevationFigure(loop.ascent_m);
   // Destination routes carry their destination's name; OSM relations their
@@ -111,18 +141,13 @@ export function LoopCard({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
       className="route-card"
       data-route-id={loop.id}
-      aria-pressed={selected}
-      onClick={() => onSelect(loop)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelect(loop);
-        }
-      }}
+      aria-pressed={onSelect ? selected : undefined}
+      onClick={activate}
+      onKeyDown={activateByKey}
     >
       <div className="route-kind-row">
         <span className="route-kind vv-label">{shapeLabel}</span>
@@ -202,16 +227,34 @@ export function LoopCard({
         </button>
       </div>
 
-      {open && <LoopDetail loop={loop} detail={detail} />}
+      {open && (
+        <LoopDetail
+          loop={loop}
+          detail={detail}
+          messageId={messageId}
+          conversationId={conversationId}
+        />
+      )}
     </div>
   );
 }
 
 /** The expanded half: the figures, the difficulty told whole, the surface
  *  as a distribution, every place with how far off the line it sits, the
- *  quality warnings carried (never filtered), the altitude profile, and the
- *  document's real attribution. */
-function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null }) {
+ *  quality warnings carried (never filtered), the altitude profile, the
+ *  document's real attribution — and the thumbs, because opening a card is
+ *  where the route is actually judged. */
+function LoopDetail({
+  loop,
+  detail,
+  messageId,
+  conversationId,
+}: {
+  loop: Loop;
+  detail?: RouteDetail | null;
+  messageId?: string;
+  conversationId?: string;
+}) {
   const profile = detail ? profileFromDetail(detail) : undefined;
   const descent = elevationFigure(loop.descent_m);
   const extended: { label: string; value: string }[] = [];
@@ -367,6 +410,24 @@ function LoopDetail({ loop, detail }: { loop: Loop; detail?: RouteDetail | null 
       )}
 
       <Sources id={loop.id} attribution={detail?.attribution} />
+
+      {/* The card body is itself a button, so every click and every typed
+          character in here has to stop at the detail — the save and expand
+          toggles do the same one field up. */}
+      {messageId && conversationId && (
+        <div onClick={(event) => event.stopPropagation()}>
+          {/* Keyed on the turn, as the transcript's own thumbs are: the map
+              panel's card is keyed by route id, so the SAME route offered by
+              two answers reuses this instance — and a vote, with the text
+              typed under it, would carry over to a turn nobody judged. */}
+          <Feedback
+            key={messageId}
+            messageId={messageId}
+            conversationId={conversationId}
+            routeId={loop.id}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -13,13 +13,19 @@ CONVERSATION_ID = "5f0c9d1e-0000-4000-8000-0000000000bb"
 USER = {"x-user-id": "9b2f9d1e-0000-4000-8000-000000000001"}
 
 
-def _body(vote: int, comment: str | None = None, expected: str | None = None) -> dict:
+def _body(
+    vote: int,
+    comment: str | None = None,
+    expected: str | None = None,
+    route_id: str = "",
+) -> dict:
     return {
         "message_id": MESSAGE_ID,
         "conversation_id": CONVERSATION_ID,
         "vote": vote,
         "comment": comment,
         "expected": expected,
+        "route_id": route_id,
     }
 
 
@@ -46,11 +52,36 @@ def test_a_revote_flips_and_a_comment_updates(client):
     assert down.json() == {"message_id": MESSAGE_ID, "vote": -1}
 
     store = client.app.state.feedback
-    assert store._votes[(USER["x-user-id"], MESSAGE_ID)] == (
+    assert store._votes[(USER["x-user-id"], MESSAGE_ID, "")] == (
         -1,
         "named the wrong lake",
         "the one by Lecco",
     )
+
+
+def test_a_route_vote_is_its_own_row(client):
+    """Two routes offered by one answer are judged separately, and neither
+    touches the answer-level vote — the key is (user, message, route)."""
+    assert client.post("/feedback", json=_body(1), headers=USER).status_code == 200
+    for route, vote in (("vv2-aaaa-fwd", -1), ("vv2-bbbb-fwd", 1)):
+        posted = client.post(
+            "/feedback",
+            json=_body(vote, "too steep" if vote == -1 else None, route_id=route),
+            headers=USER,
+        )
+        assert posted.status_code == 200
+
+    votes = client.app.state.feedback._votes
+    user = USER["x-user-id"]
+    assert votes[(user, MESSAGE_ID, "")] == (1, None, None)
+    assert votes[(user, MESSAGE_ID, "vv2-aaaa-fwd")] == (-1, "too steep", None)
+    assert votes[(user, MESSAGE_ID, "vv2-bbbb-fwd")] == (1, None, None)
+
+
+def test_a_route_id_is_bounded(client):
+    """Free text from the client, so it is length-checked at the boundary."""
+    body = _body(-1, route_id="x" * 129)
+    assert client.post("/feedback", json=body, headers=USER).status_code == 422
 
 
 def test_a_message_outside_this_users_conversations_is_an_honest_404(client):

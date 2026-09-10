@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { loopBand } from '@/lib/difficulty';
 import { fetchFavorites, fetchRouteGeoJson, type FavoritesList } from '@/lib/api';
 import { needsFetch, recordLine, type LineEntry, type LineStatus } from '@/lib/mapTurn';
 import type { Loop, RouteDetail } from '@/lib/types';
@@ -22,6 +21,10 @@ interface Props {
    *  are the same state. */
   favorites: Set<string>;
   onToggleFavorite: (loop: Loop, on: boolean) => void;
+  /** A saved card was tapped: the map layer comes up with its data. */
+  onPick?: (picked: Loop) => void;
+  /** The map layer is over this list — out of the tab order while it is. */
+  covered?: boolean;
 }
 
 /**
@@ -39,6 +42,8 @@ export function FavoritesView({
   onDetail,
   favorites,
   onToggleFavorite,
+  onPick,
+  covered = false,
 }: Props) {
   // undefined = loading, null = failed.
   const [list, setList] = useState<FavoritesList | null | undefined>(initial);
@@ -108,7 +113,6 @@ export function FavoritesView({
               ...(entry.feature.properties ?? {}),
               id: loop.id,
               selected: true,
-              difficulty_band: loopBand(loop),
             },
           }
         : null,
@@ -122,7 +126,7 @@ export function FavoritesView({
 
   return (
     <section className="chat favorites-view" aria-label="Saved routes">
-      <div className="messages">
+      <div className="messages" inert={covered}>
         <div className="turn turn-assistant">
           <span className="turn-label vv-label">Saved routes</span>
           <p className="vv-body">
@@ -141,7 +145,10 @@ export function FavoritesView({
             key={loop.id}
             loop={loop}
             selected={selected === loop.id}
-            onSelect={(picked) => void select(picked)}
+            onSelect={(picked) => {
+              onPick?.(picked);
+              void select(picked);
+            }}
             onExpand={(picked) => void select(picked)}
             line={lineStatus[loop.id]}
             detail={routeDetails.details[loop.id]}

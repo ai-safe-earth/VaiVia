@@ -17,7 +17,8 @@ import { Sources } from './Sources';
 interface Props {
   trail: Trail;
   selected: boolean;
-  onSelect: (trail: Trail) => void;
+  /** Absent in the map layer's route panel — that card IS the selection. */
+  onSelect?: (trail: Trail) => void;
 }
 
 export function TrailCard({ trail, selected, onSelect }: Props) {
@@ -33,13 +34,13 @@ export function TrailCard({ trail, selected, onSelect }: Props) {
   // anchors, and an anchor inside a button is invalid HTML.
   return (
     <div
-      role="button"
-      tabIndex={0}
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
       className="route-card"
-      aria-pressed={selected}
-      onClick={() => onSelect(trail)}
+      aria-pressed={onSelect ? selected : undefined}
+      onClick={onSelect ? () => onSelect(trail) : undefined}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (onSelect && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
           onSelect(trail);
         }
