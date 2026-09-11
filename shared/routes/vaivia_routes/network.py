@@ -41,20 +41,35 @@ METRES_PER_DEG_LAT = 111_320.0
 
 @dataclass(frozen=True)
 class Network:
-    """One activity's directed graph over a pack, plus the arc→edge map."""
+    """One activity's directed graph over a pack, plus the arc→edge map.
+
+    The pack is a multigraph — parallel edges between the same vertex pair
+    are real (two paths along the same valley) — and scipy's CSR is not:
+    coo→csr conversion SUMS duplicate entries. So the full arc list is kept
+    sorted by (row, col), and a CSR is reduced from it by taking the
+    cheapest arc per pair AFTER penalties are applied. Reducing before
+    penalising was measured wrong on the catalogue: the ×3 penalty on a
+    walked arc is exactly what makes its dropped parallel the right way
+    home, and pgRouting (all arcs) took it where the reduced graph could
+    not — 22 of 627 asks drew a different route.
+    """
 
     pack: Pack
     activity: str
-    graph: csr_array  # (V, V) float64 weights
-    arc_edge: np.ndarray  # per CSR data slot: edge index
-    arc_forward: np.ndarray  # per CSR data slot: walked u→v?
+    # the full arc list, lexsorted by (row, col, cost)
+    rows: np.ndarray
+    cols: np.ndarray
+    data: np.ndarray
+    arc_edge: np.ndarray  # per arc: edge index
+    arc_forward: np.ndarray  # per arc: walked u→v?
+    graph: csr_array  # the unpenalised reduction, for fields
+    graph_arc: np.ndarray  # per CSR slot: index into the arc list
     main_component: int
     _cache: dict = field(default_factory=dict, compare=False)
 
     @classmethod
     def build(cls, pack: Pack, activity: str) -> "Network":
         fwd_col, rev_col = COST_COLUMNS[activity]
-        n_v = pack.counts["V"]
         u, v = pack["edge_u"], pack["edge_v"]
         fwd_cost, rev_cost = pack[fwd_col], pack[rev_col]
         fwd_ok = fwd_cost >= 0
@@ -67,30 +82,49 @@ class Network:
         arc_forward = np.concatenate(
             (np.ones(fwd_ok.sum(), bool), np.zeros(rev_ok.sum(), bool))
         )
-        # Parallel arcs between the same pair survive: csr_array would SUM
-        # duplicate entries, which is a wrong graph, so the triplets are kept
-        # as-is via coo and duplicates resolved by dijkstra taking the min
-        # path anyway — but scipy's coo→csr conversion sums too. Keep only
-        # the cheapest arc per (row, col); the walked-sequence reconstruction
-        # re-reads the survivors, so the dropped arc can never be reported.
         order = np.lexsort((data, cols, rows))
-        rows, cols, data = rows[order], cols[order], data[order]
-        arc_edge, arc_forward = arc_edge[order], arc_forward[order]
-        keep = np.concatenate(
-            ([True], (rows[1:] != rows[:-1]) | (cols[1:] != cols[:-1]))
-        )
-        graph = csr_array((data[keep], (rows[keep], cols[keep])), shape=(n_v, n_v))
         component = pack["vertex_component"]
         counts = np.bincount(component - component.min())
         main = int(counts.argmax() + component.min())
-        return cls(
+        net = cls(
             pack=pack,
             activity=activity,
-            graph=graph,
-            arc_edge=arc_edge[keep],
-            arc_forward=arc_forward[keep],
+            rows=rows[order],
+            cols=cols[order],
+            data=data[order],
+            arc_edge=arc_edge[order],
+            arc_forward=arc_forward[order],
+            graph=None,  # type: ignore[arg-type]  # filled just below
+            graph_arc=None,  # type: ignore[arg-type]
             main_component=main,
         )
+        graph, graph_arc = net._reduce(net.data)
+        object.__setattr__(net, "graph", graph)
+        object.__setattr__(net, "graph_arc", graph_arc)
+        return net
+
+    def _reduce(self, data: np.ndarray) -> tuple[csr_array, np.ndarray]:
+        """The cheapest arc per (row, col) under these weights, as a CSR
+        plus the surviving arcs' indices into the arc list."""
+        n_v = self.pack.counts["V"]
+        # arcs are (row, col)-sorted; within each pair pick the cheapest,
+        # first-listed on a tie so the choice is deterministic
+        new_pair = np.concatenate(
+            (
+                [True],
+                (self.rows[1:] != self.rows[:-1]) | (self.cols[1:] != self.cols[:-1]),
+            )
+        )
+        group = np.cumsum(new_pair) - 1
+        # index of the minimum within each group (first minimum wins)
+        order = np.lexsort((np.arange(len(data)), data, group))
+        winners = order[np.searchsorted(group[order], np.arange(group[-1] + 1))]
+        winners.sort()
+        graph = csr_array(
+            (data[winners], (self.rows[winners], self.cols[winners])),
+            shape=(n_v, n_v),
+        )
+        return graph, winners
 
     # -- queries ---------------------------------------------------------
 
@@ -115,9 +149,9 @@ class Network:
         out-and-back needs so the way home is legal (draw.generate's
         `draw_strict_out_and_back` filter).
         """
-        graph = self.graph
+        graph, graph_arc = self.graph, self.graph_arc
         if penalised or two_way_only:
-            data = graph.data.copy()
+            data = self.data.copy()
             if penalised:
                 mask = np.isin(self.arc_edge, np.fromiter(penalised, dtype=np.int64))
                 data[mask] *= factor
@@ -125,7 +159,7 @@ class Network:
                 fwd_col, rev_col = COST_COLUMNS[self.activity]
                 both = (self.pack[fwd_col] >= 0) & (self.pack[rev_col] >= 0)
                 data[~both[self.arc_edge]] = np.inf
-            graph = csr_array((data, graph.indices, graph.indptr), shape=graph.shape)
+            graph, graph_arc = self._reduce(data)
         dist, predecessors = dijkstra(graph, indices=source, return_predecessors=True)
         if target != source and (
             predecessors[target] < 0 or not np.isfinite(dist[target])
@@ -135,13 +169,13 @@ class Network:
         while path[-1] != source:
             path.append(int(predecessors[path[-1]]))
         path.reverse()
-        return [self._arc(graph, a, b) for a, b in zip(path, path[1:])]
-
-    def _arc(self, graph: csr_array, a: int, b: int) -> tuple[int, bool]:
-        """The (edge index, forward) the CSR keeps for the arc a→b."""
-        lo, hi = graph.indptr[a], graph.indptr[a + 1]
-        slot = lo + int(np.searchsorted(graph.indices[lo:hi], b))
-        return int(self.arc_edge[slot]), bool(self.arc_forward[slot])
+        steps = []
+        for a, b in zip(path, path[1:]):
+            lo, hi = graph.indptr[a], graph.indptr[a + 1]
+            slot = lo + int(np.searchsorted(graph.indices[lo:hi], b))
+            arc = graph_arc[slot]
+            steps.append((int(self.arc_edge[arc]), bool(self.arc_forward[arc])))
+        return steps
 
     def nearest_vertex(self, lon: float, lat: float) -> int:
         """The nearest main-component vertex, by local equirectangular
