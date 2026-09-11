@@ -64,12 +64,15 @@ class Network:
     arc_forward: np.ndarray  # per arc: walked u→v?
     graph: csr_array  # the unpenalised reduction, for fields
     graph_arc: np.ndarray  # per CSR slot: index into the arc list
+    arc_group: np.ndarray  # per arc: its (row, col) pair = its CSR slot
+    pair_start: np.ndarray  # first arc index per pair, len n_pairs + 1
     main_component: int
     _cache: dict = field(default_factory=dict, compare=False)
 
     @classmethod
     def build(cls, pack: Pack, activity: str) -> "Network":
         fwd_col, rev_col = COST_COLUMNS[activity]
+        n_v = pack.counts["V"]
         u, v = pack["edge_u"], pack["edge_v"]
         fwd_cost, rev_cost = pack[fwd_col], pack[rev_col]
         fwd_ok = fwd_cost >= 0
@@ -83,48 +86,37 @@ class Network:
             (np.ones(fwd_ok.sum(), bool), np.zeros(rev_ok.sum(), bool))
         )
         order = np.lexsort((data, cols, rows))
+        rows, cols, data = rows[order], cols[order], data[order]
+        # Arcs are (row, col, cost)-sorted, so each pair's FIRST arc is its
+        # cheapest and the reduction is just the pair-start slice. The pair
+        # index doubles as the CSR slot: pairs and CSR entries share the
+        # (row, col) order.
+        new_pair = np.concatenate(
+            ([True], (rows[1:] != rows[:-1]) | (cols[1:] != cols[:-1]))
+        )
+        arc_group = np.cumsum(new_pair) - 1
+        pair_start = np.concatenate((np.flatnonzero(new_pair), [len(rows)]))
+        winners = pair_start[:-1]
+        graph = csr_array(
+            (data[winners], (rows[winners], cols[winners])), shape=(n_v, n_v)
+        )
         component = pack["vertex_component"]
         counts = np.bincount(component - component.min())
         main = int(counts.argmax() + component.min())
-        net = cls(
+        return cls(
             pack=pack,
             activity=activity,
-            rows=rows[order],
-            cols=cols[order],
-            data=data[order],
+            rows=rows,
+            cols=cols,
+            data=data,
             arc_edge=arc_edge[order],
             arc_forward=arc_forward[order],
-            graph=None,  # type: ignore[arg-type]  # filled just below
-            graph_arc=None,  # type: ignore[arg-type]
+            graph=graph,
+            graph_arc=winners,
+            arc_group=arc_group,
+            pair_start=pair_start,
             main_component=main,
         )
-        graph, graph_arc = net._reduce(net.data)
-        object.__setattr__(net, "graph", graph)
-        object.__setattr__(net, "graph_arc", graph_arc)
-        return net
-
-    def _reduce(self, data: np.ndarray) -> tuple[csr_array, np.ndarray]:
-        """The cheapest arc per (row, col) under these weights, as a CSR
-        plus the surviving arcs' indices into the arc list."""
-        n_v = self.pack.counts["V"]
-        # arcs are (row, col)-sorted; within each pair pick the cheapest,
-        # first-listed on a tie so the choice is deterministic
-        new_pair = np.concatenate(
-            (
-                [True],
-                (self.rows[1:] != self.rows[:-1]) | (self.cols[1:] != self.cols[:-1]),
-            )
-        )
-        group = np.cumsum(new_pair) - 1
-        # index of the minimum within each group (first minimum wins)
-        order = np.lexsort((np.arange(len(data)), data, group))
-        winners = order[np.searchsorted(group[order], np.arange(group[-1] + 1))]
-        winners.sort()
-        graph = csr_array(
-            (data[winners], (self.rows[winners], self.cols[winners])),
-            shape=(n_v, n_v),
-        )
-        return graph, winners
 
     # -- queries ---------------------------------------------------------
 
@@ -151,15 +143,34 @@ class Network:
         """
         graph, graph_arc = self.graph, self.graph_arc
         if penalised or two_way_only:
-            data = self.data.copy()
+            # Re-reduce only the pairs an adjusted arc belongs to — the
+            # rest of the CSR keeps its cheapest arc as built.
+            affected = np.zeros(len(self.data), dtype=bool)
             if penalised:
-                mask = np.isin(self.arc_edge, np.fromiter(penalised, dtype=np.int64))
-                data[mask] *= factor
+                affected |= np.isin(
+                    self.arc_edge, np.fromiter(penalised, dtype=np.int64)
+                )
+            banned = None
             if two_way_only:
                 fwd_col, rev_col = COST_COLUMNS[self.activity]
                 both = (self.pack[fwd_col] >= 0) & (self.pack[rev_col] >= 0)
-                data[~both[self.arc_edge]] = np.inf
-            graph, graph_arc = self._reduce(data)
+                banned = ~both[self.arc_edge]
+                affected |= banned
+            gdata = graph.data.copy()
+            garc = graph_arc.copy()
+            for pair in np.unique(self.arc_group[affected]):
+                lo, hi = self.pair_start[pair], self.pair_start[pair + 1]
+                costs = self.data[lo:hi].copy()
+                if penalised:
+                    for k in range(hi - lo):
+                        if self.arc_edge[lo + k] in penalised:
+                            costs[k] *= factor
+                if banned is not None:
+                    costs[banned[lo:hi]] = np.inf
+                k = int(costs.argmin())
+                gdata[pair], garc[pair] = costs[k], lo + k
+            graph = csr_array((gdata, graph.indices, graph.indptr), shape=graph.shape)
+            graph_arc = garc
         dist, predecessors = dijkstra(graph, indices=source, return_predecessors=True)
         if target != source and (
             predecessors[target] < 0 or not np.isfinite(dist[target])
