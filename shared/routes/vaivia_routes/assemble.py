@@ -225,7 +225,7 @@ def assert_connected(edges: list[WalkedEdge]) -> None:
             continue
         if a_end != b_start:
             raise ValueError(
-                f"walk disconnected at step {i}: edge {a.edge_id} ends at "
+                f"walk disconnected at step {i + 1}: edge {a.edge_id} ends at "
                 f"vertex {a_end}, edge {b.edge_id} starts at {b_start}"
             )
 
