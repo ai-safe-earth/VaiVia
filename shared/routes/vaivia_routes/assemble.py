@@ -16,6 +16,7 @@ here is pinned by a test.
 
 from __future__ import annotations
 
+import itertools
 from typing import NamedTuple
 
 from vaivia_routes.document import (
@@ -218,7 +219,7 @@ def assert_connected(edges: list[WalkedEdge]) -> None:
     before anything is assembled or minted. Edges without source/target
     (the pgRouting path) cannot be checked and pass.
     """
-    for i, (a, b) in enumerate(zip(edges, edges[1:])):
+    for i, (a, b) in enumerate(itertools.pairwise(edges)):
         a_end = a.target if a.forward else a.source
         b_start = b.source if b.forward else b.target
         if a_end is None or b_start is None:

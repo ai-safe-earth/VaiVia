@@ -16,6 +16,7 @@ can never resurrect it, by construction rather than by CASE expression.
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass, field
 
@@ -70,7 +71,7 @@ class Network:
     _cache: dict = field(default_factory=dict, compare=False)
 
     @classmethod
-    def build(cls, pack: Pack, activity: str) -> "Network":
+    def build(cls, pack: Pack, activity: str) -> Network:
         fwd_col, rev_col = COST_COLUMNS[activity]
         n_v = pack.counts["V"]
         u, v = pack["edge_u"], pack["edge_v"]
@@ -181,7 +182,7 @@ class Network:
             path.append(int(predecessors[path[-1]]))
         path.reverse()
         steps = []
-        for a, b in zip(path, path[1:]):
+        for a, b in itertools.pairwise(path):
             lo, hi = graph.indptr[a], graph.indptr[a + 1]
             slot = lo + int(np.searchsorted(graph.indices[lo:hi], b))
             arc = graph_arc[slot]

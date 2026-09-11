@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from test_pack import synthetic
+
 from vaivia_routes import pack
 from vaivia_routes.assemble import WalkedEdge, assemble, assert_connected
 from vaivia_routes.draw import draw_loop, draw_strict_out_and_back

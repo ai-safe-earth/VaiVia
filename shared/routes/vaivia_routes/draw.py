@@ -8,6 +8,8 @@ is what makes "the same" a checked claim rather than a hope.
 
 from __future__ import annotations
 
+import itertools
+
 from vaivia_routes.assemble import WalkedEdge, strict_return
 from vaivia_routes.loops import ring_points
 from vaivia_routes.network import Network
@@ -29,7 +31,7 @@ def draw_loop(
     waypoints = [start_vertex, *vias, start_vertex]
     steps: list[tuple[int, bool]] = []
     walked: set[int] = set()
-    for leg_from, leg_to in zip(waypoints, waypoints[1:]):
+    for leg_from, leg_to in itertools.pairwise(waypoints):
         if leg_from == leg_to:
             continue
         leg = net.route(leg_from, leg_to, penalised=walked)
