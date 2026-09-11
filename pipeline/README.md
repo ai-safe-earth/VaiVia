@@ -194,6 +194,25 @@ band passing a peak — and it filters on `warnings = 0`, because its first run 
 that filter surfaced 0.0 km fragments wearing famous names: the quality block is not
 decoration.
 
+## Exporting the pack
+
+```bash
+uv run python -m export.pack --dry-run                  # counts only, no build_run row
+uv run python -m export.pack --out packs/               # the whole store (~10 s, ~35 MB)
+uv run python -m export.pack --out ../shared/routes/tests/fixtures \
+    --bbox 9.38,45.84,9.42,45.87 --name pack-lecco-3km  # the committed test fixture
+```
+
+The pack is the routable network as numpy arrays — `packs/<run_id>/network.npz` +
+`manifest.json` — and it is what the backend draws routes over at ask time
+(`docs/route-design.md`). Its format is one module, `shared/routes/vaivia_routes/pack.py`
+(`SPEC`, `validate`), shared with the backend as an editable path dependency; the pipeline
+only shapes rows into it. Edges routable by neither activity, zero-length edges and
+self-loops stay behind; directional costs come straight from `catalogue.v_edges_foot/bike`
+(−1 = forbidden), the profile is one sample per geometry point, and every string column is a
+code into `manifest["codes"]`. A pack that breaks an invariant is refused at write time.
+Each export is a `build_run` (stage `export`) with the counts and the byte size.
+
 ## The state notebook
 
 ```bash

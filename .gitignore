@@ -78,6 +78,11 @@ pipeline/data/
 /review/
 /review.zip
 
+# Packs: the network exported for the planner (`uv run python -m export.pack`),
+# ~35 MB each and rebuilt from PostGIS. The 3 km test fixture under
+# shared/routes/tests/fixtures/ is committed on purpose.
+pipeline/packs/
+
 # Personal working note, not part of the repo.
 Oscar_continua_desde_aqui.md
 

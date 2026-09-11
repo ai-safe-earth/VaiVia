@@ -1,0 +1,28 @@
+[project]
+name = "vaivia-routes"
+version = "0.1.0"
+description = "VaiVia route engine shared by the pipeline and the backend: the pack format, assembly, ids"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+]
+
+# Both uv projects depend on this one as an editable path dependency
+# ([tool.uv.sources] in pipeline/pyproject.toml and backend/pyproject.toml), so
+# a route drawn by the pipeline and one drawn at ask time are the same code
+# (docs/route-design.md, decision 5). Its tests run from the pipeline's
+# environment: `cd pipeline && uv run pytest ../shared/routes/tests`.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vaivia_routes"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.black]
+line-length = 88

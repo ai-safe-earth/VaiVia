@@ -24,7 +24,18 @@ dependencies = [
     # — Neo4j is a READER of the route documents, and this is the reading).
     "neo4j>=5.0",
     "contextily>=1.7.1",
+    # The pack (docs/route-design.md): the network the planner draws over,
+    # exported by export.pack in the format shared/routes defines. numpy was
+    # transitive already; the pack makes it direct.
+    "numpy>=1.26",
+    "vaivia-routes",
 ]
+
+[tool.uv.sources]
+# Editable path dependency, so the pipeline and the backend run the same
+# route code from one checkout (route-design.md, decision 5). Its tests run
+# from here: `uv run pytest ../shared/routes/tests`.
+vaivia-routes = { path = "../shared/routes", editable = true }
 
 [dependency-groups]
 # The state notebook (notebooks/state.ipynb). Not in `dev` because a normal
