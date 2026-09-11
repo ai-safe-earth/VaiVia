@@ -29,7 +29,7 @@
       "Read(**/*.woff)",
       "Read(**/*.woff2)",
       "Read(**/*.ttf)",
-      "Read(**/*.pdf)"
+      "Read(**/*.pdf)",
       "Read(./docs/pm-log.jsonl)",
       "Read(**/*.lock)"
     ]

@@ -20,10 +20,15 @@ import {
   type LineStatus,
 } from '@/lib/mapTurn';
 import { isAuthConfigured } from '@/lib/supabaseClient';
-import type { ChatMessage, Loop, RouteDetail, Trail } from '@/lib/types';
+import type {
+  ChatMessage,
+  FeedbackTurn,
+  Loop,
+  RouteDetail,
+  Trail,
+} from '@/lib/types';
 import { useRouteDetails } from '@/lib/useRouteDetails';
 
-import { type DifficultyBand, loopBand, trailBand } from '@/lib/difficulty';
 
 import { Feedback } from './Feedback';
 import { FoldedCards } from './FoldedCards';
@@ -62,6 +67,21 @@ interface Props {
    *  in the favorites view are the same state. Absent when signed out. */
   favorites?: Set<string>;
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
+  /** A card's body was tapped: the map layer comes up over the conversation
+   *  with this route's data under it. Null when a fresh answer takes the map
+   *  over — the panel empties, the layer stays where it is.
+   *
+   *  `turn` is the stored message the card came from, so the panel card can
+   *  ask whether the route was right. Absent from the saved-routes view: a
+   *  saved route answers no question. */
+  onPick?: (picked: Loop | Trail | null, turn?: FeedbackTurn) => void;
+  /** A question was asked. The page brings the map down: an answer is read on
+   *  the conversation, which is where it was asked for. */
+  onAsk?: () => void;
+  /** The map layer is over the transcript. The transcript keeps its scroll and
+   *  its selection but leaves the tab order — reaching a card under the map
+   *  with Tab and "clicking" it is a gesture with no visible effect. */
+  covered?: boolean;
   /** Out of sight, still mounted. The Saved-routes view takes over the column
    *  but must not DESTROY the conversation underneath it: this panel owns the
    *  visible transcript, and unmounting it threw the transcript away and
@@ -80,6 +100,9 @@ export function ChatPanel({
   onClear,
   favorites,
   onToggleFavorite,
+  onPick,
+  onAsk,
+  covered = false,
   hidden = false,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -99,7 +122,6 @@ export function ChatPanel({
   const loopFeatures = useRef<Map<string, LineEntry>>(new Map());
   // Difficulty band per route id, for the map's line colour. Never cleared:
   // ids are content-derived, so a stale entry is the same route.
-  const bands = useRef<Map<string, DifficultyBand>>(new Map());
   // The same statuses as React state, so the cards re-render when a line
   // arrives or fails - the ref alone repaints nothing.
   const [lineStatus, setLineStatus] = useState<Record<string, LineStatus>>({});
@@ -131,6 +153,9 @@ export function ChatPanel({
   };
   const emitDetail = (detail: RouteDetail | null) => {
     if (!hiddenRef.current) onDetail?.(detail);
+  };
+  const emitPick = (picked: Loop | Trail | null, turn?: FeedbackTurn) => {
+    if (!hiddenRef.current) onPick?.(picked, turn);
   };
 
   const routes = useRouteDetails(emitDetail);
@@ -172,8 +197,11 @@ export function ChatPanel({
         ...geometry,
         properties: {
           ...(geometry.properties ?? {}),
+          // The id rides with the feature: the map layer compares what is
+          // drawn against what was picked, and a trail's own GeoJSON carries
+          // trail_id, which is not a name focusedRouteId knows.
+          id: trail.id,
           selected: true,
-          difficulty_band: trailBand(trail.difficulty_level, trail.activity),
         },
       },
     );
@@ -185,7 +213,7 @@ export function ChatPanel({
    *  "a selection whose line is unavailable clears the map rather than
    *  framing its siblings" - lives in lib/mapTurn.ts, tested. */
   function drawLoops(selectedId: string | null) {
-    const features = drawableFeatures(loopFeatures.current, selectedId, bands.current);
+    const features = drawableFeatures(loopFeatures.current, selectedId);
     emitGeometry(features ? { type: 'FeatureCollection', features } : null);
   }
 
@@ -246,7 +274,6 @@ export function ChatPanel({
    *  just revealed. Settled, not all: one route missing its geometry must not
    *  stop the others being drawn. */
   async function appendLoopGeometry(loops: Loop[], turn: number) {
-    loops.forEach((loop) => bands.current.set(loop.id, loopBand(loop)));
     // Errors are retried on the next ask; ok and missing (404) are settled;
     // a line already on the wire is not asked for again.
     const wanted = loops.filter(
@@ -291,6 +318,8 @@ export function ChatPanel({
     const message = text.trim();
     if (!message || busy) return;
 
+    // The answer is read on the conversation, so asking brings the map down.
+    onAsk?.();
     setInput('');
     setBusy(true);
     setMessages((current) => [
@@ -338,6 +367,7 @@ export function ChatPanel({
               routes.select(null);
               setSelectedTrail(null);
               emitDetail(null);
+              emitPick(null);
               void loadLoopGeometry(event.results.loops.slice(0, fold), turnIndex);
               break;
             }
@@ -368,6 +398,7 @@ export function ChatPanel({
               setSelectedTrail(null);
               emitGeometry(null);
               emitDetail(null);
+              emitPick(null);
             }
             break;
           }
@@ -398,10 +429,12 @@ export function ChatPanel({
   }
 
   return (
-    // display:none rather than a class, so it beats `.chat { display: flex }`
-    // — and it takes the panel out of the tab order and the a11y tree too.
-    <section className="chat" style={hidden ? { display: 'none' } : undefined}>
-      {!isAuthConfigured() && (
+    // Hidden hides the TRANSCRIPT, never the section: the composer is the
+    // bottom edge of the app and stays live behind the Saved-routes view, so a
+    // question asked there is answered here. flex:none shrinks the section to
+    // that composer instead of holding half the stage empty.
+    <section className="chat" style={hidden ? { flex: 'none' } : undefined}>
+      {!isAuthConfigured() && !hidden && (
         <div className="notice">
           <div className="notice-bar" />
           <div className="notice-body">
@@ -414,7 +447,11 @@ export function ChatPanel({
         </div>
       )}
 
-      <div className="messages">
+      <div
+        className="messages"
+        inert={covered}
+        style={hidden ? { display: 'none' } : undefined}
+      >
         {messages.length === 0 && (
           <>
             <div className="turn turn-assistant">
@@ -481,14 +518,34 @@ export function ChatPanel({
                     key={loop.id}
                     loop={loop}
                     selected={selectedTrail === loop.id}
-                    onSelect={(picked) =>
+                    // The turn this card answers: the open card asks whether
+                    // the route was right, and the vote is stored against
+                    // (this message, this route).
+                    messageId={message.messageId}
+                    conversationId={conversationId ?? undefined}
+                    onSelect={(picked) => {
+                      // The body tap is the gesture that raises the map. "See
+                      // more" below draws the same line but stays in the
+                      // transcript: one gesture, one meaning.
+                      // No turn while the answer is still streaming — the id
+                      // arrives with `done`. The panel card then shows no
+                      // thumbs for that pick; the transcript card grows them
+                      // in place, and a second tap gives the panel its own.
+                      // Re-emitting the pick on `done` would reopen the map
+                      // and refetch the detail, which is worse than waiting.
+                      emitPick(
+                        picked,
+                        message.messageId && conversationId
+                          ? { messageId: message.messageId, conversationId }
+                          : undefined,
+                      );
                       void selectLoop(
                         picked,
                         index,
                         message.results?.loops ?? [],
                         message.results?.answered_count ?? DEFAULT_FOLD,
-                      )
-                    }
+                      );
+                    }}
                     onExpand={(picked) =>
                       void selectLoop(
                         picked,
@@ -513,7 +570,10 @@ export function ChatPanel({
                     key={trail.id}
                     trail={trail}
                     selected={selectedTrail === trail.id}
-                    onSelect={(selected) => void selectTrail(selected)}
+                    onSelect={(selected) => {
+                      emitPick(selected);
+                      void selectTrail(selected);
+                    }}
                   />
                 ))}
               </FoldedCards>

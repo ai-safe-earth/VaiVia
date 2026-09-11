@@ -193,14 +193,17 @@ export async function setFavorite(routeId: string, on: boolean): Promise<void> {
   if (!response.ok) throw new Error(`favorite toggle failed: ${response.status}`);
 }
 
-/** Thumbs vote on an assistant answer. An upsert server-side: a re-vote
- *  flips, a second call with a comment attaches it. */
+/** Thumbs vote on an assistant answer, or on ONE route card in it. An upsert
+ *  server-side: a re-vote flips, a second call with a comment attaches it.
+ *  The route vote is its own row — a good answer can still offer a wrong
+ *  route, and that pair is what the golden dataset wants. */
 export async function sendFeedback(
   messageId: string,
   conversationId: string,
   vote: 1 | -1,
   comment?: string,
   expected?: string,
+  routeId?: string,
 ): Promise<void> {
   const response = await gatewayFetch('/feedback', {
     method: 'POST',
@@ -211,6 +214,7 @@ export async function sendFeedback(
       vote,
       comment: comment ?? null,
       expected: expected ?? null,
+      route_id: routeId ?? '',
     }),
   });
   if (!response.ok) throw new Error(`feedback failed: ${response.status}`);

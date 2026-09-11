@@ -16,6 +16,21 @@
  *
  * Run from frontend/:  npm run test:e2e
  *
+ * WHAT THIS SUITE CANNOT SEE — check by hand on a real device after any
+ * change to the shell, the composer or the map layer (Playwright cannot raise
+ * a soft keyboard, and headless Chromium has no safe-area insets):
+ *
+ *   iOS Safari      focus the composer: the field must NOT zoom the page in,
+ *                   and the composer must stay above the keyboard. Raise the
+ *                   map, then focus the composer: the canvas must not stretch.
+ *                   If the composer ends up under the keyboard, the
+ *                   visualViewport fallback in the plan (Phase 11 U3) is due.
+ *   Chrome Android  the same, plus the browser's back gesture must lower the
+ *                   map layer rather than leave the app.
+ *   Notched device  in landscape, the header and the credit must clear the
+ *                   notch and the home indicator (viewportFit: cover pays the
+ *                   insets back as shell padding).
+ *
  * Re-running within the same minute can trip the gateway's per-user rate
  * limit (RATE_LIMIT_MAX, default 60/min): a live run spends a few dozen
  * requests, so two runs back-to-back 429 the /chat call and the turn shows
@@ -46,10 +61,16 @@ test.describe('VaiVia smoke', () => {
     await page.getByLabel('Password').fill(PASSWORD!);
     await page.getByRole('button', { name: 'Sign in' }).click();
 
-    // Signed-in chrome appears...
-    await expect(page.getByText(EMAIL!)).toBeVisible();
+    // Signed-in chrome appears. The account's address is the title of Sign
+    // out rather than a block of its own — at 360px the header is mark,
+    // wordmark, two icons and that button, and it must not overflow.
+    const signOut = page.getByRole('button', { name: 'Sign out' });
+    await expect(signOut).toBeVisible();
+    await expect(signOut).toHaveAttribute('title', EMAIL!);
     await expect(page.getByRole('heading', { name: 'VaiVia' })).toBeVisible();
     await expect(page.getByLabel('Your message')).toBeVisible();
+    const header = page.locator('.app-header');
+    expect(await header.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 
     // ...and sign-out drops back to the auth gate.
     await page.getByRole('button', { name: 'Sign out' }).click();
@@ -61,7 +82,7 @@ test.describe('VaiVia smoke', () => {
     await page.getByLabel('Email').fill(EMAIL!);
     await page.getByLabel('Password').fill(PASSWORD!);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByText(EMAIL!)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
     // The single conversation resumes on sign-in (no tabs). History loads
     // asynchronously — wait for a user turn rather than sampling immediately,
@@ -87,7 +108,7 @@ test.describe('VaiVia smoke', () => {
     await page.getByLabel('Email').fill(EMAIL!);
     await page.getByLabel('Password').fill(PASSWORD!);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByText(EMAIL!)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
     const input = page.getByLabel('Your message');
     // Loop wording on purpose: it is what reaches the pipeline catalogue.
@@ -99,7 +120,10 @@ test.describe('VaiVia smoke', () => {
     // A real streamed answer selected from the catalogue. The route that comes
     // back is whichever scores best on the day, so this pins the shape — a
     // card with a name and a distance — not one route's name.
-    const card = page.locator('.route-card').first();
+    // Scoped to the transcript: the map layer's route panel renders the SAME
+    // card component with the same class and the same data-route-id, so an
+    // unscoped .first() re-resolves to the panel after the first click.
+    const card = page.locator('.messages .route-card').first();
     await expect(card).toBeVisible({ timeout: 45_000 });
     await expect(card.locator('.route-name')).not.toBeEmpty();
     await expect(card.getByText('km')).toBeVisible();
@@ -110,12 +134,56 @@ test.describe('VaiVia smoke', () => {
     // MapView surfaces the focused route id as a data attribute for exactly
     // this assertion.
     const clickedId = await card.getAttribute('data-route-id');
+    const layer = page.locator('.map-layer');
     await card.click();
-    await expect(page.getByText('Pick a trail to see it drawn here.')).toBeHidden();
+    await expect(layer).toBeVisible();
+    await expect(page.locator('.map-empty')).toBeHidden();
     await expect(page.locator('[data-selected-route]')).toHaveAttribute(
       'data-selected-route',
       clickedId!,
     );
+
+    // The panel under the canvas is the same card, for the route that was
+    // tapped, opened on arrival — the tap WAS the ask for its numbers.
+    const panelCard = page.locator('.route-panel .route-card');
+    await expect(panelCard).toHaveAttribute('data-route-id', clickedId!);
+    await expect(panelCard.locator('.route-detail .profile i').first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // The canvas was resized to the layer's box as it opened: a fitBounds
+    // computed against the old box is the defect this pins.
+    const [canvasWidth, boxWidth] = await page.evaluate(() => [
+      document.querySelector('.maplibregl-canvas')?.clientWidth ?? -1,
+      document.querySelector('.map-canvas')?.clientWidth ?? -2,
+    ]);
+    expect(canvasWidth).toBe(boxWidth);
+
+    // ODbL is on screen in BOTH states, never behind a toggle (BRAND-SPEC
+    // §12): the app's own credit row, and the map's attribution while the map
+    // is up.
+    await expect(page.locator('.maplibregl-ctrl-attrib')).toBeVisible();
+    await expect(page.locator('.data-credit')).toBeVisible();
+
+    // The way back a finger can find: a labelled button on the layer itself
+    // (owner decision 2026-09-08 — Escape and Back were the only exits and
+    // neither is discoverable on a phone).
+    await page.locator('.map-back').click();
+    await expect(layer).toBeHidden();
+    await card.click();
+    await expect(layer).toBeVisible();
+
+    // The map is a layer over the conversation, not a page. Escape lowers it,
+    // the card stays picked underneath, and the browser's Back lowers it too —
+    // which is what makes Android's back gesture do the obvious thing.
+    await page.keyboard.press('Escape');
+    await expect(layer).toBeHidden();
+    await expect(page.locator('.data-credit')).toBeVisible();
+    await expect(card).toHaveAttribute('aria-pressed', 'true');
+    await card.click();
+    await expect(layer).toBeVisible();
+    await page.goBack();
+    await expect(layer).toBeHidden();
 
     // The answer prose carries no links (fragilities.md #14): the model used
     // to invent trailforks.com links onto OSM-derived routes, and the strip
@@ -130,9 +198,10 @@ test.describe('VaiVia smoke', () => {
     const kind = await card.locator('.route-kind').innerText();
     expect(['LOOP', 'OUT & BACK', 'LINEAR']).toContain(kind.toUpperCase());
 
-    // Expanding reveals the full card, with the altitude profile fetched
-    // from the route document via /routes/{id}/detail.
+    // The transcript's own card still expands in place — "See more" draws the
+    // line but leaves the reader where they are, and never raises the map.
     await card.locator('.detail-toggle').click();
+    await expect(layer).toBeHidden();
     await expect(card.locator('.route-detail')).toBeVisible();
     await expect(card.locator('.route-detail .profile i').first()).toBeVisible({
       timeout: 10_000,
@@ -143,19 +212,25 @@ test.describe('VaiVia smoke', () => {
     // conditional — but when the control is there, it must reveal.
     // .last(): a resumed transcript can hold older answers with their own
     // folds; the live turn's control is the one under test.
-    const showMore = page.locator('.show-more').last();
+    const showMore = page.locator('.messages .show-more').last();
     if (await showMore.isVisible()) {
-      const before = await page.locator('.route-card').count();
+      const before = await page.locator('.messages .route-card').count();
       await showMore.click();
       await expect
-        .poll(async () => page.locator('.route-card').count())
+        .poll(async () => page.locator('.messages .route-card').count())
         .toBeGreaterThan(before);
     }
 
     // The feedback loop, end to end: thumbs render once the turn is stored
     // (messageId arrives on `done`), a downvote asks what could be improved,
     // and the comment posts through the gateway into message_feedback.
-    const feedback = page.locator('.feedback').last();
+    // Scoped to .messages: an open card asks the same question about its own
+    // route, and the map panel's card — still mounted, just lowered — would
+    // otherwise be the last .feedback in the document.
+    const feedback = page
+      .locator('.messages .feedback')
+      .filter({ has: page.getByLabel('Bad answer') })
+      .last();
     await expect(feedback).toBeVisible();
     await feedback.getByLabel('Bad answer').click();
     const wrong = feedback.getByLabel("What's wrong?");
@@ -173,6 +248,11 @@ test.describe('VaiVia smoke', () => {
     await page.getByRole('button', { name: 'Saved routes', exact: true }).click();
     const savedCard = page.locator('.favorites-view .route-card').first();
     await expect(savedCard).toBeVisible({ timeout: 10_000 });
+    // A saved card raises the map the same way a chat card does; Escape puts
+    // it back and the bookmark is reachable again.
+    await savedCard.click();
+    await expect(layer).toBeVisible();
+    await page.keyboard.press('Escape');
     await savedCard.getByLabel('Remove from saved routes').click();
     // The card stays until the list reloads (an accidental tap is undoable),
     // but the bookmark must read unsaved at once.

@@ -38,32 +38,60 @@ body {
 }
 
 /* ── Shell ────────────────────────────────────────────────────────────────
-   Chat column fixed at the spec width, map takes the rest. */
+   ONE layout at every width (owner decision 2026-08-28): header, stage,
+   credit, in a single column. The conversation is the base layer of the stage
+   and the map slides over it; the composer never leaves the bottom edge. The
+   720px cap is the same rule on a phone and on a desktop — cards were drawn
+   for a 400px column, and a full-bleed transcript at 1440px is a second
+   layout in all but name. */
 
 .shell {
-  display: grid;
-  grid-template-columns: var(--vv-chat-width) 1fr;
+  display: flex;
+  flex-direction: column;
+  /* dvh so the composer is not under the browser's own bottom bar; the vh
+     line stays as the fallback. */
   height: 100vh;
-}
-
-@media (max-width: 900px) {
-  .shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 40vh;
-  }
+  height: 100dvh;
+  max-width: 720px;
+  margin: 0 auto;
+  /* viewportFit: cover (layout.tsx) puts the page under the notch and the home
+     indicator; the insets come back here, so the credit and the composer are
+     never under either. box-sizing: border-box means this eats into the
+     100dvh rather than adding to it. */
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  background: var(--vv-ground);
+  border-left: 1px solid var(--vv-line);
+  border-right: 1px solid var(--vv-line);
 }
 
 .shell.centered {
-  grid-template-columns: 1fr;
-  place-items: center;
+  justify-content: center;
+  align-items: center;
 }
 
-.chat-column {
+/* Everything between the header and the credit. The positioning context the
+   map layer is absolute against, and the flex column that BOUNDS the
+   transcript: without it .chat grows with the conversation and the composer
+   walks off the bottom of the screen. */
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  background: var(--vv-ground);
-  border-right: 1px solid var(--vv-line);
+  /* The closed map layer is translated a full height DOWN, and an absolutely
+     positioned child that sticks out counts as scrollable overflow: without
+     this the document grew to ~1013px on a 640px screen and scrolled the
+     header off the top. `clip`, not `hidden`: hidden still makes this a
+     SCROLL CONTAINER, so the transcript's scrollIntoView scrolled the stage
+     itself and dragged the whole conversation up by 427px. clip cannot be
+     scrolled at all, which leaves .messages the only scroller — as intended. */
+  overflow: clip;
+  /* The composer's own height, so the map layer can stop just above it. */
+  --vv-composer-h: 52px;
 }
 
 .chat {
@@ -71,10 +99,6 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  /* The dialogue window: one contour around transcript + composer, so the
-     cards inside read as part of the conversation, not a list beside it. */
-  margin: var(--vv-s3);
-  border: 1px solid var(--vv-line);
 }
 
 /* ── Header ───────────────────────────────────────────────────────────────
@@ -651,6 +675,16 @@ body {
   border-bottom: 1px solid var(--vv-line);
 }
 
+/* The same question inside an open card: the detail already carries the
+   inset and the card its own frame, so this one keeps only a hairline above
+   it to separate the ask from the attribution. */
+.route-detail .feedback {
+  padding: var(--vv-s3) 0 0;
+  margin-top: var(--vv-s3);
+  border-bottom: 0;
+  border-top: 1px solid var(--vv-line);
+}
+
 .feedback-row {
   display: flex;
   align-items: center;
@@ -760,6 +794,10 @@ body {
 .composer {
   flex: none;
   display: flex;
+  /* The map layer stops above the composer by this height — it is a
+     measurement, so pin it rather than leaving it to the Ask button's
+     padding. */
+  min-height: var(--vv-composer-h, 52px);
   border-top: 1px solid var(--vv-line);
 }
 
@@ -775,6 +813,18 @@ body {
 
 .composer input::placeholder {
   color: var(--vv-muted);
+}
+
+/* iOS Safari zooms the page in when a focused input's text is under 16px, and
+   never zooms back out — the whole layout is left oversized and scrolled. 16px
+   on touch is the only thing that stops it; the spec's 13.5px stays wherever
+   there is a real pointer. Both inputs, not just the composer: the sign-in
+   form is the first thing a phone user focuses. */
+@media (pointer: coarse) {
+  .composer input,
+  .auth input {
+    font-size: 16px;
+  }
 }
 
 .composer input:focus-visible {
@@ -840,13 +890,42 @@ body {
   color: var(--vv-text);
 }
 
-/* ── Map ──────────────────────────────────────────────────────────────────*/
+/* ── Map layer ───────────────────────────────────────────────────────────
+   The map over the conversation, stopping above the composer so a question can
+   be asked without putting it away. Closed it is translated out and made
+   invisible rather than unmounted: MapLibre keeps its camera and its tiles,
+   and visibility takes it out of the tab order and the a11y tree while it is
+   away. No shadow and no radius (BRAND-SPEC §4): the hairline and the
+   ground-to-map step are the whole affordance. */
 
-.map {
+.map-layer {
+  position: absolute;
+  inset: 0 0 var(--vv-composer-h) 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--vv-map);
+  border-top: 1px solid var(--vv-line);
+  transform: translateY(100%);
+  visibility: hidden;
+  /* Hiding waits for the slide to finish; showing must not wait for it. */
+  transition:
+    transform 200ms ease,
+    visibility 0s 200ms;
+}
+
+[data-view='map'] .map-layer {
+  transform: translateY(0);
+  visibility: visible;
+  transition: transform 200ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-layer,
+  [data-view='map'] .map-layer {
+    transition: none;
+  }
 }
 
 .map-canvas {
@@ -855,12 +934,37 @@ body {
   min-height: 0;
 }
 
-/* Bottom panel: the elevation profile and its three labels. Inactive — the
-   bars render the moment a height series arrives. */
+/* The way back, said in words. Top-LEFT: the nav control owns top-right, and
+   the label is the point — the header icon was the only exit and nobody read
+   a zigzag as "back". Solid ground under it, because it sits over tiles. */
+.map-back {
+  position: absolute;
+  top: var(--vv-s3);
+  left: var(--vv-s3);
+  z-index: 2;
+  padding: var(--vv-s3) var(--vv-s5);
+  border: 1px solid var(--vv-line);
+  background: var(--vv-ground);
+  color: var(--vv-text);
+  font: 400 9.5px/1 var(--vv-sans);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
 
-.map-panel {
+.map-back:hover {
+  border-color: var(--vv-lime);
+  color: var(--vv-lime);
+}
+
+/* The picked route's card, under the canvas and under the map's own
+   attribution row — never over either. Fixed share of the layer and scrolls:
+   a card that grew with its detail would push the map to a sliver. */
+
+.route-panel {
   flex: none;
-  padding: var(--vv-s3) var(--vv-s6);
+  max-height: 45%;
+  overflow-y: auto;
   border-top: 1px solid var(--vv-line);
   background: var(--vv-ground);
 }
@@ -875,10 +979,6 @@ body {
 .profile i {
   flex: 1;
   background: var(--vv-lime);
-}
-
-.profile-pending {
-  margin: 0;
 }
 
 .profile-labels {
@@ -903,24 +1003,24 @@ body {
   pointer-events: none;
 }
 
-/* MapLibre chrome, brought onto the dark ground. Scoped under .map because
-   maplibre-gl.css is imported by the component and lands after this file —
-   at equal specificity its own white pill would win. The attribution becomes the
-   last full-width row of the map above a hairline, as the spec asks — not a
-   corner pill. */
+/* MapLibre chrome, brought onto the dark ground. Scoped under .map-layer
+   because maplibre-gl.css is imported by the component and lands after this
+   file — at equal specificity its own white pill would win. The attribution
+   becomes the last full-width row of the map above a hairline, as the spec
+   asks — not a corner pill. */
 
-.map .maplibregl-ctrl-bottom-right {
+.map-layer .maplibregl-ctrl-bottom-right {
   left: 0;
   width: 100%;
 }
 
-.map .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+.map-layer .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
   margin: 0;
 }
 
 /* Their own rule is .maplibregl-ctrl.maplibregl-ctrl-attrib, so match both
    classes or the white pill keeps its background and padding. */
-.map .maplibregl-ctrl.maplibregl-ctrl-attrib {
+.map-layer .maplibregl-ctrl.maplibregl-ctrl-attrib {
   width: 100%;
   padding: var(--vv-s1) var(--vv-s6);
   border-radius: 0;
@@ -930,32 +1030,32 @@ body {
   font: 400 12px/1.5 var(--vv-sans);
 }
 
-.map .maplibregl-ctrl-attrib a {
+.map-layer .maplibregl-ctrl-attrib a {
   color: var(--vv-muted);
 }
 
-.map .maplibregl-ctrl-attrib a:hover {
+.map-layer .maplibregl-ctrl-attrib a:hover {
   color: var(--vv-text);
 }
 
 /* :not(:empty) matches their own selector, which carries the drop shadow. */
-.map .maplibregl-ctrl-group,
-.map .maplibregl-ctrl-group:not(:empty) {
+.map-layer .maplibregl-ctrl-group,
+.map-layer .maplibregl-ctrl-group:not(:empty) {
   background: var(--vv-ground);
   border: 1px solid var(--vv-line);
   border-radius: 0;
   box-shadow: none;
 }
 
-.map .maplibregl-ctrl-group button {
+.map-layer .maplibregl-ctrl-group button {
   background: transparent;
 }
 
-.map .maplibregl-ctrl-group button + button {
+.map-layer .maplibregl-ctrl-group button + button {
   border-top: 1px solid var(--vv-line);
 }
 
-.map .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+.map-layer .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
   filter: invert(1);
 }
 

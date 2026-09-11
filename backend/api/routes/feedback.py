@@ -7,6 +7,13 @@ here as the owner with the user id the gateway verified. A downvote's
 result_refs, which is everything scripts/dump_conversation.py and the golden
 dataset need to turn it into an eval entry.
 
+A vote can be about one ROUTE in that answer rather than the answer whole
+(``route_id``, migration 0006). It localises the complaint — which card was
+wrong, not just that the turn was — which is what the owner needs to write a
+retrieval expectation by hand; the pin itself stays positive and stays
+hand-written (Phase 8 E2). Empty ``route_id`` is the answer-level vote; the
+two live side by side under one message.
+
 ``/feedback`` is its own gateway prefix, deliberately outside ``/chat``:
 the quota pre-check matches on the ``/chat`` prefix, and a user whose budget
 is spent must still be able to say the answer that spent it was bad.
@@ -33,6 +40,7 @@ class FeedbackStore(Protocol):
         vote: int,
         comment: str | None,
         expected: str | None,
+        route_id: str,
     ) -> bool:
         """Upsert one vote. False means the message is not in this user's
         conversation — the route turns that into an honest 404."""
@@ -47,7 +55,7 @@ class InMemoryFeedback:
     the single-statement upsert in PostgresFeedback enforce it."""
 
     def __init__(self) -> None:
-        self._votes: dict[tuple[str, str], tuple[int, str | None, str | None]] = {}
+        self._votes: dict[tuple[str, str, str], tuple[int, str | None, str | None]] = {}
 
     async def set(
         self,
@@ -57,8 +65,9 @@ class InMemoryFeedback:
         vote: int,
         comment: str | None,
         expected: str | None,
+        route_id: str = "",
     ) -> bool:
-        self._votes[(user_id, message_id)] = (vote, comment, expected)
+        self._votes[(user_id, message_id, route_id)] = (vote, comment, expected)
         return True
 
 
@@ -78,19 +87,20 @@ class PostgresFeedback:
         vote: int,
         comment: str | None,
         expected: str | None,
+        route_id: str = "",
     ) -> bool:
         async with self._pool.acquire() as conn:
             row = await conn.fetchval(
                 """
                 INSERT INTO message_feedback
                     (user_id, message_id, conversation_id, vote, comment,
-                     expected)
-                SELECT c.user_id, m.id, c.id, $3, $4, $5
+                     expected, route_id)
+                SELECT c.user_id, m.id, c.id, $3, $4, $5, $6
                 FROM messages m
                 JOIN conversations c ON c.id = m.conversation_id
                 WHERE c.user_id = $1::uuid
                   AND m.id = $2::uuid
-                ON CONFLICT (user_id, message_id) DO UPDATE
+                ON CONFLICT (user_id, message_id, route_id) DO UPDATE
                     SET vote = excluded.vote,
                         comment = excluded.comment,
                         expected = excluded.expected,
@@ -102,6 +112,7 @@ class PostgresFeedback:
                 vote,
                 comment,
                 expected,
+                route_id,
             )
         return row is not None
 
@@ -116,6 +127,9 @@ class FeedbackIn(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
     # "How should it be instead?" — the second half of the downvote's ask.
     expected: str | None = Field(default=None, max_length=2000)
+    # Which route card the thumb was on. "" is the answer as a whole, and the
+    # two are separate rows: a good answer can still offer one wrong route.
+    route_id: str = Field(default="", max_length=128)
 
 
 class FeedbackState(BaseModel):
@@ -139,6 +153,7 @@ async def set_feedback(
         body.vote,
         body.comment,
         body.expected,
+        body.route_id,
     )
     if not ok:
         raise HTTPException(

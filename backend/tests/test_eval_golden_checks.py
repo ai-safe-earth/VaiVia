@@ -7,8 +7,10 @@ eval measures whether the model obeyed BEFORE the repair — which is why these
 detectors must not false-positive on ordinary trail prose.
 """
 
+import pytest
+
 from chat.sanitize import find_link
-from scripts.eval_golden import check_answer
+from scripts.eval_golden import check_answer, select
 
 
 def test_a_markdown_link_is_found() -> None:
@@ -99,3 +101,32 @@ def test_a_clean_answer_passes() -> None:
     view = {"total_loops": 5, "loops": [{"id": "vv2-abc", "name": "Anello"}]}
     answer = "I found 5 routes for your request."
     assert check_answer(answer, view) == []
+
+
+# --- --only, the single-entry rerun -----------------------------------------
+# The flag exists so one failure can be read again without paying for the other
+# forty-nine. A typo in it must not read as a clean run.
+
+ENTRIES = [{"id": "g01"}, {"id": "g27"}, {"id": "g49"}]
+
+
+def test_no_only_runs_the_whole_dataset() -> None:
+    assert select(ENTRIES, None) == ENTRIES
+    assert select(ENTRIES, "") == ENTRIES
+
+
+def test_only_keeps_dataset_order_not_the_order_asked_for() -> None:
+    """The run log and the console read top to bottom; a rerun that shuffled
+    the entries would not line up against the run before it."""
+    assert [entry["id"] for entry in select(ENTRIES, "g49,g01")] == ["g01", "g49"]
+
+
+def test_only_tolerates_spaces_around_the_commas() -> None:
+    assert [entry["id"] for entry in select(ENTRIES, " g27 , g49 ")] == ["g27", "g49"]
+
+
+def test_an_unknown_id_stops_the_run() -> None:
+    """Silently selecting nothing would print 0/0 and read as a pass."""
+    with pytest.raises(SystemExit) as caught:
+        select(ENTRIES, "g27,g99")
+    assert "g99" in str(caught.value)

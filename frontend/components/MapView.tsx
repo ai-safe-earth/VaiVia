@@ -117,36 +117,18 @@ export function MapView({ geometry }: Props) {
           ['get', 'selected'],
           false,
         ];
-        // Line colour encodes the difficulty band (BRAND-SPEC amendment
-        // 2026-08-27): lime easy, amber moderate, flare hard, muted
-        // ungraded. The fallback is lime — a composed A→B route carries no
-        // band and stays the route colour it always was.
-        const bandColor: maplibregl.ExpressionSpecification = [
-          'match',
-          ['get', 'difficulty_band'],
-          'easy',
-          token('--vv-lime', '#CCFF3B'),
-          'moderate',
-          token('--vv-amber', '#FFC53B'),
-          'hard',
-          token('--vv-flare', '#FF6B3D'),
-          'ungraded',
-          token('--vv-muted', '#A7ADA6'),
-          // All mtb routes wear the palette's near-black (owner decision
-          // 2026-08-27); the ramp above is hike-only.
-          'mtb',
-          token('--vv-ground', '#0D0F0E'),
-          token('--vv-lime', '#CCFF3B'),
-        ];
-        // The picked route is wider and full-opacity; its siblings dim. No
-        // casing (owner decision 2026-08-27). The layer is created once and
+        // Every route line is lime (BRAND-SPEC amendment 2026-08-28). The
+        // picked route is wider and full-opacity; its siblings dim. Colour
+        // never encodes difficulty or activity: selection is the only thing
+        // the line says, and it says it with width and opacity. No casing
+        // (owner decision 2026-08-27). The layer is created once and
         // restyles through setData — the expressions are all data-driven.
         instance.addLayer({
           id: 'selection-line',
           type: 'line',
           source: 'selection',
           paint: {
-            'line-color': bandColor,
+            'line-color': token('--vv-lime', '#CCFF3B'),
             'line-width': ['case', selected, 4, 2],
             'line-opacity': ['case', selected, 1, 0.4],
           },
@@ -155,6 +137,11 @@ export function MapView({ geometry }: Props) {
       }
 
       const bounds = boundsOf(data);
+      // The route panel mounts in the same commit as the geometry it belongs
+      // to, which shortens the canvas: fit against the box as it IS, or the
+      // route is framed for a canvas that no longer exists. Every other
+      // resize is maplibre's own trackResize.
+      instance.resize();
       if (bounds) instance.fitBounds(bounds, { padding: 64, maxZoom: 15, duration: 600 });
     };
 

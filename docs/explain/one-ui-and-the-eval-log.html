@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One UI, and a log that names the entry — VaiVia</title>
+<style>
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --fg:#1c1c22; --muted:#6b6b76; --rule:#e3e1dc;
+    --code-bg:#f2f0ec; --code-fg:#2a2a30; --comment:#8b8b95;
+    --p0:#0e7490; --p0-bg:#e3f3f7; --p0-line:#0e7490;
+    --p1:#bd2a80; --p1-bg:#fbe6f2; --p1-line:#bd2a80;
+    --infra:#8f8c96; --good:#177245; --warn:#9a6a06;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#101014; --panel:#17171c; --fg:#e8e6e3; --muted:#9a97a0; --rule:#2b2b33;
+      --code-bg:#1c1c23; --code-fg:#d8d6d3; --comment:#7e7e8a;
+      --p0:#53c9dd; --p0-bg:#0d3540; --p0-line:#53c9dd;
+      --p1:#ff5cb8; --p1-bg:#3e1130; --p1-line:#ff5cb8;
+      --infra:#77747e; --good:#5fce8d; --warn:#e3b341;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.65 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  main{max-width:980px; margin:0 auto; padding:0 28px 90px}
+  header.doc{max-width:980px; margin:0 auto; padding:56px 28px 8px}
+  h1{font-size:30px; line-height:1.2; margin:0 0 6px}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 4px}
+  h2{font-size:22px; margin:60px 0 12px; padding-top:18px; border-top:1px solid var(--rule)}
+  h3{font-size:16.5px; margin:30px 0 8px}
+  p{margin:10px 0}
+  a{color:var(--p0); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{
+    font:12.8px/1.55 ui-monospace,"Cascadia Code",Consolas,Menlo,monospace;
+    background:var(--code-bg); padding:1px 5px; border-radius:4px;
+  }
+  pre{
+    background:var(--code-bg); color:var(--code-fg); border:1px solid var(--rule);
+    border-radius:0 0 8px 8px; padding:14px 16px; overflow-x:auto; margin:0 0 18px;
+  }
+  pre code{background:none; padding:0; font-size:12.8px}
+  .file{
+    display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+    background:var(--panel); border:1px solid var(--rule); border-bottom:none;
+    border-radius:8px 8px 0 0; padding:7px 16px; margin-top:16px;
+    font:12px ui-monospace,Consolas,monospace; color:var(--muted);
+  }
+  .file b{color:var(--fg); font-weight:600}
+  .cm{color:var(--comment)}
+  .badge{
+    display:inline-block; font:700 10.5px/1 ui-monospace,Consolas,monospace;
+    padding:4px 7px; border-radius:99px; vertical-align:2px; letter-spacing:.05em;
+  }
+  .b0{background:var(--p0-bg); color:var(--p0)}
+  .b1{background:var(--p1-bg); color:var(--p1)}
+  .fig{
+    background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+    padding:18px 14px 8px; margin:20px 0 8px; overflow-x:auto;
+  }
+  .fig svg{display:block; margin:0 auto; min-width:720px}
+  .figcap{color:var(--muted); font-size:13px; margin:6px 4px 22px; text-align:center}
+  table{border-collapse:collapse; width:100%; margin:14px 0 20px; font-size:13.5px}
+  th,td{border:1px solid var(--rule); padding:7px 10px; text-align:left; vertical-align:top}
+  th{background:var(--code-bg); font-weight:600}
+  td code{font-size:12px}
+  ul,ol{padding-left:24px; margin:10px 0}
+  li{margin:5px 0}
+  .take{
+    background:var(--panel); border:1px solid var(--rule); border-left:4px solid var(--p0);
+    border-radius:8px; padding:12px 18px; margin:22px 0;
+  }
+  .take.t1{border-left-color:var(--p1)}
+  .take h4{margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+  .take ul{margin:6px 0 2px}
+  .dec b.num{
+    display:inline-block; min-width:20px; text-align:center; border-radius:99px;
+    font:700 11px/20px ui-monospace,Consolas,monospace; margin-right:6px;
+  }
+  .dec.d0 b.num{background:var(--p0-bg); color:var(--p0)}
+  .dec.d1 b.num{background:var(--p1-bg); color:var(--p1)}
+  nav.toc{
+    background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+    padding:14px 22px; margin:22px 0 0; font-size:14px;
+  }
+  nav.toc ol{margin:6px 0; columns:2; column-gap:40px}
+  .warntag{color:var(--warn); font-weight:600}
+  .goodtag{color:var(--good); font-weight:600}
+  .svgt{font:12px -apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--fg)}
+  .svgs{font:10.5px -apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--muted)}
+  .svgm{font:11px ui-monospace,Consolas,monospace; fill:var(--fg)}
+  .svgmd{font:10.5px ui-monospace,Consolas,monospace; fill:var(--muted)}
+</style>
+</head>
+<body>
+<header class="doc">
+  <h1>One UI, and a log that names the entry</h1>
+  <p class="sub">VaiVia · branch <code>feat/chat-feedback-ui-pass</code> · written 2026-08-29 · <b>every file quoted here is uncommitted</b> (see footer)</p>
+  <p class="sub">Legend: <span class="badge b0">P11</span> One UI (U0–U3) &nbsp;·&nbsp; <span class="badge b1">E0</span> the eval run log &nbsp;·&nbsp; grey = pre-existing infrastructure</p>
+  <nav class="toc">
+    <b>Contents</b>
+    <ol>
+      <li><a href="#context">Why this exists</a></li>
+      <li><a href="#system">The system, and where the work lands</a></li>
+      <li><a href="#plan">The plan grew four phases</a></li>
+      <li><a href="#u0">U0 · One colour on the map</a></li>
+      <li><a href="#u1">U1–U2 · The map as a layer</a></li>
+      <li><a href="#u3">U3 · The composer at the bottom edge</a></li>
+      <li><a href="#e0">E0 · The log that names the entry</a></li>
+      <li><a href="#browser">What only a browser could tell us</a></li>
+      <li><a href="#next">What comes next, and recommendations</a></li>
+    </ol>
+  </nav>
+</header>
+<main>
+
+<h2 id="context">1 · Why this exists</h2>
+
+<p>Two things were impossible before this session, and one was invisible.</p>
+
+<p><b>Impossible: using VaiVia on a phone.</b> The frontend was a desktop two-pane shell — a
+400px chat column beside a map that was always on screen — with a single 900px breakpoint that
+stacked the panes into <code>1fr 40vh</code>. On a 360px screen that gave a cramped transcript
+above a strip of map too small to read a route from. The owner's decision (2026-08-28) was to
+stop treating mobile as a narrower desktop: <b>one layout at every width</b>, the conversation
+as the base layer, the composer permanently on the bottom edge, and the map as something that
+comes <i>up</i> when you tap a route and goes back down when you are done. Google Maps is the
+reference: the map is not the page, it is a thing you summon.</p>
+
+<p><b>Impossible: saying which question regressed.</b> <code>eval_golden</code> appended one
+aggregate line per run — <code>{"decomposition": [50, 50], "retrieval_hit": [18, 20], …}</code>.
+When retrieval moved from 19/20 to 18/20 the log said a number changed and nothing else; finding
+out <i>which</i> entry meant paying for another full run and reading 50 lines of console. The
+<a href="eval-pipeline.html">eval-pipeline doc</a> named this as the first thing to fix, and
+Phase 8 E0 is the fix.</p>
+
+<p><b>Invisible: the colour was carrying meaning nobody asked for.</b> A 2026-08-27 amendment had
+spent the brand's one spare colour on a four-band difficulty ramp (lime / amber / flare / muted),
+with every mtb route drawn near-black. The owner's call this session was blunter and better: every
+route line is lime, and selection — the only thing the map actually needs to say — is width and
+opacity.</p>
+
+<p>The session also extended <code>docs/plan.md</code> from seven phases to eleven. That is
+§3; the code is §4–§7.</p>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>The UI change is not responsive CSS: it is a different model of what the map <i>is</i>.</li>
+    <li>The eval change is small and cheap, and it is what makes every later eval run legible.</li>
+    <li>Both were ratified by the owner before any code was written; the plan records the decisions.</li>
+  </ul>
+</div>
+
+<h2 id="system">2 · The system, and where the work lands</h2>
+
+<div class="fig">
+<svg viewBox="0 0 960 470" role="img" aria-label="The four tiers, with the frontend's new internal shape and the eval harness beside the backend">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--infra)"/></marker>
+    <marker id="ar0" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p0-line)"/></marker>
+    <marker id="ar1" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p1-line)"/></marker>
+  </defs>
+
+  <!-- frontend, expanded -->
+  <rect x="20" y="20" width="300" height="250" rx="10" fill="var(--panel)" stroke="var(--fg)"/>
+  <text x="36" y="44" class="svgt" font-weight="600">Next.js frontend — the shell</text>
+  <text x="36" y="61" class="svgs">one column, max-width 720px, 100dvh</text>
+
+  <rect x="36" y="76" width="268" height="30" rx="6" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="48" y="95" class="svgm">AppHeader · saved · map toggle · sign out</text>
+
+  <rect x="36" y="112" width="268" height="104" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="48" y="131" class="svgm">.stage — position:relative, overflow:clip ③</text>
+  <rect x="48" y="140" width="244" height="30" rx="5" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="58" y="159" class="svgmd">ChatPanel (always mounted) + FavoritesView</text>
+  <rect x="48" y="176" width="244" height="32" rx="5" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="58" y="190" class="svgm">.map-layer — MapView + .route-panel ①</text>
+  <text x="58" y="203" class="svgmd">translateY(100%) when closed, never unmounted</text>
+
+  <rect x="36" y="222" width="268" height="30" rx="6" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="48" y="241" class="svgm">composer (live in every state) + ODbL credit ②</text>
+
+  <!-- gateway / backend -->
+  <rect x="380" y="60" width="200" height="66" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="396" y="86" class="svgt" font-weight="600">Fastify gateway</text>
+  <text x="396" y="103" class="svgs">the only public service · unchanged</text>
+
+  <rect x="380" y="170" width="200" height="82" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="396" y="196" class="svgt" font-weight="600">FastAPI backend</text>
+  <text x="396" y="213" class="svgs">chat orchestration + queries</text>
+  <text x="396" y="230" class="svgs">382 tests · unchanged by P11</text>
+
+  <rect x="380" y="300" width="200" height="66" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="396" y="326" class="svgt" font-weight="600">Neo4j (internal)</text>
+  <text x="396" y="343" class="svgs">627 :Route catalogue</text>
+
+  <path d="M320 100 L376 100" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="322" y="90" class="svgs">SSE /chat · /routes</text>
+  <path d="M480 126 L480 168" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <path d="M480 252 L480 298" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+
+  <!-- eval harness -->
+  <rect x="650" y="150" width="280" height="122" rx="10" fill="var(--panel)" stroke="var(--p1-line)"/>
+  <text x="666" y="176" class="svgt" font-weight="600">scripts/eval_golden.py</text>
+  <text x="666" y="193" class="svgs">50 golden entries · the real orchestrator path</text>
+  <rect x="666" y="204" width="248" height="30" rx="5" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="676" y="223" class="svgm">select(entries, --only) ⓐ</text>
+  <text x="666" y="252" class="svgs">reads the same _execute() production uses</text>
+
+  <path d="M650 211 L584 211" stroke="var(--p1-line)" stroke-width="2" fill="none" marker-end="url(#ar1)"/>
+  <text x="586" y="203" class="svgs">in-process</text>
+
+  <rect x="650" y="320" width="280" height="80" rx="10" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="666" y="346" class="svgt" font-weight="600">backend/eval_runs.jsonl</text>
+  <text x="666" y="364" class="svgm">aggregates + failed{} + retrieval{} ⓑ</text>
+  <text x="666" y="382" class="svgs">committed · one line per FULL run only ⓒ</text>
+
+  <path d="M790 272 L790 318" stroke="var(--p1-line)" stroke-width="2" fill="none" marker-end="url(#ar1)"/>
+  <text x="798" y="300" class="svgs">appended</text>
+
+  <text x="20" y="440" class="svgs">Omitted: PostGIS pipeline, Supabase, OpenAI, GraphHopper — untouched by this work.</text>
+</svg>
+</div>
+<p class="figcap">Fig. 1 — Where the two units land. The frontend box is drawn from the inside because that
+is what changed; the tiers behind it are unchanged and shown only to place the SSE path. The eval harness
+runs in-process against the same <code>_execute()</code> the product uses.</p>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>No trust boundary moved. The gateway is still the only public service, and the backend still trusts only it.</li>
+    <li>The frontend's change is structural — one column, a stage, a layer — not a restyle.</li>
+    <li>E0 touches one script, one comment in <code>queries.cypher</code>, and the rule in <code>CLAUDE.md</code>.</li>
+  </ul>
+</div>
+
+<h2 id="plan">3 · The plan grew four phases</h2>
+
+<p><code>docs/plan.md</code> stopped at Phase 7. Four things the owner had decided lived nowhere in
+it: the eval plan (only in the <a href="eval-pipeline.html">eval doc</a>'s §5), deploy (one
+unchecked line, and no Dockerfile or Caddyfile in the repo), the route factory's next generation,
+and the UI model. A judged design pass — independent designers per topic, then a merge, then two
+refuter passes that opened every file cited — produced four sections, which were appended with
+per-phase item prefixes so nothing collides with Phase 7's own P0–P8.</p>
+
+<table>
+  <tr><th>Phase</th><th>Items</th><th>What it settles</th></tr>
+  <tr><td>8 · Evals</td><td>E0–E5</td><td>Per-entry log, retrieval coverage, feedback→dataset, error analysis, a judge only after it, and the <code>:Trail</code>-in-production decision.</td></tr>
+  <tr><td>9 · Deploy</td><td>D0–D5</td><td>One VPS, prod only, CI deploys on merge to <code>main</code>; secrets, catalogue publish, backups, rollback.</td></tr>
+  <tr><td>10 · Route factory v2</td><td>F0–F7</td><td>Recipe registry + delete-by-recipe, a review stage that rejects or edits candidates, five new parametrised kinds, urban polygons.</td></tr>
+  <tr><td>11 · One UI</td><td>U0–U4</td><td>This document's §4–§6.</td></tr>
+</table>
+
+<p>Three rows also joined the Product-decisions table — <b>Environments</b> (one: production),
+<b>Branches</b> (<code>main</code> production, <code>develop</code> default), <b>Release</b> (PR
+<code>develop→main</code>, the merge deploys) — and the Beta-data-scope row was corrected from
+"Lake Como / Lecco bbox only" to both provinces, which is what the code has done since Phase 7 P4.</p>
+
+<h3>3.1 · Decisions, and why</h3>
+<ul class="dec d0">
+  <li><b class="num">①</b><strong>Phases append, they never renumber.</strong> Phase 7's items stay
+  P0–P8; the new phases use E/D/F/U prefixes. A plan whose identifiers move is a plan whose git
+  history stops matching its own cross-references.</li>
+  <li><b class="num">②</b><strong>Recommendations are marked, not silently adopted.</strong> Every
+  choice the designers made that the owner has not ratified carries <i>(recommended)</i> inline and
+  appears in a numbered list at the end of the plan. Thirty-five of them; fourteen gate Phase 10,
+  which is why no factory code was written this session.</li>
+  <li><b class="num">③</b><strong>Edits were applied bottom-up.</strong> The deploy section inserts
+  ~120 lines in the middle of the file, which invalidates every later line anchor. Appending the
+  phases first, then editing upward, meant every anchor was still valid when it was used.</li>
+</ul>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>Phases 8–11 are ratified in structure; Phase 10's parameters are not, and that is deliberate.</li>
+    <li>The plan now carries the branching and release rules that previously lived only in <code>CONTRIBUTING.md</code>.</li>
+  </ul>
+</div>
+
+<h2 id="u0">4 · U0 · One colour on the map <span class="badge b0">P11</span></h2>
+
+<p><b>Goal.</b> Remove difficulty from the map's colour vocabulary entirely. The map answers one
+question — <i>which route are we talking about?</i> — and answers it with width and opacity.</p>
+
+<div class="file"><span><b>frontend/components/MapView.tsx</b>:120–135 — the whole line style, after</span><span class="badge b0">P11</span></div>
+<pre><code><span class="cm">// Every route line is lime (BRAND-SPEC amendment 2026-08-28). The</span>
+<span class="cm">// picked route is wider and full-opacity; its siblings dim. Colour</span>
+<span class="cm">// never encodes difficulty or activity: selection is the only thing</span>
+<span class="cm">// the line says, and it says it with width and opacity. No casing</span>
+<span class="cm">// (owner decision 2026-08-27). The layer is created once and</span>
+<span class="cm">// restyles through setData — the expressions are all data-driven.</span>
+instance.addLayer({
+  id: 'selection-line',
+  type: 'line',
+  source: 'selection',
+  paint: {
+    'line-color': token('--vv-lime', '#CCFF3B'),
+    'line-width': ['case', selected, 4, 2],
+    'line-opacity': ['case', selected, 1, 0.4],
+  },
+  layout: { 'line-cap': 'round', 'line-join': 'round' },
+});</code></pre>
+
+<p>What came out with it: a five-arm <code>match</code> expression on
+<code>properties.difficulty_band</code>; the <code>bands</code> ref in <code>ChatPanel</code> and its
+three writers; <code>loopBand</code>, <code>trailBand</code>, <code>bandOfRank</code> and the
+<code>DifficultyBand</code> type from <code>lib/difficulty.ts</code> (<code>SAC_ORDER</code> stays —
+the card's difficulty squares still rank on it); the <code>bands</code> parameter of
+<code>drawableFeatures</code>; and <code>--vv-amber</code> from both copies of
+<code>tokens.css</code>. Six tests went with them, and the brand spec's 2026-08-27 amendment was
+replaced by one that returns the palette to two accents.</p>
+
+<h3>4.1 · Decisions, and why</h3>
+<ul class="dec d0">
+  <li><b class="num">①</b><strong>Delete the ramp, do not re-map it.</strong> The obvious reading of
+  "orange for 1, lime for 2–4, red for 5–6" was a re-colouring. It was rejected by the owner in favour
+  of lime-only, which also removes the palette conflict the ramp had created: <code>--vv-flare</code>
+  means hazard everywhere else on the same screen, so an <i>easy</i> route and a <i>danger</i> notice
+  would have shared a colour.</li>
+  <li><b class="num">②</b><strong>Unselected stays soft rather than grey.</strong> The siblings keep
+  the route colour at 2px / 0.4 opacity. A grey sibling reads as a different <i>kind</i> of thing;
+  a dim lime one reads as the same thing, not chosen.</li>
+</ul>
+
+<div class="take">
+  <h4>Key takeaways — U0</h4>
+  <ul>
+    <li>One token, two data-driven expressions: the map's entire colour logic.</li>
+    <li>The deletion reached tokens, the brand spec and the tests — a colour rule is never only in the component.</li>
+  </ul>
+</div>
+
+<h2 id="u1">5 · U1–U2 · The map as a layer <span class="badge b0">P11</span></h2>
+
+<p><b>Goal.</b> One shell at every width: header, stage, ODbL credit. The conversation is the base
+layer of the stage and the composer is the app's bottom edge. Tapping a route's card body raises a
+layer holding the map and that route's card; Escape, browser Back, asking a new question, opening
+Saved routes or clearing the chat all put it back down. Neither the chat nor the map is ever
+unmounted — unmounting the chat throws away the transcript of the conversation you are having, and
+unmounting the map costs its camera and a fresh tile fetch on every open.</p>
+
+<div class="fig">
+<svg viewBox="0 0 960 420" role="img" aria-label="State machine: chat and map views, with the transitions between them">
+  <defs>
+    <marker id="ar0b" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p0-line)"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--infra)"/></marker>
+  </defs>
+
+  <rect x="40" y="120" width="250" height="160" rx="10" fill="var(--panel)" stroke="var(--fg)"/>
+  <text x="58" y="146" class="svgt" font-weight="600">view = 'chat'</text>
+  <text x="58" y="166" class="svgm">url: /</text>
+  <text x="58" y="186" class="svgs">transcript visible, scrollable</text>
+  <text x="58" y="203" class="svgs">layer: translateY(100%), hidden</text>
+  <text x="58" y="220" class="svgs">composer live · credit last row</text>
+  <text x="58" y="243" class="svgmd">picked may still be set:</text>
+  <text x="58" y="259" class="svgmd">the card stays aria-pressed</text>
+
+  <rect x="600" y="120" width="290" height="160" rx="10" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="618" y="146" class="svgt" font-weight="600">view = 'map'</text>
+  <text x="618" y="166" class="svgm">url: /#map</text>
+  <text x="618" y="186" class="svgs">layer up over the transcript</text>
+  <text x="618" y="203" class="svgs">.messages inert — not tabbable ④</text>
+  <text x="618" y="220" class="svgs">route panel: the same LoopCard, open</text>
+  <text x="618" y="243" class="svgs">map attribution at the canvas foot</text>
+  <text x="618" y="260" class="svgs">composer STILL live · credit still last</text>
+
+  <path d="M290 170 L596 170" stroke="var(--p0-line)" stroke-width="2" fill="none" marker-end="url(#ar0b)"/>
+  <text x="330" y="150" class="svgt">card BODY tap → pick(route) ①</text>
+  <text x="330" y="165" class="svgs">location.hash = 'map' — a history entry</text>
+
+  <path d="M596 232 L294 232" stroke="var(--infra)" stroke-width="1.8" fill="none" marker-end="url(#arb)"/>
+  <text x="330" y="252" class="svgs">Escape · browser Back · submit ② · Saved routes · Clear chat</text>
+  <text x="330" y="268" class="svgs">replaceState strips the hash ③</text>
+
+  <path d="M735 120 C735 60, 890 60, 890 130" stroke="var(--p0-line)" stroke-width="1.6" fill="none" marker-end="url(#ar0b)"/>
+  <text x="700" y="60" class="svgs">a fresh answer: pick(null) — panel empties, layer stays</text>
+
+  <path d="M120 120 C120 60, 250 60, 250 120" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#arb)"/>
+  <text x="60" y="60" class="svgs">"See more" — draws the line, stays here</text>
+
+  <text x="40" y="330" class="svgs">Always mounted, in both states: AppHeader · ChatPanel · MapView · .data-credit</text>
+  <text x="40" y="350" class="svgs">Mount/unmount only: FavoritesView, and the route panel's card</text>
+  <text x="40" y="378" class="svgmd">The hash is the single source of truth for `view`: a hashchange listener sets it, so Back and Android's back gesture</text>
+  <text x="40" y="394" class="svgmd">need no special handling — they simply pop the entry the tap pushed.</text>
+</svg>
+</div>
+<p class="figcap">Fig. 2 — The two states and every transition between them. Omitted: the Saved-routes
+sub-state, which is orthogonal — it can be open in either view and is closed by the same events.</p>
+
+<h3>5.1 · How the data moves and transforms</h3>
+
+<p>A tap enters at the card and leaves as a URL change. The panel and the empty-state text both read
+from the same two pieces of page state, so they can never disagree about what the map is about.</p>
+
+<div class="file"><span><b>frontend/components/ChatPanel.tsx</b>:511–522 — the body tap, and only the body tap</span><span class="badge b0">P11</span></div>
+<pre><code>onSelect={(picked) =&gt; {
+  <span class="cm">// The body tap is the gesture that raises the map. "See</span>
+  <span class="cm">// more" below draws the same line but stays in the</span>
+  <span class="cm">// transcript: one gesture, one meaning.</span>
+  emitPick(picked);
+  void selectLoop(picked, index, message.results?.loops ?? [], …);
+}}
+onExpand={(picked) =&gt;
+  void selectLoop(picked, index, message.results?.loops ?? [], …)
+}</code></pre>
+
+<div class="file"><span><b>frontend/app/page.tsx</b>:141–170 — the three functions the whole model rests on</span><span class="badge b0">P11</span></div>
+<pre><code><span class="cm">/** Raise the map over the conversation, as a history entry. */</span>
+function openMap() {
+  if (window.location.hash !== '#map') window.location.hash = 'map';
+  setView('map');
+}
+
+<span class="cm">/** Back to the conversation. replaceState rather than history.back(): the</span>
+<span class="cm"> *  entry we would pop may not be the top one — a Back press is one of the</span>
+<span class="cm"> *  ways the map closes — and one dead entry is cheaper than the</span>
+<span class="cm"> *  bookkeeping that would avoid it. ③ */</span>
+function closeMap() {
+  if (typeof window !== 'undefined' &amp;&amp; window.location.hash === '#map') {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+  setView('chat');
+}
+
+function pick(route: Loop | Trail | null) {
+  setPicked(route);
+  <span class="cm">// The detail belongs to the route just picked, not the one before it.</span>
+  setRouteDetail(undefined);
+  if (route) openMap();
+}</code></pre>
+
+<p>The <code>setRouteDetail(undefined)</code> is what makes the panel honest. <code>routeDetail</code>
+is tri-state: <code>undefined</code> means the fetch is in flight and the card says "Fetching the
+altitude profile…", <code>null</code> means asked and there is none. Without the reset, a newly
+picked route would show its predecessor's profile until the fetch landed, or claim "no altitude
+profile" for a route that has one.</p>
+
+<div class="file"><span><b>frontend/app/page.tsx</b>:217–222 — what the canvas says when there is nothing on it</span><span class="badge b0">P11</span></div>
+<pre><code>const emptyNote =
+  picked &amp;&amp; focusedRouteId(geometry) !== picked.id
+    ? 'No map line for this route.'
+    : geometry
+      ? null
+      : 'Nothing drawn yet — pick a route.';</code></pre>
+
+<p>Order matters here: the pick is tested first. A picked route whose line failed to fetch produces
+<i>no</i> geometry, and "nothing drawn yet — pick a route" would be a lie told to someone who just
+picked one.</p>
+
+<div class="file"><span><b>frontend/app/globals.css</b>:891–912 — the layer, closed and open</span><span class="badge b0">P11</span></div>
+<pre><code>.map-layer {
+  position: absolute;
+  inset: 0 0 var(--vv-composer-h) 0;   <span class="cm">/* stops above the composer ② */</span>
+  z-index: 1;
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--vv-map);
+  border-top: 1px solid var(--vv-line);
+  transform: translateY(100%);
+  visibility: hidden;
+  <span class="cm">/* Hiding waits for the slide to finish; showing must not wait for it. */</span>
+  transition: transform 200ms ease, visibility 0s 200ms;
+}
+
+[data-view='map'] .map-layer {
+  transform: translateY(0);
+  visibility: visible;
+  transition: transform 200ms ease;
+}</code></pre>
+
+<h3>5.2 · Decisions, and why</h3>
+<ul class="dec d0">
+  <li><b class="num">①</b><strong>Only the card body raises the map.</strong> "See more" expands the
+  card in place and draws its line under the closed layer. The rejected alternative — any card
+  interaction raises the map — collapses two gestures into one meaning and makes it impossible to
+  compare two cards' numbers without the map jumping in between.</li>
+  <li><b class="num">②</b><strong>The composer is outside both layers.</strong> The layer's
+  <code>inset</code> stops <code>var(--vv-composer-h)</code> short of the bottom, so a question can
+  be asked with the map up. Asking then lowers the map, because a count-first answer and its
+  clarify suggestions are read on the conversation. The height is pinned twice — as the variable and
+  as <code>min-height</code> on <code>.composer</code> — so the two cannot drift.</li>
+  <li><b class="num">③</b><strong><code>view</code> is derived from the URL, not from a boolean.</strong>
+  Opening pushes <code>#map</code>; a <code>hashchange</code> listener is the only writer of
+  <code>view</code>. Browser Back and Android's back gesture therefore work with no code at all,
+  which was the alternative's whole cost: a boolean plus a <code>popstate</code> handler plus the
+  bookkeeping to keep them in sync. Closing uses <code>replaceState</code> rather than
+  <code>history.back()</code> — the map can be closed from five places and the entry we would pop is
+  not always the top one. The price is one dead history entry.</li>
+  <li><b class="num">④</b><strong><code>inert</code>, not <code>display:none</code>, for the covered
+  transcript.</strong> The transcript keeps its scroll position and its selection while the map is
+  over it, but leaves the tab order: reaching a card under the map with Tab and "clicking" it is a
+  gesture with no visible effect.</li>
+  <li><b class="num">⑤</b><strong>The panel renders the <i>same</i> card component.</strong> Not a
+  summary, not a second implementation — <code>LoopCard</code> with <code>defaultOpen</code> and no
+  <code>onSelect</code>. Without a handler it also stops being a button: a focusable div that does
+  nothing is worse than plain text. The cost is that two elements now share
+  <code>.route-card[data-route-id]</code>, so every test locator must be scoped (see R3).</li>
+</ul>
+
+<h3>5.3 · For a scalable system</h3>
+<p>The transcript is one continuous conversation with no windowing: every turn's cards stay mounted,
+and <code>.messages</code> is a plain <code>overflow-y:auto</code>. At a few dozen turns this is
+free; at hundreds it is a growing DOM and a slower <code>scrollIntoView</code>. The upgrade is
+virtualisation of <code>.messages</code>, and it is not due until a real conversation gets long
+enough to feel it. The map holds one GeoJSON source with every drawn line of the current answer —
+five to fifty features — which MapLibre restyles rather than refetches when the selection changes.</p>
+
+<h3>5.4 · Obligations and edges</h3>
+<p>No trust boundary moved, but two edges are worth naming. <b>ODbL</b> requires the attribution to
+be visible on every view that renders map-derived data, never behind a toggle: the shell's credit row
+is the last row in <i>both</i> states, and the map contributes MapLibre's own attribution row at the
+canvas foot when it is up — the route panel sits below that row, never over it.
+<b><code>location.hash</code> is user-controlled input</b> and now drives a view; it is compared to
+the literal <code>'#map'</code> and never interpolated into anything, so it is a switch, not a
+sink.</p>
+
+<div class="take">
+  <h4>Key takeaways — U1/U2</h4>
+  <ul>
+    <li>Two states, one URL-derived variable, five closing paths that all funnel through <code>closeMap()</code>.</li>
+    <li>Chat and map are never unmounted; only the favorites view and the panel's card mount.</li>
+    <li>The panel is the transcript's card, given two props — no second rendering of a route anywhere.</li>
+  </ul>
+</div>
+
+<h2 id="u3">6 · U3 · The composer at the bottom edge <span class="badge b0">P11</span></h2>
+
+<p><b>Goal.</b> Two things move a bottom edge on a phone — the soft keyboard and the home indicator —
+and both are declared rather than worked around.</p>
+
+<div class="file"><span><b>frontend/app/layout.tsx</b>:28–33 — the declaration, and what each half buys</span><span class="badge b0">P11</span></div>
+<pre><code>export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  interactiveWidget: 'resizes-content',
+};</code></pre>
+
+<p><code>resizes-content</code> makes the keyboard <i>shrink</i> the layout viewport instead of
+sliding it, so <code>100dvh</code> follows the keyboard and the composer stays above it. Chrome and
+Android honour it; iOS Safari ignores it and moves the visual viewport instead.
+<code>viewportFit: 'cover'</code> lets the map reach the edges of a notched screen, and the shell
+pays the insets back as padding — <code>border-box</code> means that eats into the
+<code>100dvh</code> rather than adding to it.</p>
+
+<div class="file"><span><b>frontend/app/globals.css</b>:813–818 — the rule that is not a typographic choice</span><span class="badge b0">P11</span></div>
+<pre><code><span class="cm">/* iOS Safari zooms the page in when a focused input's text is under 16px, and</span>
+<span class="cm">   never zooms back out — the whole layout is left oversized and scrolled. 16px</span>
+<span class="cm">   on touch is the only thing that stops it; the spec's 13.5px stays wherever</span>
+<span class="cm">   there is a real pointer. Both inputs, not just the composer: the sign-in</span>
+<span class="cm">   form is the first thing a phone user focuses. */</span>
+@media (pointer: coarse) {
+  .composer input,
+  .auth input { font-size: 16px; }
+}</code></pre>
+
+<h3>6.1 · Decisions, and why</h3>
+<ul class="dec d0">
+  <li><b class="num">①</b><strong>The iOS <code>visualViewport</code> fallback was deliberately not
+  written.</strong> It is the one piece of this phase that cannot be tested without a device, and
+  untested compensation code for a browser quirk is how a second quirk gets born. Instead
+  <code>e2e/smoke.spec.ts</code> gained a "what this suite cannot see" checklist naming the exact
+  symptom that makes it due.</li>
+  <li><b class="num">②</b><strong>The 16px rule covers the sign-in form too.</strong> The plan named
+  only the composer; the same defect applies to the first field a phone user ever focuses. Fixing
+  the class of bug rather than the reported instance is cheaper than fixing it twice.</li>
+</ul>
+
+<div class="take">
+  <h4>Key takeaways — U3</h4>
+  <ul>
+    <li>Both viewport behaviours are declared in one export; the CSS only pays back what the declaration opts into.</li>
+    <li>What can't be verified here is written down as a device checklist instead of guessed at in code.</li>
+  </ul>
+</div>
+
+<h2 id="e0">7 · E0 · The log that names the entry <span class="badge b1">E0</span></h2>
+
+<p><b>Goal.</b> Make one run answer "which question changed?", and make a single entry re-runnable
+without paying for the other forty-nine.</p>
+
+<h3>7.1 · How the data moves and transforms</h3>
+
+<div class="file"><span><b>backend/scripts/eval_golden.py</b>:75–88 — the selector, and the failure it refuses</span><span class="badge b1">E0</span></div>
+<pre><code>def select(entries: list[dict[str, Any]], only: str | None) -&gt; list[dict[str, Any]]:
+    """The entries this run covers.
+
+    An id that is not in the dataset is a typo, and a typo that silently ran
+    zero entries would print a clean 0/0 and read as a pass.
+    """
+    if not only:
+        return entries
+    wanted = [part.strip() for part in only.split(",") if part.strip()]
+    known = {entry["id"] for entry in entries}
+    unknown = [name for name in wanted if name not in known]
+    if unknown:
+        raise SystemExit(f"--only: no such entry id: {', '.join(unknown)}")
+    return [entry for entry in entries if entry["id"] in set(wanted)]</code></pre>
+
+<p>Two accumulators ride alongside the counters through the run loop. Decomposition problems land
+under <code>plan:</code>, answer problems under <code>answer:</code> on the same entry, so one map
+distinguishes drift in the intent layer from drift in the prose layer without re-running anything.
+Retrieval marks are keyed by entry <i>and</i> block, because a single entry may pin both trails and
+loops and "g30 missed" would not say which half.</p>
+
+<div class="file"><span><b>backend/scripts/eval_golden.py</b>:326–334 — assembling the line, and the one case that is not logged</span><span class="badge b1">E0</span></div>
+<pre><code><span class="cm"># Last, so the aggregates stay at the head of the line where a human reads</span>
+<span class="cm"># them; the maps are what you grep once a number has moved.</span>
+summary["failed"] = failed
+if args.graph:
+    summary["retrieval"] = retrieval_marks
+if args.only:
+    print("\n--only: partial run, not appended to eval_runs.jsonl")
+    return
+log_run(summary)</code></pre>
+
+<p>The same branch corrected a comment that had misdirected the previous reader: the
+<code>estimate_loops</code> template documented itself as feeding a <code>chat/narrowing.py</code>
+that was never written. The template is live — <code>chat/orchestrator.py:493</code> calls it with
+<code>facet_cap=0</code> — so the rows are not collected and the <i>count</i> is what reaches the
+answer as <code>total_loops</code>. The comment now says that.</p>
+
+<h3>7.2 · Decisions, and why</h3>
+<ul class="dec d1">
+  <li><b class="num">ⓐ</b><strong>An unknown id stops the run.</strong> The alternative — filter to
+  nothing and report 0/0 — is a green run that measured nothing, which is the single worst thing an
+  eval can print.</li>
+  <li><b class="num">ⓑ</b><strong>Per-entry detail on the <i>same</i> line, not a second file.</strong>
+  The eval doc's decision ⑥ made the run log a committed artefact so <code>git log</code> answers
+  "what did this prompt change cost". A second file would need its own retention story and could
+  fall out of sync; one line means <code>tail -2</code> is the whole diff tooling.</li>
+  <li><b class="num">ⓒ</b><strong><code>--only</code> does not log.</strong> A partial total in the
+  trend is worse than a gap in it: a 2/2 line and a 50/50 line are indistinguishable once they are
+  both just "decomposition". The docstring and <code>CLAUDE.md</code> now say "every FULL run".</li>
+</ul>
+
+<h3>7.3 · For a scalable system</h3>
+<p>The run is serial: ~110 OpenAI calls, about five minutes for 50 entries with
+<code>--graph --answers</code>. The upgrade path is <code>asyncio.gather</code> with a semaphore,
+and the eval doc puts it past ~200 entries. The line grows with the failure count, which is bounded
+by the dataset — a fully failing 50-entry run writes a few KB.</p>
+
+<h3>7.4 · Security</h3>
+<p>The run log is <b>committed to git</b>, so what goes into it is a disclosure decision, not just a
+format one. Today it carries dataset ids and checker strings; one of those,
+<code>f"link in answer: {link!r}"</code>, embeds a fragment of <i>model output</i>. That is
+harmless while every input is a repo fixture. It stops being automatic when Phase 8 E2 lands and
+feedback-born entries carry real user phrasing — see R5.</p>
+
+<div class="take t1">
+  <h4>Key takeaways — E0</h4>
+  <ul>
+    <li>One line per full run still, now with <code>failed{}</code> and <code>retrieval{}</code> after the aggregates.</li>
+    <li><code>--only</code> makes a rerun cheap and refuses to pollute the trend.</li>
+    <li>Four new offline tests pin the selector, including the typo case.</li>
+  </ul>
+</div>
+
+<h2 id="browser">8 · What only a browser could tell us</h2>
+
+<p>The unit tests and the type checker passed on the first build of the shell. The layout was still
+broken in two different ways, and both came from the same mechanism: <b>a transformed element still
+contributes to its ancestors' scrollable overflow</b>. The closed map layer is translated a full
+height down, and that phantom box has to be clipped by something — the question is by what, and
+<code>hidden</code> is the wrong answer.</p>
+
+<div class="fig">
+<svg viewBox="0 0 960 300" role="img" aria-label="Three clipping states: no clip, overflow hidden, overflow clip">
+  <rect x="30" y="40" width="270" height="200" rx="10" fill="var(--panel)" stroke="var(--warn)"/>
+  <text x="46" y="66" class="svgt" font-weight="600">no clip</text>
+  <text x="46" y="88" class="svgm">document.scrollHeight = 1013</text>
+  <text x="46" y="108" class="svgs">on a 640px screen</text>
+  <text x="46" y="134" class="svgs">the PAGE scrolls; scrollIntoView</text>
+  <text x="46" y="150" class="svgs">takes the header off the top</text>
+  <text x="46" y="176" class="svgmd">symptom: no header, credit at y≈230,</text>
+  <text x="46" y="192" class="svgmd">black below, two scrollbars</text>
+
+  <rect x="345" y="40" width="270" height="200" rx="10" fill="var(--panel)" stroke="var(--warn)"/>
+  <text x="361" y="66" class="svgt" font-weight="600">overflow: hidden</text>
+  <text x="361" y="88" class="svgm">document = 640 ✓</text>
+  <text x="361" y="108" class="svgs">but .stage is now a SCROLL</text>
+  <text x="361" y="124" class="svgs">CONTAINER — hidden still is one</text>
+  <text x="361" y="150" class="svgs">scrollIntoView scrolls the stage</text>
+  <text x="361" y="176" class="svgmd">symptom: chat top = −373px,</text>
+  <text x="361" y="192" class="svgmd">composer at y=106, gap below</text>
+
+  <rect x="660" y="40" width="270" height="200" rx="10" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="676" y="66" class="svgt" font-weight="600">overflow: clip</text>
+  <text x="676" y="88" class="svgm">document = 640 ✓</text>
+  <text x="676" y="108" class="svgm">stage scrollTop impossible ✓</text>
+  <text x="676" y="134" class="svgs">.messages is the only scroller,</text>
+  <text x="676" y="150" class="svgs">which is what was intended</text>
+  <text x="676" y="176" class="svgmd">verified: header at 0, credit at 585,</text>
+  <text x="676" y="192" class="svgmd">shell 360 wide, scrollY 0</text>
+
+  <text x="30" y="278" class="svgs">Measured in a real browser at 360×640 — the numbers above are from that session, not from a spec.</text>
+</svg>
+</div>
+<p class="figcap">Fig. 3 — The same layer, three clipping choices. Only the third leaves the transcript
+as the single scroll container.</p>
+
+<div class="file"><span><b>frontend/app/globals.css</b>:85–92 — the fix, with the reason it is not <code>hidden</code></span><span class="badge b0">P11</span></div>
+<pre><code><span class="cm">/* The closed map layer is translated a full height DOWN, and an absolutely</span>
+<span class="cm">   positioned child that sticks out counts as scrollable overflow: without</span>
+<span class="cm">   this the document grew to ~1013px on a 640px screen and scrolled the</span>
+<span class="cm">   header off the top. `clip`, not `hidden`: hidden still makes this a</span>
+<span class="cm">   SCROLL CONTAINER, so the transcript's scrollIntoView scrolled the stage</span>
+<span class="cm">   itself and dragged the whole conversation up by 427px. clip cannot be</span>
+<span class="cm">   scrolled at all, which leaves .messages the only scroller — as intended. */</span>
+overflow: clip;</code></pre>
+
+<p>Neither state would have failed a unit test: jsdom has no layout, and no assertion in the suite
+asks where the header is. The lesson is narrow and worth keeping — <b>a layout change is not
+verified until something has laid it out</b>. The verification that caught both was five minutes of
+driving the real page and reading <code>getBoundingClientRect()</code>.</p>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li><code>transform</code> does not remove a box from its ancestors' scroll area; something must clip it.</li>
+    <li><code>overflow: hidden</code> clips <i>and</i> creates a scroll container; <code>clip</code> only clips.</li>
+    <li>Both bugs were invisible to 116 green tests and a clean type-check.</li>
+  </ul>
+</div>
+
+<h2 id="next">9 · What comes next, and recommendations</h2>
+
+<table>
+  <tr><th>Item (docs/plan.md numbering)</th><th>Status</th><th>State</th></tr>
+  <tr><td>11 · U0 lime-only map</td><td><span class="goodtag">done</span></td><td>One token, two expressions; <code>--vv-amber</code> retired from both token copies.</td></tr>
+  <tr><td>11 · U1 one-UI shell</td><td><span class="goodtag">done</span></td><td>Landed with U2 — they share <code>picked</code>/<code>routeDetail</code>.</td></tr>
+  <tr><td>11 · U2 route panel</td><td><span class="goodtag">done</span></td><td>The transcript's card, <code>defaultOpen</code>, no <code>onSelect</code>.</td></tr>
+  <tr><td>11 · U3 composer + viewport</td><td><span class="goodtag">done</span></td><td>iOS <code>visualViewport</code> fallback deliberately unwritten (R2).</td></tr>
+  <tr><td>11 · U4 route deep links</td><td><span class="warntag">deferred</span></td><td>By design: waits for the share affordance in <code>docs/social-layer.md</code>.</td></tr>
+  <tr><td>8 · E0 per-entry log</td><td><span class="goodtag">done</span></td><td>Its first <i>use</i> is a paid run — see R1.</td></tr>
+  <tr><td>8 · E1 retrieval coverage</td><td><span class="warntag">open</span></td><td>Writable now; which entries to pin cannot be chosen without a live run.</td></tr>
+  <tr><td>8 · E2–E5</td><td><span class="warntag">open</span></td><td>E2 needs Supabase; E3–E4 are post-launch by design; E5 is a decision.</td></tr>
+  <tr><td>9 · Deploy D0–D5</td><td><span class="warntag">open</span></td><td>D0 (credential rotation, domain, VPS) is owner-only and gates the rest.</td></tr>
+  <tr><td>10 · Route factory F0–F7</td><td><span class="warntag">open</span></td><td>Blocked on 14 unratified parameter decisions, deliberately.</td></tr>
+</table>
+
+<p>Discovered while writing:</p>
+<ol>
+  <li><span class="warntag">The e2e suite has never run against this shell.</span> Every assertion
+  about the map layer, the route panel, Escape and Back was written blind, and the sign-in
+  assertions changed too (the header's e-mail block became the Sign out button's
+  <code>title</code>). It is the single largest unverified artefact of the session, and it needs the
+  full local stack plus <code>E2E_EMAIL</code>/<code>E2E_PASSWORD</code>. Run it before this branch
+  merges.</li>
+  <li><span class="warntag">Two things wait on a real device.</span> The <code>(pointer: coarse)</code>
+  rule and <code>interactiveWidget</code> cannot be exercised by headless Chromium; the checklist in
+  <code>frontend/e2e/smoke.spec.ts</code>'s header names the symptoms. If the composer ends up under
+  the iOS keyboard, the <code>visualViewport</code> fallback becomes due.</li>
+  <li><span class="warntag">Two elements now share <code>.route-card[data-route-id]</code>.</span>
+  The panel renders the same component as the transcript, so an unscoped
+  <code>page.locator('.route-card').first()</code> silently re-resolves to the panel after a click.
+  The e2e was updated to scope every locator to <code>.messages</code>, <code>.favorites-view</code>
+  or <code>.route-panel</code>; the next test written against a card must do the same. A
+  <code>data-surface</code> attribute would make the trap structural rather than remembered.</li>
+  <li><span class="warntag">A trail's GeoJSON does not carry the id the map compares against.</span>
+  <code>focusedRouteId</code> reads <code>route_id ?? id</code>, and the backend's trail features
+  carry <code>trail_id</code> only — so a correctly drawn trail read as "no line for this route"
+  until <code>selectTrail</code> started stamping <code>id</code> client-side. That stamp is a patch
+  on the reader; the cleaner fix is for <code>/trails/{id}/geojson</code> to emit an
+  <code>id</code> property like the route endpoint does.</li>
+  <li><span class="warntag">The committed run log will start carrying user phrasing.</span> Today
+  <code>failed{}</code> holds checker strings over repo fixtures, one of which quotes model output.
+  When E2 turns real downvotes into <code>fb-</code> entries, the same field will quote text a user
+  typed — into a file that is committed and pushed. Decide the redaction rule when E2 lands, not
+  after.</li>
+  <li><code>components/MapChrome.tsx</code> now exports only <code>ElevationProfile</code>: the
+  panel it was named for went with the two-pane layout. <b>Accepted, because</b> the rename is a
+  pure churn commit that would touch two importers; do it the next time the file is edited for a
+  real reason.</li>
+</ol>
+
+<p class="sub" style="margin-top:48px">Sources: <code>docs/plan.md</code> (Phases 8–11),
+<a href="eval-pipeline.html">eval-pipeline.html</a>, <a href="plan-state.html">plan-state.html</a>,
+<code>assets/brand/BRAND-SPEC.md</code>, and the files quoted above.
+Branch <code>feat/chat-feedback-ui-pass</code>, latest commit <code>b2f4a66</code> — <b>but every
+file quoted in this document has uncommitted working-tree changes</b>: the session's four units
+(the plan extension, U0, U1–U3, E0) are all unstaged, pending the owner's decision on how to split
+them into branches off <code>develop</code>. Line numbers are as of the working tree on 2026-08-29.</p>
+
+</main>
+</body>
+</html>

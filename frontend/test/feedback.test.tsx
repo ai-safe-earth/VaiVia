@@ -56,11 +56,13 @@ describe('Feedback', () => {
     const { getByLabelText } = mount();
     fireEvent.click(getByLabelText('Bad answer'));
     // The bare downvote carries the (still empty) texts, so a later re-tap
-    // can never null what the form stored.
+    // can never null what the form stored. The trailing undefined is the
+    // route id: this vote is about the answer, not one card in it.
     expect(api.sendFeedback).toHaveBeenCalledWith(
       'm1',
       'conv-1',
       -1,
+      undefined,
       undefined,
       undefined,
     );
@@ -80,6 +82,7 @@ describe('Feedback', () => {
         -1,
         'wrong lake',
         'the one by Lecco',
+        undefined,
       ),
     );
   });
@@ -87,7 +90,14 @@ describe('Feedback', () => {
   it('an upvote posts without asking why', () => {
     const { getByLabelText, queryByLabelText } = mount();
     fireEvent.click(getByLabelText('Good answer'));
-    expect(api.sendFeedback).toHaveBeenCalledWith('m1', 'conv-1', 1);
+    expect(api.sendFeedback).toHaveBeenCalledWith(
+      'm1',
+      'conv-1',
+      1,
+      undefined,
+      undefined,
+      undefined,
+    );
     expect(queryByLabelText("What's wrong?")).toBeNull();
   });
 });

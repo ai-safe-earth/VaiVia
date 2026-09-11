@@ -392,10 +392,12 @@ outbound path (say "out and back to ..., returning the same way"),
   generated). Either <code>pipeline/export/neo4j_load.py</code> hasn't run since the P4 regeneration or it
   filters mapped routes — chat users currently cannot be offered any mapped route. Worth one
   <code>neo4j_load</code> run and a count check.</li>
-  <li><span class="warntag">Dead template with a stale pointer.</span> <code>backend/graph/queries.cypher:540</code>
-  documents <code>estimate_loops</code> as feeding <code>chat/narrowing.py</code>, which does not exist in
-  the tree. The template is guard-tested but consumed by nothing. Wire it or fold the comment — a pointer
-  to a missing file will misdirect the next reader.</li>
+  <li><span class="goodtag">Stale pointer folded (2026-08-29).</span> <code>estimate_loops</code>
+  documented itself as feeding <code>chat/narrowing.py</code>, which was never written — but the
+  template is NOT dead: <code>chat/orchestrator.py:493</code> calls it with <code>facet_cap=0</code>,
+  so the facet rows are not collected and the count reaches the answer as <code>total_loops</code>.
+  The comment now says that. See <a href="one-ui-and-the-eval-log.html">One UI, and a log that names
+  the entry</a> §7.</li>
   <li><span class="warntag">The catalogue has no short hike loops near Lecco.</span> The reason
   g27/g49 cannot be pinned: every hike loop near Lecco is 18–21 km. A user asking the most natural
   question in the dataset — "a short loop hike near Lecco" — gets an empty block. A generation run with a

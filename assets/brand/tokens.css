@@ -22,7 +22,6 @@
 
   /* Data encoding, not an accent: the map's moderate difficulty band
      (amendment 2026-08-27). Never a button, label or action colour. */
-  --vv-amber: #FFC53B;
 
   /* Light fallback: print, email, embeds. NOT the app. */
   --vv-ground-light: #F2F3F0;
@@ -39,7 +38,6 @@
   --vv-s9: 26px; --vv-s10: 34px; --vv-s11: 46px;
 
   --vv-radius: 0;
-  --vv-chat-width: 400px;
 }
 
 /* Text roles — apply as classes or copy the declarations. */
