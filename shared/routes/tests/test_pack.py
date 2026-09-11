@@ -150,6 +150,21 @@ def test_invariants(break_it, message: str) -> None:
         pack.validate(arrays, manifest)
 
 
+def test_fixture_pack_loads() -> None:
+    """The committed Lecco cut loads and validates like the real export."""
+    p = pack.load(Path(__file__).parent / "fixtures" / "pack-lecco-3km")
+    v, e = p.manifest["counts"]["V"], p.manifest["counts"]["E"]
+    assert v > 1000 and e > v  # a real network, not a stub
+    assert len(p["vertex_id"]) == v and len(p["edge_id"]) == e
+    # edges crossing the cut bbox keep their outside endpoint; allow ~2 km slack
+    lon, lat = p["vertex_lon"], p["vertex_lat"]
+    assert lon.min() >= 9.36 and lon.max() <= 9.44
+    assert lat.min() >= 45.82 and lat.max() <= 45.89
+    assert not np.isnan(p["geom_ele"]).any()  # height on every point
+    assert p["place_is_start"].any()
+    assert (p["edge_cost_foot"] != -1).any() and (p["edge_cost_bike"] != -1).any()
+
+
 def test_write_refuses_a_bad_pack(tmp_path: Path) -> None:
     arrays, manifest = synthetic()
     arrays["edge_u"][0] = 9

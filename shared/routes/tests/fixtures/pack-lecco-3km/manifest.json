@@ -1,0 +1,138 @@
+{
+ "run_id": "pack-lecco-3km",
+ "created": "2026-09-11T15:23:38+00:00",
+ "bbox": [
+  9.38,
+  45.84,
+  9.42,
+  45.87
+ ],
+ "regions": [
+  "Lecco"
+ ],
+ "activities": [
+  "foot",
+  "bike"
+ ],
+ "counts": {
+  "V": 3000,
+  "E": 3842,
+  "P": 16234,
+  "K": 307
+ },
+ "codes": {
+  "surface": [
+   "asphalt",
+   "cobblestone",
+   "cobblestone:flattened",
+   "concrete",
+   "dirt",
+   "fine_gravel",
+   "grass",
+   "grass_paver",
+   "gravel",
+   "ground",
+   "metal",
+   "metal_grid",
+   "paved",
+   "paving_stones",
+   "pebblestone",
+   "rock",
+   "sett",
+   "unhewn_cobblestone",
+   "unpaved",
+   "wood"
+  ],
+  "highway": [
+   "cycleway",
+   "footway",
+   "living_street",
+   "path",
+   "pedestrian",
+   "residential",
+   "secondary",
+   "service",
+   "steps",
+   "tertiary",
+   "track",
+   "unclassified"
+  ],
+  "sac_scale": [
+   "alpine_hiking",
+   "demanding_alpine_hiking",
+   "demanding_mountain_hiking",
+   "hiking",
+   "mountain_hiking"
+  ],
+  "mtb_scale": [
+   "1",
+   "3",
+   "4",
+   "6"
+  ],
+  "place_source": [
+   "gtfs_stop",
+   "poi",
+   "settlement",
+   "urban_exit"
+  ],
+  "place_kind": [
+   "beach",
+   "chapel",
+   "city",
+   "footway",
+   "hamlet",
+   "lake",
+   "parking",
+   "path",
+   "peak",
+   "picnic_site",
+   "residential",
+   "service",
+   "station",
+   "stop",
+   "unclassified",
+   "viewpoint"
+  ],
+  "start_class": [
+   "other",
+   "parking",
+   "settlement",
+   "station",
+   "urban_exit"
+  ]
+ },
+ "sources": [
+  {
+   "name": "OpenStreetMap",
+   "licence": "ODbL 1.0",
+   "attribution": "© OpenStreetMap contributors",
+   "url": "https://www.openstreetmap.org/copyright",
+   "provides": [
+    "geometry",
+    "names",
+    "waymarks",
+    "surface",
+    "difficulty",
+    "places"
+   ]
+  },
+  {
+   "name": "Copernicus GLO-30 DEM",
+   "licence": "Free, full and open (Regulation 1159/2013)",
+   "attribution": "© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA",
+   "url": "https://spacedata.copernicus.eu/",
+   "provides": [
+    "elevation",
+    "ascent",
+    "descent",
+    "profile"
+   ]
+  }
+ ],
+ "source_runs": [
+  "curate-8790d03f",
+  "topology-92f85575"
+ ],
+ "format": 1
+}
