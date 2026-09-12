@@ -46,15 +46,28 @@ async function gatewayFetch(
 export async function* sendChat(
   message: string,
   conversationId: string | null,
-  signal?: AbortSignal,
+  opts: {
+    signal?: AbortSignal;
+    /** The user's location, sent only when the browser already granted it —
+     *  typed, validated server-side, and attached AFTER intent extraction. */
+    near?: { lat: number; lon: number };
+    /** A refinement tap: a typed delta merged onto the standing outing in
+     *  Python, with no model call. */
+    chip?: Record<string, unknown>;
+  } = {},
 ): AsyncGenerator<ChatStreamEvent> {
   const response = await gatewayFetch(
     '/chat',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, conversation_id: conversationId }),
-      signal,
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId,
+        ...(opts.near ? { near: opts.near } : {}),
+        ...(opts.chip ? { chip: opts.chip } : {}),
+      }),
+      signal: opts.signal,
     },
     'Please sign in to keep chatting.',
   );

@@ -18,6 +18,7 @@ import {
   recordLine,
   type LineEntry,
   type LineStatus,
+  inlineLine,
 } from '@/lib/mapTurn';
 import { isAuthConfigured } from '@/lib/supabaseClient';
 import type {
@@ -44,6 +45,25 @@ const SUGGESTIONS = [
 
 /** Where the card list folds when the results event carries no
  *  answered_count (older stored turns). */
+/** Refinement chips under a drawn answer: each tap is a TYPED delta the
+ *  backend merges in Python — no model call, values computed from the cards
+ *  on screen so "shorter" means shorter than what you are looking at. */
+function chipsFor(loops: Loop[]): { label: string; chip: Record<string, unknown> }[] {
+  if (loops.length === 0) return [];
+  const minKm = Math.min(...loops.map((l) => l.distance_m)) / 1000;
+  const climbs = loops.map((l) => l.ascent_m).filter((a): a is number => a !== null);
+  const shorterKm = Math.max(1, Math.round(minKm * 0.75));
+  const chips: { label: string; chip: Record<string, unknown> }[] = [
+    { label: `shorter — under ${shorterKm} km`, chip: { max_distance_km: shorterKm } },
+  ];
+  if (climbs.length > 0) {
+    const easier = Math.max(50, Math.round((Math.min(...climbs) * 0.6) / 50) * 50);
+    chips.push({ label: `less climbing — under ${easier} m`, chip: { max_ascent_m: easier } });
+  }
+  chips.push({ label: 'no asphalt', chip: { surface_exclusions: ['asphalt'] } });
+  return chips;
+}
+
 const DEFAULT_FOLD = 5;
 
 interface Props {
@@ -125,6 +145,28 @@ export function ChatPanel({
   // The same statuses as React state, so the cards re-render when a line
   // arrives or fails - the ref alone repaints nothing.
   const [lineStatus, setLineStatus] = useState<Record<string, LineStatus>>({});
+
+  // The user's location, for "from here" asks. Read ONLY when the browser
+  // has already granted geolocation — this never prompts; an explicit "use
+  // my location" affordance can, later. Sent typed on every ask; the
+  // backend validates it to coverage and attaches it after extraction.
+  const nearRef = useRef<{ lat: number; lon: number } | null>(null);
+  useEffect(() => {
+    if (!('permissions' in navigator) || !('geolocation' in navigator)) return;
+    navigator.permissions
+      .query({ name: 'geolocation' })
+      .then((status) => {
+        if (status.state !== 'granted') return;
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            nearRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          },
+          () => {},
+          { maximumAge: 600_000 },
+        );
+      })
+      .catch(() => {});
+  }, []);
   // Which ANSWER those features belong to. The drawn set is one answer's, and
   // "show more" under an older one used to merge its routes into the current
   // answer's map — a picture belonging to neither turn.
@@ -274,6 +316,14 @@ export function ChatPanel({
    *  just revealed. Settled, not all: one route missing its geometry must not
    *  stop the others being drawn. */
   async function appendLoopGeometry(loops: Loop[], turn: number) {
+    // Drawn routes carry their line inline — seed those first; only what
+    // remains unfetchable goes to the wire.
+    loops.forEach((loop) => {
+      if (needsFetch(loopFeatures.current.get(loop.id))) {
+        const inline = inlineLine(loop);
+        if (inline) loopFeatures.current.set(loop.id, inline);
+      }
+    });
     // Errors are retried on the next ask; ok and missing (404) are settled;
     // a line already on the wire is not asked for again.
     const wanted = loops.filter(
@@ -314,7 +364,7 @@ export function ChatPanel({
     drawLoops(routes.current());
   }
 
-  async function submit(text: string) {
+  async function submit(text: string, chip?: Record<string, unknown>) {
     const message = text.trim();
     if (!message || busy) return;
 
@@ -344,7 +394,10 @@ export function ChatPanel({
 
     let streamed = '';
     try {
-      for await (const event of sendChat(message, conversationId)) {
+      for await (const event of sendChat(message, conversationId, {
+        chip,
+        near: nearRef.current ?? undefined,
+      })) {
         switch (event.type) {
           case 'conversation':
             if (conversationId === null) onConversationCreated?.(event.conversationId);
@@ -487,6 +540,17 @@ export function ChatPanel({
               <QueryReading reading={message.results.reading} />
             )}
 
+            {/* The assumptions strip: the compiler's judgements, said out
+                loud where a wrong reading gets corrected — "we read ~3 h as
+                12–18 km for kids on bikes". */}
+            {message.results?.assumptions && message.results.assumptions.length > 0 && (
+              <div className="assumptions">
+                {message.results.assumptions.map((assumption) => (
+                  <span key={assumption}>{assumption}</span>
+                ))}
+              </div>
+            )}
+
             {message.results?.suggestions && message.results.suggestions.length > 0 && (
               <div className="suggestions">
                 {message.results.suggestions.map((suggestion) => (
@@ -562,6 +626,28 @@ export function ChatPanel({
                 ))}
               </FoldedCards>
             )}
+
+            {/* Chips: only under the LATEST drawn answer — a tap refines the
+                conversation's standing plan, and older turns no longer speak
+                for it. */}
+            {message.results?.drawn &&
+              !message.streaming &&
+              index === messages.length - 1 &&
+              message.results.loops &&
+              message.results.loops.length > 0 && (
+                <div className="suggestions chips">
+                  {chipsFor(message.results.loops).map(({ label, chip }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void submit(label, chip)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
             {message.results?.trails && message.results.trails.length > 0 && (
               <FoldedCards fold={message.results.answered_count ?? DEFAULT_FOLD}>

@@ -73,6 +73,13 @@ export interface Loop {
   start_lat: number | null;
   start_lon: number | null;
   pois: PoiRef[];
+  /** DRAWN routes only (Phase 12): the ask's ordinal in this conversation,
+   *  the destination's kind, the surface distribution, and the line itself —
+   *  inline, because a drawn route is in no catalogue to fetch from. */
+  ordinal?: number;
+  destination_kind?: string | null;
+  surface?: Record<string, number>;
+  geometry?: GeoJSON.LineString;
 }
 
 /** The altitude profile as the route document carries it: two parallel
@@ -172,6 +179,15 @@ export interface ChatResults {
   clarification?: string;
   suggestions?: string[];
   semantic_unavailable?: boolean;
+  /** Phase 12: these routes were DRAWN for this ask, not found. */
+  drawn?: boolean;
+  /** The judgements the compiler made, in the walker's language — the
+   *  assumptions strip ("we read ~3 h as 12–18 km"). */
+  assumptions?: string[];
+  /** Rejections per stated reason — what the counts-built clarify reads. */
+  counts?: Record<string, number>;
+  /** Present when nothing fit exactly and the one relaxation rung ran. */
+  relaxed?: string;
 }
 
 export interface ChatMessage {
