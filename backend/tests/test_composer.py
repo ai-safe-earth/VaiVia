@@ -459,3 +459,65 @@ def test_standing_load_degrades_malformed_history_to_none():
     assert standing_load(None) is None
     assert standing_load({"search": {"max_distance_m": "not a number"}}) is None
     assert standing_load({"search": None, "loop": None, "theme": None}) is None
+
+
+# ── OutingIntent (Phase 12 R3) ───────────────────────────────────────────────
+
+
+def _outing(**kwargs):
+    from chat.intents import OutingIntent
+
+    return OutingIntent(activity=kwargs.pop("activity", "bike"), **kwargs)
+
+
+def test_outing_composes_with_an_interim_catalogue_view():
+    from chat.intents import StartSpec, Waypoint
+
+    plan = compose(
+        [
+            _outing(
+                party="kids",
+                max_hours=3,
+                waypoints=[Waypoint(kind="lake", role="pass")],
+                start=StartSpec(mode="named", name="Lecco"),
+            )
+        ]
+    )
+    assert not plan.is_clarify
+    assert plan.outing is not None and plan.outing.party == "kids"
+    # the degradation until R4: the same ask posed to the catalogue
+    assert plan.loop is not None
+    assert plan.loop.activity == "mtb"
+    assert plan.loop.max_duration_min == 180
+    assert plan.loop.max_difficulty_level == 1
+    assert plan.loop.poi_types == ["lake"]
+    assert plan.loop.near == "Lecco"
+
+
+def test_multi_day_outing_has_no_one_day_stand_in():
+    plan = compose([_outing(days=3, sleep="hut")])
+    assert plan.outing is not None and plan.loop is None
+
+
+def test_outing_with_clarify_is_poisoned():
+    plan = compose(
+        [_outing(), ClarifyIntent(question="who is asking?", suggestions=[])]
+    )
+    assert plan.is_clarify
+
+
+def test_outing_survives_the_standing_roundtrip():
+    plan = compose([_outing(party="kids", max_hours=3)])
+    reloaded = standing_load(standing_dump(plan))
+    assert reloaded is not None and reloaded.outing is not None
+    assert reloaded.outing.party == "kids"
+    assert reloaded.outing.max_hours == 3
+
+
+def test_outing_delta_overlays_and_refreshes_the_view():
+    standing = compose([_outing(party="kids", max_hours=3)])
+    delta = compose([_outing(max_hours=2)])
+    merged = apply_delta(standing, delta)
+    assert merged.outing.max_hours == 2
+    assert merged.outing.party == "kids"  # unchanged constraint survives
+    assert merged.loop is not None and merged.loop.max_duration_min == 120

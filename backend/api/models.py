@@ -33,6 +33,34 @@ PoiType = Literal[
 ]
 Season = Literal["spring", "summer", "autumn", "winter"]
 
+# What an OUTING waypoint may be (docs/route-design.md). A superset of
+# PoiType: the pack planner draws past cultural and lodging places the
+# trail-search templates never filter on. Kept separate so trail_search's
+# vocabulary — and the graph indexes behind it — do not silently widen.
+PoiKind = Literal[
+    "lake",
+    "hut",
+    "campsite",
+    "station",
+    "bathing_water",
+    "viewpoint",
+    "peak",
+    "saddle",
+    "beach",
+    "spring",
+    "cave",
+    "waterfall",
+    "chapel",
+    "castle",
+    "ruins",
+    "picnic_site",
+    "church",
+    "museum",
+    "monument",
+    "agriturismo",
+    "river_access",
+]
+
 
 class PoiRef(BaseModel):
     name: str | None = None

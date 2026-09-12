@@ -42,6 +42,20 @@ POI_TAG_MAP: list[tuple[str, str, str]] = [
     ("historic", "castle", "castle"),
     ("historic", "ruins", "ruins"),
     ("tourism", "picnic_site", "picnic_site"),
+    # Phase 12 outing kinds (docs/route-design.md): cultural waypoints, the
+    # agriturismo lodging, and river bathing spots. Chapel rows stay above
+    # church so a building=chapel keeps its finer kind.
+    ("building", "church", "church"),
+    ("amenity", "place_of_worship", "church"),
+    ("tourism", "museum", "museum"),
+    ("historic", "monument", "monument"),
+    ("historic", "memorial", "monument"),
+    # Agriturismi are tagged both ways in Lombardy; either reads as one kind.
+    ("guest_house", "agriturismo", "agriturismo"),
+    ("tourism", "agriturismo", "agriturismo"),
+    # leisure=bathing_place also marks lakeshore spots; the bathe role set
+    # spans lake/beach/river_access anyway, so the coarse read is harmless.
+    ("leisure", "bathing_place", "river_access"),
 ]
 
 
