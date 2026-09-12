@@ -107,3 +107,59 @@ def test_internal_failure_surfaces_as_an_sse_error_event(chat_client, db):
     )
     assert "event: error" in response.text
     assert "internal_error" in response.text
+
+
+# ── near: typed, coverage-validated, invisible to the LLM (Phase 12 R3) ──────
+
+
+class SpyLLM(StubLLM):
+    """Records every extract_plan argument, so a test can prove the model
+    never sees a coordinate."""
+
+    def __init__(self, intent: dict) -> None:
+        super().__init__(intent)
+        self.extract_calls: list[tuple] = []
+
+    async def extract_plan(self, message, history, standing=None):
+        self.extract_calls.append((message, history, standing))
+        return await super().extract_plan(message, history, standing)
+
+
+def test_near_inside_coverage_is_accepted(chat_client):
+    response = chat_client.post(
+        "/chat",
+        json={"message": "a loop from here", "near": {"lat": 45.85, "lon": 9.39}},
+        headers={"X-User-Id": "u1"},
+    )
+    assert response.status_code == 200
+
+
+def test_near_outside_coverage_is_rejected(chat_client):
+    response = chat_client.post(
+        "/chat",
+        json={"message": "a loop from here", "near": {"lat": 43.77, "lon": 11.25}},
+        headers={"X-User-Id": "u1"},
+    )
+    assert response.status_code == 422
+
+
+def test_extraction_never_sees_the_coordinate(client, db):
+    spy = SpyLLM({"kind": "trail_search", "activity": "hike"})
+    client.app.state.llm = spy
+    client.app.state.store = InMemoryStore()
+    db.when("search_trails", [])
+
+    response = client.post(
+        "/chat",
+        json={"message": "a loop from here", "near": {"lat": 45.85, "lon": 9.39}},
+        headers={"X-User-Id": "u1"},
+    )
+    assert response.status_code == 200
+    assert spy.extract_calls
+    import json as _json
+
+    for call in spy.extract_calls:
+        serialized = _json.dumps(call, default=str)
+        assert "45.85" not in serialized
+        assert "9.39" not in serialized
+        assert "near" not in serialized

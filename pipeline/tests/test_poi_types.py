@@ -22,6 +22,23 @@ def test_ermita_three_taggings_one_type() -> None:
         assert poi_type_for(tags) == "chapel"
 
 
+def test_outing_kinds_phase_12() -> None:
+    assert poi_type_for({"building": "church"}) == "church"
+    assert poi_type_for({"amenity": "place_of_worship"}) == "church"
+    # A chapel building keeps its finer kind even as a place of worship.
+    assert (
+        poi_type_for({"building": "chapel", "amenity": "place_of_worship"}) == "chapel"
+    )
+    assert poi_type_for({"tourism": "museum"}) == "museum"
+    assert poi_type_for({"historic": "monument"}) == "monument"
+    assert poi_type_for({"historic": "memorial"}) == "monument"
+    assert poi_type_for({"tourism": "guest_house", "guest_house": "agriturismo"}) == (
+        "agriturismo"
+    )
+    assert poi_type_for({"tourism": "agriturismo"}) == "agriturismo"
+    assert poi_type_for({"leisure": "bathing_place"}) == "river_access"
+
+
 def test_unmatched_is_none() -> None:
     assert poi_type_for({"highway": "path"}) is None
     assert poi_type_for({}) is None

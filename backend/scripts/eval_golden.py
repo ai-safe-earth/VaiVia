@@ -104,10 +104,17 @@ def check_plan(expected: dict[str, Any], plan: ComposedPlan) -> list[str]:
         elif key == "routes":
             if len(plan.routes) != want:
                 problems.append(f"routes: want {want}, got {len(plan.routes)}")
-        elif key.startswith(("search.", "loop.")):
+        elif key.startswith(("search.", "loop.", "outing.")):
             prefix, field = key.split(".", 1)
-            holder = plan.search if prefix == "search" else plan.loop
-            got = getattr(holder, field, None) if holder else None
+            holder = {
+                "search": plan.search,
+                "loop": plan.loop,
+                "outing": plan.outing,
+            }[prefix]
+            # Dotted tails walk nested models: "outing.start.mode".
+            got = holder
+            for part in field.split("."):
+                got = getattr(got, part, None) if got is not None else None
             if isinstance(want, list):
                 if not set(want) <= set(got or []):
                     problems.append(f"{key}: want superset of {want}, got {got}")

@@ -153,8 +153,16 @@ class ChatOrchestrator:
         self._embedder = embedder
 
     async def run(
-        self, user_id: str, message: str, conversation_id: str | None = None
+        self,
+        user_id: str,
+        message: str,
+        conversation_id: str | None = None,
+        near: tuple[float, float] | None = None,
     ) -> AsyncIterator[ChatEvent]:
+        # `near` is the typed, coverage-validated "from here" point. It is
+        # attached AFTER extraction — extract_plan below receives only the
+        # message, history and standing plan, never a coordinate (pinned by
+        # test). The planner consumes it in R4; until then it only exists.
         settings = get_settings()
 
         used = await self._store.tokens_used_today(user_id)

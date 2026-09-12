@@ -14,6 +14,7 @@ from chat.intents import (
     ClarifyIntent,
     Intent,
     LoopSearchIntent,
+    OutingIntent,
     RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
@@ -113,6 +114,10 @@ class ComposedPlan:
     theme: str | None = None
     routes: list[RouteIntent] = field(default_factory=list)
     loop: LoopSearchIntent | None = None
+    #: The on-demand ask, verbatim. The planner consumes it in R4; until
+    #: then `outing_view` degrades it to a catalogue ask so the turn still
+    #: answers (the same posture as catalogue_view).
+    outing: OutingIntent | None = None
 
     @property
     def is_clarify(self) -> bool:
@@ -210,6 +215,60 @@ def catalogue_view(search: TrailSearchIntent) -> LoopSearchIntent | None:
     # whose routes are 15,328 m long: without this the implicit block matches
     # nothing and silently vanishes, while "a 15 km loop" gets a band and
     # results. One ask, two phrasings, must reach the catalogue the same way.
+    return widen_narrow_band(view)
+
+
+#: OutingIntent waypoint kinds that trail search's PoiType also knows —
+#: what the interim catalogue view can carry over.
+_CATALOGUE_POI_KINDS = frozenset(
+    {
+        "lake",
+        "hut",
+        "campsite",
+        "station",
+        "bathing_water",
+        "viewpoint",
+        "peak",
+        "saddle",
+        "beach",
+        "spring",
+        "cave",
+        "waterfall",
+        "chapel",
+        "castle",
+        "ruins",
+        "picnic_site",
+    }
+)
+
+
+def outing_view(outing: OutingIntent) -> LoopSearchIntent | None:
+    """The outing posed to the catalogue — the interim until R4's planner.
+
+    Until the pack planner is wired into /chat, an outing must still answer
+    with something honest: the closest catalogue ask, described by measured
+    facts like every catalogue result. A multi-day ask has no one-day stand-in,
+    so it degrades to None and the turn says nothing matched rather than
+    offering day loops as a trek.
+    """
+    if outing.days > 1:
+        return None
+    view = LoopSearchIntent(
+        activity="mtb" if outing.activity in ("mtb", "bike") else "hike",
+        max_distance_m=(
+            outing.max_distance_km * 1000
+            if outing.max_distance_km is not None
+            else None
+        ),
+        max_duration_min=(
+            round(outing.max_hours * 60) if outing.max_hours is not None else None
+        ),
+        max_ascent_m=float(outing.max_ascent_m) if outing.max_ascent_m else None,
+        poi_types=[k for k in outing.waypoint_kinds if k in _CATALOGUE_POI_KINDS],
+        near=outing.start.name or outing.area,
+    )
+    if outing.party in ("kids", "small_kids"):
+        view.max_difficulty_level = 1
     return widen_narrow_band(view)
 
 
@@ -340,6 +399,13 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     # Tightest-wins like the searches: two loop asks in one message are one
     # outing with both constraints, not two outings.
     loop = merge_loops(loops) if loops else None
+    # One outing per turn: a message describes one outing, and two outing
+    # subqueries are the model splitting what it should not — the first
+    # speaks. (compile.py owns everything downstream of this.)
+    outings = [s for s in subqueries if isinstance(s, OutingIntent)]
+    outing = outings[0] if outings else None
+    if outing is not None and loop is None:
+        loop = outing_view(outing)
 
     search = merge_searches(searches) if searches else None
     theme = "; ".join(themes) if themes else None
@@ -348,6 +414,7 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
         bool(theme)
         or bool(routes)
         or loop is not None
+        or outing is not None
         or (search is not None and has_constraints(search))
     )
     if not actionable:
@@ -373,6 +440,7 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
         and theme is None
         and not routes
         and loop is None
+        and outing is None
     ):
         return ComposedPlan(
             clarify=ClarifyIntent(
@@ -388,7 +456,9 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
             )
         )
 
-    return ComposedPlan(search=search, theme=theme, routes=routes, loop=loop)
+    return ComposedPlan(
+        search=search, theme=theme, routes=routes, loop=loop, outing=outing
+    )
 
 
 # ── The standing plan ────────────────────────────────────────────────────────
@@ -465,7 +535,18 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
         search=standing.search,
         theme=standing.theme,
         loop=standing.loop,
+        outing=standing.outing,
     )
+    if delta.outing is not None:
+        merged.outing = (
+            _overlay(merged.outing, delta.outing)
+            if merged.outing is not None
+            else delta.outing
+        )
+        # The interim catalogue view tracks the outing it was derived from;
+        # an explicit loop delta below still wins.
+        if delta.loop is None:
+            merged.loop = outing_view(merged.outing)
     if delta.search is not None:
         if merged.search is not None:
             merged.search = _overlay(merged.search, delta.search)
@@ -495,6 +576,7 @@ def standing_dump(plan: ComposedPlan) -> dict | None:
     return {
         "search": plan.search.model_dump() if plan.search else None,
         "loop": plan.loop.model_dump() if plan.loop else None,
+        "outing": plan.outing.model_dump() if plan.outing else None,
         "theme": plan.theme,
         "routes": [r.model_dump() for r in plan.routes],
     }
@@ -517,11 +599,16 @@ def standing_load(data: dict | None) -> ComposedPlan | None:
                 if data.get("loop")
                 else None
             ),
+            outing=(
+                OutingIntent.model_validate(data["outing"])
+                if data.get("outing")
+                else None
+            ),
             theme=data.get("theme") or None,
             routes=[RouteIntent.model_validate(r) for r in data.get("routes") or []],
         )
     except Exception:  # noqa: BLE001 — malformed history is "no standing plan"
         return None
-    if not (plan.search or plan.loop or plan.theme or plan.routes):
+    if not (plan.search or plan.loop or plan.theme or plan.routes or plan.outing):
         return None
     return plan

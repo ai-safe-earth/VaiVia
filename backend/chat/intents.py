@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
-from api.models import Activity, PoiType, Season
+from api.models import Activity, PoiKind, PoiType, Season
 
 DIFFICULTY_LEVELS = {"Easy": 1, "Intermediate": 2, "Difficult": 3, "Pro": 4}
 
@@ -69,6 +69,68 @@ class LoopSearchIntent(BaseModel):
     avoid_roads: bool = False
 
 
+class Waypoint(BaseModel):
+    """Somewhere the outing should pass, end at, or use — with the ROLE the
+    walker gave it ("ending at a lake to bathe"). No coordinates, no ids:
+    a kind and/or a name, resolved server-side like every other place."""
+
+    kind: PoiKind | None = None
+    name: str | None = None
+    role: Literal["pass", "end", "bathe", "eat", "sleep"] = "pass"
+
+
+class StartSpec(BaseModel):
+    """Where the outing begins. `here` is resolved from ChatRequest.near —
+    typed, validated to coverage, attached AFTER extraction; the model never
+    sees or emits a coordinate."""
+
+    mode: Literal["here", "named", "station", "parking", "any"] = "any"
+    name: str | None = None
+    max_drive_min: Annotated[int, Field(ge=0, le=600)] | None = None
+    car_free: bool = False
+
+
+class OutingIntent(BaseModel):
+    """An outing to DRAW on demand over the pack (docs/route-design.md),
+    rather than a search over named trails or the catalogue.
+
+    No field carries a query, a template name, a database id, a coordinate
+    or a weight. chat/compile.py — Python, not the model — owns every number
+    the planner sees.
+    """
+
+    kind: Literal["outing"] = "outing"
+    activity: Literal["hike", "walk", "mtb", "bike"]
+    shape: Literal["loop", "out_and_back", "destination", "traverse"] | None = None
+    party: Literal["solo", "adults", "kids", "small_kids"] | None = None
+    fitness: Literal["easy", "moderate", "challenging", "expert"] | None = None
+    days: Annotated[int, Field(ge=1, le=14)] = 1
+    min_hours: Annotated[float, Field(ge=0, le=24)] | None = None
+    max_hours: Annotated[float, Field(ge=0, le=24)] | None = None
+    max_distance_km: Annotated[float, Field(ge=0)] | None = None
+    max_ascent_m: Annotated[int, Field(ge=0)] | None = None
+    waypoints: list[Waypoint] = Field(default_factory=list)
+    surface_exclusions: list[Literal["asphalt", "paved", "gravel"]] = Field(
+        default_factory=list
+    )
+    setting: Literal["nature", "mixed", "town"] | None = None
+    theme: Literal["cultural", "panoramic", "water", "forest"] | None = None
+    start: StartSpec = Field(default_factory=StartSpec)
+    sleep: Literal["hut", "campsite", "agriturismo", "wild", "any"] | None = None
+    area: str | None = None
+    #: Ordinal of a card earlier in this conversation ("make the second one
+    #: shorter") — an ordinal, never an id.
+    refine_from: Annotated[int, Field(ge=1, le=20)] | None = None
+
+    @property
+    def waypoint_kinds(self) -> list[str]:
+        return [w.kind for w in self.waypoints if w.kind]
+
+    @property
+    def waypoint_roles(self) -> list[str]:
+        return [w.role for w in self.waypoints]
+
+
 class RouteIntent(BaseModel):
     """Route between two named places. Maps to the routing template chain."""
 
@@ -100,6 +162,7 @@ class ClarifyIntent(BaseModel):
 Intent = Annotated[
     TrailSearchIntent
     | LoopSearchIntent
+    | OutingIntent
     | RouteIntent
     | SemanticThemeIntent
     | ClarifyIntent,
