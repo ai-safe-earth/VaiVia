@@ -123,6 +123,11 @@ PLACE_COLUMNS = (
     "run_id",
 )
 
+DRIVE = "SELECT settlement_source_id, start_vertex, minutes FROM source_map.drive_min"
+RAIL = "SELECT feed_stop_a, feed_stop_b, minutes FROM staging.rail_min"
+
+GAZETTEER = Path(__file__).with_name("gazetteer.json")
+
 EPOCH = date(1970, 1, 1)
 
 
@@ -169,7 +174,131 @@ def columns(rows: list[tuple], names: tuple[str, ...]) -> dict[str, tuple]:
     return dict(zip(names, cols))
 
 
-def build(edges: list[tuple], vertices: list[tuple], places: list[tuple]) -> tuple:
+def travel_arrays(
+    a: dict[str, np.ndarray],
+    p: dict[str, tuple],
+    codes: dict[str, list[str]],
+    drive_rows: list[tuple],
+    rail_rows: list[tuple],
+) -> dict[str, int]:
+    """Format 2's matrices from the curated tables, filtered to the places
+    this pack carries (a bbox cut keeps only its own rows). Pure; returns
+    the D/S/R counts. inf = no route, the honest absence."""
+    key_index = {
+        (src, sid): i for i, (src, sid) in enumerate(zip(p["source"], p["source_id"]))
+    }
+    start_places = np.flatnonzero(a["place_is_start"])
+    start_vertex_cols: dict[int, list[int]] = {}
+    for col, place_i in enumerate(start_places):
+        start_vertex_cols.setdefault(int(a["place_vertex"][place_i]), []).append(col)
+
+    vertex_ids = a["vertex_id"]
+    drive_by_row: dict[int, dict[int, float]] = {}
+    for settlement_sid, start_vertex, minutes in drive_rows:
+        row = key_index.get(("settlement", settlement_sid))
+        # start_vertex is a source_map vertex_id; the pack indexes vertices
+        vi = np.searchsorted(vertex_ids, start_vertex)
+        if row is None or vi >= len(vertex_ids) or vertex_ids[vi] != start_vertex:
+            continue
+        for col in start_vertex_cols.get(int(vi), ()):
+            drive_by_row.setdefault(row, {})[col] = minutes
+    rows = sorted(drive_by_row)
+    d, s = len(rows), len(start_places)
+    drive = np.full((d, s), np.inf, dtype=np.float16)
+    for r_i, row in enumerate(rows):
+        for col, minutes in drive_by_row[row].items():
+            drive[r_i, col] = minutes
+    a["drive_row_place"] = np.array(rows, dtype=np.int32)
+    a["drive_col_place"] = start_places.astype(np.int32)
+    a["drive_min"] = drive.reshape(-1)
+
+    stations = sorted(
+        i for (src, _sid), i in key_index.items() if src == "gtfs_stop"
+    )
+    station_col = {i: c for c, i in enumerate(stations)}
+    rail = np.full((len(stations), len(stations)), np.inf, dtype=np.float16)
+    np.fill_diagonal(rail, 0.0)
+    for stop_a, stop_b, minutes in rail_rows:
+        ia = key_index.get(("gtfs_stop", stop_a))
+        ib = key_index.get(("gtfs_stop", stop_b))
+        if ia in station_col and ib in station_col:
+            rail[station_col[ia], station_col[ib]] = minutes
+    a["rail_row_place"] = np.array(stations, dtype=np.int32)
+    a["rail_min"] = rail.reshape(-1)
+    return {"Q": len(codes["place_kind"]), "D": d, "S": s, "R": len(stations)}
+
+
+def reach_arrays(a: dict[str, np.ndarray], codes: dict[str, list[str]]) -> None:
+    """The computed reach fields: start_trail_share_5km and the potential
+    field per place kind — bounded/multi-source Dijkstra over the pack's own
+    foot CSR, so pack and planner agree on every metre by construction."""
+    from vaivia_routes.network import Network
+
+    from vaivia_routes.assemble import OFF_ROAD_HIGHWAYS
+
+    counts = {
+        "V": len(a["vertex_id"]),
+        "E": len(a["edge_id"]),
+        "P": len(a["geom_lon"]),
+        "K": len(a["place_source_id"]),
+    }
+    if counts["V"] == 0:
+        a["start_trail_share_5km"] = np.full(counts["K"], np.nan, dtype=np.float32)
+        a["potential"] = np.empty(0, dtype=np.float16).reshape(-1)
+        # Q rows over zero vertices is still Q*0 = 0 entries; validate agrees.
+        a["potential"] = np.zeros(
+            len(codes["place_kind"]) * 0, dtype=np.float16
+        )
+        return
+    net = Network.build(
+        pack.Pack(manifest={"run_id": "tmp", "counts": counts, "codes": codes}, arrays=a),
+        "foot",
+    )
+    highway_table = codes["highway"]
+    off_road_code = np.array(
+        [i for i, h in enumerate(highway_table) if h in OFF_ROAD_HIGHWAYS]
+    )
+    edge_off_road = np.isin(a["edge_highway"], off_road_code)
+    length = a["edge_length_m"]
+    u, v = a["edge_u"], a["edge_v"]
+
+    share = np.full(counts["K"], np.nan, dtype=np.float32)
+    start_places = np.flatnonzero(a["place_is_start"])
+    by_vertex: dict[int, list[int]] = {}
+    for i in start_places:
+        by_vertex.setdefault(int(a["place_vertex"][i]), []).append(int(i))
+    for vertex, place_rows in by_vertex.items():
+        dist = net.field_from(vertex, 5000.0)
+        opened = edge_off_road & (
+            (dist[u] <= 5000.0) | (dist[v] <= 5000.0)
+        )
+        metres = float(length[opened].sum())
+        for i in place_rows:
+            share[i] = metres
+    a["start_trail_share_5km"] = share
+
+    from scipy.sparse.csgraph import dijkstra
+
+    kind_table = codes["place_kind"]
+    potential = np.full((len(kind_table), counts["V"]), np.inf, dtype=np.float16)
+    for code, _kind in enumerate(kind_table):
+        sources = np.unique(
+            a["place_vertex"][np.flatnonzero(a["place_kind"] == code)]
+        )
+        if len(sources) == 0:
+            continue
+        field = dijkstra(net.graph, indices=sources, min_only=True)
+        potential[code] = field.astype(np.float16)
+    a["potential"] = potential.reshape(-1)
+
+
+def build(
+    edges: list[tuple],
+    vertices: list[tuple],
+    places: list[tuple],
+    drive_rows: list[tuple] = (),
+    rail_rows: list[tuple] = (),
+) -> tuple:
     """Rows to (arrays, counts, codes, regions, source_runs). Pure."""
     v = columns(vertices, VERTEX_COLUMNS)
     e = columns(edges, EDGE_COLUMNS)
@@ -234,11 +363,14 @@ def build(edges: list[tuple], vertices: list[tuple], places: list[tuple]) -> tup
         e["wkb"], e["profile_m"]
     )
 
+    reach_arrays(a, codes)
+    travel_counts = travel_arrays(a, p, codes, list(drive_rows), list(rail_rows))
     counts = {
         "V": len(vertices),
         "E": len(edges),
         "P": len(a["geom_lon"]),
         "K": len(places),
+        **travel_counts,
     }
     regions = sorted({r for rs in e["regions"] for r in rs})
     source_runs = sorted(set(e["run_id"]) | set(p["run_id"]))
@@ -259,9 +391,14 @@ def main() -> None:
 
     with connect() as conn:
         if not args.dry_run:
+            # A NAMED export (--name) is a rebuild of the same artefact —
+            # the ledger keeps one row per name, refreshed, not a collision.
             conn.execute(
                 "INSERT INTO provenance.build_run (run_id, stage, parameters) "
-                "VALUES (%s, 'export', %s)",
+                "VALUES (%s, 'export', %s) "
+                "ON CONFLICT (run_id) DO UPDATE SET "
+                "started_at = now(), finished_at = NULL, "
+                "parameters = EXCLUDED.parameters",
                 (run_id, json.dumps({"builder": "export.pack", "bbox": bbox})),
             )
         params = dict(zip(("x1", "y1", "x2", "y2"), bbox)) if bbox else None
@@ -269,8 +406,12 @@ def main() -> None:
         ids = sorted({e[1] for e in edges} | {e[2] for e in edges})
         vertices = conn.execute(VERTICES, {"ids": ids}).fetchall()
         places = conn.execute(PLACES, {"ids": ids}).fetchall()
+        drive_rows = conn.execute(DRIVE).fetchall()
+        rail_rows = conn.execute(RAIL).fetchall()
 
-        arrays, counts, codes, regions, source_runs = build(edges, vertices, places)
+        arrays, counts, codes, regions, source_runs = build(
+            edges, vertices, places, drive_rows, rail_rows
+        )
         print(
             f"vertices {counts['V']:,}  edges {counts['E']:,}  "
             f"points {counts['P']:,} "
@@ -280,6 +421,7 @@ def main() -> None:
         if args.dry_run:
             return
 
+        gazetteer = json.loads(GAZETTEER.read_text(encoding="utf-8"))["areas"]
         manifest = {
             "run_id": run_id,
             "created": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -290,6 +432,10 @@ def main() -> None:
             "codes": codes,
             "sources": SOURCES,
             "source_runs": source_runs,
+            "gazetteer": gazetteer,
+            # Track time between stations: no transfer penalty is priced in,
+            # so the figure is a floor on the journey, said here once.
+            "rail_note": "track time from the GTFS timetable; no transfer penalty",
         }
         pack.write(out, arrays, manifest)
         size = (out / pack.NETWORK).stat().st_size

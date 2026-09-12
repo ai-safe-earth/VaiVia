@@ -110,10 +110,22 @@ PLACES = [
 
 def test_build_is_a_valid_pack_and_keeps_the_rows() -> None:
     arrays, counts, codes, regions, runs = build(EDGES, VERTICES, PLACES)
-    manifest = {"format": 1, "run_id": "t", "counts": counts, "codes": codes}
+    manifest = {"format": pack.FORMAT, "run_id": "t", "counts": counts, "codes": codes}
     pack.validate(arrays, manifest)  # raises on any broken invariant
 
-    assert counts == {"V": 3, "E": 2, "P": 5, "K": 2}
+    assert counts["V"] == 3 and counts["E"] == 2 and counts["P"] == 5
+    assert counts["K"] == 2
+    # format 2: Q tracks the kind table; no drive/rail rows were passed
+    assert counts["Q"] == len(codes["place_kind"])
+    assert counts["D"] == 0  # no drive rows passed
+    # R counts the pack's stations even with no rail rows: a station with no
+    # matrix entry is still a station (its row is inf off the diagonal)
+    assert counts["R"] == 1
+    assert counts["S"] == int(arrays["place_is_start"].sum())
+    # every vertex reaches the parking place on this connected 3-vertex line
+    assert np.isfinite(
+        arrays["potential"][: counts["V"] * 1].astype(np.float64)
+    ).any()
     assert arrays["edge_u"].tolist() == [0, 1] and arrays["edge_v"].tolist() == [1, 2]
     assert arrays["edge_cost_bike_rev"].tolist() == [-1.0, -1.0]
     assert np.isnan(arrays["edge_ascent_m"][1]) and arrays["edge_ascent_m"][0] == 5
@@ -133,9 +145,9 @@ def test_build_is_a_valid_pack_and_keeps_the_rows() -> None:
 def test_empty_store_builds_an_empty_pack() -> None:
     arrays, counts, codes, _, _ = build([], [], [])
     pack.validate(
-        arrays, {"format": 1, "run_id": "t", "counts": counts, "codes": codes}
+        arrays, {"format": pack.FORMAT, "run_id": "t", "counts": counts, "codes": codes}
     )
-    assert counts == {"V": 0, "E": 0, "P": 0, "K": 0}
+    assert counts["V"] == counts["E"] == counts["P"] == counts["K"] == 0
 
 
 def test_helpers() -> None:
