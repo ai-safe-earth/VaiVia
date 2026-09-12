@@ -123,6 +123,26 @@ export function recordLine(feature: GeoJSON.Feature | null, routeId: string): Li
   return { status: 'ok', feature };
 }
 
+/**
+ * A DRAWN route ships its line inline on the card — it is in no catalogue,
+ * so there is nothing to fetch. Null for catalogue cards, which fetch.
+ */
+export function inlineLine(loop: {
+  id: string;
+  geometry?: GeoJSON.LineString;
+}): LineEntry | null {
+  if (!loop.geometry) return null;
+  return {
+    status: 'ok',
+    feature: {
+      type: 'Feature',
+      id: loop.id,
+      geometry: loop.geometry,
+      properties: { route_id: loop.id },
+    },
+  };
+}
+
 /** Should this entry be fetched (again)? Errors retry; ok and missing hold. */
 export function needsFetch(entry: LineEntry | undefined): boolean {
   return entry === undefined || entry.status === 'error';

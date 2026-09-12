@@ -504,7 +504,9 @@
    "outing.activity": "bike",
    "outing.shape": "loop",
    "outing.party": "kids",
-   "outing.surface_exclusions": ["asphalt"],
+   "outing.surface_exclusions": [
+    "asphalt"
+   ],
    "outing.max_hours": 3,
    "outing.start.mode": "here",
    "outing.start.max_drive_min": 60
@@ -516,7 +518,9 @@
   "expect": {
    "outing.shape": "out_and_back",
    "outing.setting": "nature",
-   "outing.waypoint_roles": ["bathe"]
+   "outing.waypoint_roles": [
+    "bathe"
+   ]
   }
  },
  {
@@ -583,5 +587,58 @@
   "expect": {
    "clarify": true
   }
+ },
+ {
+  "id": "g61",
+  "question": "a hike loop of about two hours from Lecco, no asphalt",
+  "expect": {
+   "outing.max_hours": 2,
+   "outing.surface_exclusions": [
+    "asphalt"
+   ]
+  },
+  "expect_facts": {
+   "distance_m": {
+    "gte": 4200,
+    "lte": 14500
+   },
+   "shape": "loop"
+  },
+  "pack_run_id": "pack-parity"
+ },
+ {
+  "id": "g62",
+  "question": "a two hour walk out into nature from Lecco and two hours back the same way, ending at a lake or river where we can bathe",
+  "expect": {
+   "outing.shape": "out_and_back",
+   "outing.waypoint_roles": [
+    "bathe"
+   ]
+  },
+  "expect_facts": {
+   "shape": "out_and_back",
+   "destination_kind": [
+    "lake",
+    "beach",
+    "river_access",
+    "bathing_water"
+   ]
+  },
+  "pack_run_id": "pack-parity"
+ },
+ {
+  "id": "g63",
+  "question": "a one-hour cultural walk from the station",
+  "expect": {
+   "outing.start.mode": "station",
+   "outing.theme": "cultural"
+  },
+  "expect_facts": {
+   "distance_m": {
+    "lte": 8000
+   },
+   "car_free": true
+  },
+  "pack_run_id": "pack-parity"
  }
 ]

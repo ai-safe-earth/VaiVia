@@ -72,10 +72,27 @@ def synthetic() -> tuple[dict[str, np.ndarray], dict]:
         "place_n_trips": np.array([-1], dtype=np.int32),
         "place_service_start": np.array([-1], dtype=np.int32),
         "place_service_end": np.array([-1], dtype=np.int32),
+        # format 2: travel and reach (one start place, one kind, no matrices)
+        "start_trail_share_5km": np.array([1200.0], dtype=np.float32),
+        "potential": np.array([0, 100, 80, 180], dtype=np.float16),
+        "drive_row_place": np.empty(0, dtype=np.int32),
+        "drive_col_place": np.array([0], dtype=np.int32),
+        "drive_min": np.empty(0, dtype=np.float16),
+        "rail_row_place": np.empty(0, dtype=np.int32),
+        "rail_min": np.empty(0, dtype=np.float16),
     }
     manifest = {
         "run_id": "pack-test0000",
-        "counts": {"V": 4, "E": n_e, "P": len(flat), "K": 1},
+        "counts": {
+            "V": 4,
+            "E": n_e,
+            "P": len(flat),
+            "K": 1,
+            "Q": 1,
+            "D": 0,
+            "S": 1,
+            "R": 0,
+        },
         "codes": {
             "surface": surface_table,
             "highway": highway_table,
@@ -137,7 +154,7 @@ def test_encode_and_ragged() -> None:
         (lambda a, m: a["geom_offsets"].__setitem__(2, 0), "monotone offsets"),
         (lambda a, m: a["edge_surface"].__setitem__(0, 7), "outside its table"),
         (lambda a, m: a["vertex_id"].__setitem__(1, 10), "not unique"),
-        (lambda a, m: m.__setitem__("format", 2), "format 2"),
+        (lambda a, m: m.__setitem__("format", 1), "format 1"),
         (lambda a, m: m["codes"].pop("surface"), "codes lack 'surface'"),
         (lambda a, m: m["counts"].pop("K"), "counts lack"),
     ],
