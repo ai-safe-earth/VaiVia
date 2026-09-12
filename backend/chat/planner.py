@@ -135,9 +135,13 @@ def plan_outing(
                 walked = draw_loop(net, vertex, (lon, lat), target_m, seed)
                 _collect(candidates, out.counts, walked, vertex, target_m, shape)
         else:
-            for destination in _destinations(
-                state.pack, net, constraints, lon, lat, target_m
-            ):
+            pool = _destinations(state.pack, net, constraints, lon, lat, target_m)
+            if not pool:
+                out.counts["no destination of the wanted kind in reach"] = (
+                    out.counts.get("no destination of the wanted kind in reach", 0)
+                    + 1
+                )
+            for destination in pool:
                 draw = (
                     draw_strict_out_and_back
                     if shape == "out_and_back"
@@ -614,12 +618,14 @@ def _card(entry: dict, document: dict, constraints: Constraints) -> dict:
         "name": route_name(destination) if destination else None,
         "ref": None,
         "destination_name": destination.name if destination else None,
+        "destination_kind": destination.kind if destination else None,
         "distance_m": round(facts.distance_m, 1),
         "ascent_m": facts.ascent_m,
         "descent_m": facts.descent_m,
         "lowest_m": min(facts.profile["elevation_m"]) if facts.profile else None,
         "highest_m": max(facts.profile["elevation_m"]) if facts.profile else None,
         "surface_dominant": dominant(surface),
+        "surface": {k: round(v, 3) for k, v in surface.items()},
         "pieces": 1,
         "continuous": True,
         "sac_scale": facts.sac_scale,

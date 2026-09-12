@@ -67,9 +67,11 @@ Decomposition rules:
 - outing or not: use outing ONLY when a TRIGGER fact is present (several
   days, start mode / drive time / car_free, surface exclusions, setting,
   fitness, sleeping somewhere). When one IS present, outing REPLACES
-  loop_search and trail_search for that ask, even for a circular one: "a
-  bike loop for the kids, no asphalt" is an outing (surfaces), never a
-  loop_search. Without a trigger, nothing changes: "a 15 km loop" is
+  loop_search and trail_search for that ask, even for a circular one and
+  even with a named start: "a bike loop for the kids, no asphalt" and "a
+  hike loop of two hours from Lecco, no asphalt" are BOTH outing (a
+  surface exclusion is a trigger; the loop shape and the start go in
+  shape and start.name), never loop_search. Without a trigger, nothing changes: "a 15 km loop" is
   loop_search; "an easy walk with the kids" stays trail_search with
   family_friendly; a feature to pass or swim at on its own ("somewhere to
   swim at the end") stays trail_search / loop_search with poi_types. Never

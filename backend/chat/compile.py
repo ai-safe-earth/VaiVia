@@ -239,7 +239,12 @@ def compile_outing(intent: OutingIntent) -> Constraints | ClarifyIntent:
         )
 
     for w in intent.waypoints:
-        kinds = (w.kind,) if w.kind else ROLE_KINDS.get(w.role, ())
+        # A role with a semantic set (bathe/eat/sleep) UNIONS a stated kind
+        # rather than being replaced by it: "a lake or river to bathe"
+        # arriving as kind=bathing_water must not narrow the ask to the one
+        # kind the model guessed — the role says what the walker meant.
+        role_kinds = ROLE_KINDS.get(w.role, ())
+        kinds = tuple(dict.fromkeys(((w.kind,) if w.kind else ()) + role_kinds))
         out.waypoints.append(CompiledWaypoint(kinds=kinds, name=w.name, role=w.role))
 
     if intent.days > 1:
