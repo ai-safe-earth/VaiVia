@@ -27,13 +27,16 @@ from typing import Any
 
 import numpy as np
 
-FORMAT = 1
+FORMAT = 2
 NETWORK = "network.npz"
 MANIFEST = "manifest.json"
 
 #: Length symbols. Every array's length is one of these, read from
-#: `manifest["counts"]`; `+1` marks an offsets array.
-COUNTS = ("V", "E", "P", "K")
+#: `manifest["counts"]`; `+1` marks an offsets array and `A*B` a flattened
+#: matrix. Format 2 (Phase 12 R5) added Q (place-kind count, the potential
+#: fields' rows), D (drive-matrix origins), S (drive-matrix start columns)
+#: and R (rail stations).
+COUNTS = ("V", "E", "P", "K", "Q", "D", "S", "R")
 
 #: name -> (dtype, length). "U" is any fixed-width unicode dtype.
 SPEC: dict[str, tuple[str, str]] = {
@@ -79,6 +82,23 @@ SPEC: dict[str, tuple[str, str]] = {
     "place_n_trips": ("int32", "K"),  # -1 not a stop
     "place_service_start": ("int32", "K"),  # days since 1970-01-01; -1 none
     "place_service_end": ("int32", "K"),
+    # ── format 2: travel and reach (docs/route-design.md, slice 5) ──
+    # Unpaved metres a start opens within 5 km network distance; NaN where
+    # the row is not a start. Ranks a settlement's trailheads.
+    "start_trail_share_5km": ("float32", "K"),
+    # Network metres from every vertex to the nearest place of each kind,
+    # row k = code k of the place_kind table ("end at a lake" as a lookup).
+    # inf = unreachable on foot.
+    "potential": ("float16", "Q*V"),
+    # Minutes by car, settlement place (row) -> start place (column);
+    # inf = no road route. Row/col arrays index the place table.
+    "drive_row_place": ("int32", "D"),
+    "drive_col_place": ("int32", "S"),
+    "drive_min": ("float16", "D*S"),
+    # Minutes by rail between stations (track time, no transfer penalty —
+    # the manifest notes it); inf = not connected.
+    "rail_row_place": ("int32", "R"),
+    "rail_min": ("float16", "R*R"),
 }
 
 #: The string columns and the manifest table each decodes through.
@@ -137,6 +157,27 @@ class Pack:
         lo, hi = self.arrays["geom_offsets"][i : i + 2]
         return self.arrays["geom_ele"][lo:hi]
 
+    def potential(self, kind: str) -> np.ndarray:
+        """Network metres from every vertex to the nearest `kind` place —
+        "end at a lake" as a lookup. inf = unreachable on foot."""
+        code = self.manifest["codes"]["place_kind"].index(kind)
+        n_v = self.counts["V"]
+        return self.arrays["potential"][code * n_v : (code + 1) * n_v]
+
+    def drive_matrix(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """(settlement place rows, start place columns, minutes[D, S])."""
+        d, s = self.counts["D"], self.counts["S"]
+        return (
+            self.arrays["drive_row_place"],
+            self.arrays["drive_col_place"],
+            self.arrays["drive_min"].reshape(d, s),
+        )
+
+    def rail_matrix(self) -> tuple[np.ndarray, np.ndarray]:
+        """(station place rows, minutes[R, R] — track time, no transfers)."""
+        r = self.counts["R"]
+        return self.arrays["rail_row_place"], self.arrays["rail_min"].reshape(r, r)
+
 
 def encode(values: list[str | None]) -> tuple[np.ndarray, list[str]]:
     """Strings to int16 codes over a sorted table; None is -1."""
@@ -179,7 +220,11 @@ def validate(arrays: dict[str, np.ndarray], manifest: dict[str, Any]) -> None:
                 raise PackError(f"{name}: dtype {a.dtype}, wanted unicode")
         elif a.dtype != np.dtype(dtype):
             raise PackError(f"{name}: dtype {a.dtype}, wanted {dtype}")
-        want = counts[length[0]] + (1 if length.endswith("+1") else 0)
+        if "*" in length:
+            left, right = length.split("*")
+            want = counts[left] * counts[right]
+        else:
+            want = counts[length[0]] + (1 if length.endswith("+1") else 0)
         if a.ndim != 1 or len(a) != want:
             raise PackError(f"{name}: shape {a.shape}, wanted ({want},)")
 
@@ -192,7 +237,13 @@ def validate(arrays: dict[str, np.ndarray], manifest: dict[str, Any]) -> None:
         ):
             raise PackError(f"{name}: a code outside its table {table!r}")
 
-    n_v, n_e, n_p = (counts[c] for c in COUNTS[:3])
+    n_v, n_e, n_p, n_k = (counts[c] for c in COUNTS[:4])
+    if counts["Q"] != len(manifest["codes"]["place_kind"]):
+        raise PackError("counts Q must equal the place_kind code table length")
+    for name in ("drive_row_place", "drive_col_place", "rail_row_place"):
+        a = arrays[name]
+        if len(a) and (a.min() < 0 or a.max() >= n_k):
+            raise PackError(f"{name}: an index outside the place table")
     for name in ("edge_u", "edge_v", "place_vertex"):
         a = arrays[name]
         if len(a) and (a.min() < 0 or a.max() >= n_v):

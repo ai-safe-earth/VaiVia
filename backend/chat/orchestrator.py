@@ -384,7 +384,11 @@ class ChatOrchestrator:
         # model clarify would — no other block runs beside it.
         outing_handled = False
         if plan.outing is not None and self._planner is not None:
-            compiled = compile_outing(plan.outing)
+            # Coverage speaks with the pack's own gazetteer (R5): the areas
+            # this network actually holds, not a name list in code.
+            compiled = compile_outing(
+                plan.outing, gazetteer=self._planner.gazetteer or None
+            )
             if isinstance(compiled, ClarifyIntent):
                 return {
                     "clarification": compiled.question,
