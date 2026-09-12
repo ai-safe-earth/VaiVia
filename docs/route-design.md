@@ -132,9 +132,17 @@ out loud (the posture `handoff.md` already records for travel time).
    the user favourites or shares, then the document goes to the store and one `(:Route)`
    to Neo4j — exactly as a catalogue route would.
 
-Latency, extrapolated from the local measurements and to be confirmed on the VPS in
-slice 2: turn 1 (LLM + plan) 3–5 s; chip refine 0.4–0.8 s; multi-day 1.5–3 s. Planning
-runs in a 2-worker `ProcessPool` (scipy holds the GIL) on the 4-vCPU box.
+Latency, measured on the dev machine over the full pack (slice 2, 2026-09-11; VPS
+confirmation still owed): pack load + validate 210 ms and `Network.build` ~140 ms per
+activity, both once at startup; bounded field (8 km limit) 3 ms median; point-to-point
+26 ms, 30 ms with the walked-edge penalty (the reduction is patched per affected pair,
+not rebuilt); a 10 km three-leg loop draw 165 ms median / 225 ms p90; an out-and-back
+with alternative return 213 ms. That keeps turn 1 (LLM + plan) at 3–5 s, chip refine
+0.4–0.8 s, multi-day 1.5–3 s. Planning runs in a 2-worker `ProcessPool` (scipy holds
+the GIL) on the 4-vCPU box. The engine reproduces all 627 catalogue ids from the pack
+(`shared/routes/tests/test_parity.py`); the one divergence class found and fixed on the
+way was parallel-arc reduction before the penalty — the pack is a multigraph, and the
+reduction must happen after costs are adjusted.
 
 ## OutingIntent
 

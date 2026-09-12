@@ -5,6 +5,7 @@ description = "VaiVia route engine shared by the pipeline and the backend: the p
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.26",
+    "scipy>=1.11",
 ]
 
 # Both uv projects depend on this one as an editable path dependency
