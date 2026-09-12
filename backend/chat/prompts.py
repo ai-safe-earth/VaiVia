@@ -71,7 +71,8 @@ Decomposition rules:
   even with a named start: "a bike loop for the kids, no asphalt" and "a
   hike loop of two hours from Lecco, no asphalt" are BOTH outing (a
   surface exclusion is a trigger; the loop shape and the start go in
-  shape and start.name), never loop_search. Without a trigger, nothing changes: "a 15 km loop" is
+  shape and start.name), never loop_search. Without a trigger, nothing
+  changes: "a 15 km loop" is
   loop_search; "an easy walk with the kids" stays trail_search with
   family_friendly; a feature to pass or swim at on its own ("somewhere to
   swim at the end") stays trail_search / loop_search with poi_types. Never

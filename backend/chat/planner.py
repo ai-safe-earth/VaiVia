@@ -138,8 +138,7 @@ def plan_outing(
             pool = _destinations(state.pack, net, constraints, lon, lat, target_m)
             if not pool:
                 out.counts["no destination of the wanted kind in reach"] = (
-                    out.counts.get("no destination of the wanted kind in reach", 0)
-                    + 1
+                    out.counts.get("no destination of the wanted kind in reach", 0) + 1
                 )
             for destination in pool:
                 draw = (

@@ -276,7 +276,7 @@ async def main() -> None:
         from core.embeddings import OpenAIEmbedder
         from graph.neo4j_client import Neo4jClient
 
-        if PACK_DIR.is_dir():
+        if PACK_DIR.is_dir():  # noqa: ASYNC240 — startup, nothing awaits yet
             from chat.pack_state import load_planner
 
             planner = load_planner(str(PACK_DIR))

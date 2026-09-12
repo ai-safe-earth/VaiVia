@@ -25,15 +25,13 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any
 
 from neo4j import GraphDatabase
+from vaivia_routes.neo4j_rows import document_rows, mtb_rank, sac_rank  # noqa: F401
 
 from core import connect, env_value
 from export.document import PUBLISHED_KINDS, published
-from vaivia_routes.neo4j_rows import document_rows, mtb_rank, sac_rank  # noqa: F401
 from export.route_documents import MULTI_PIECE_FLOOR, RELATIONS
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCUMENTS = REPO_ROOT / "review" / "routes"
