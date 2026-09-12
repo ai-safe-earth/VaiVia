@@ -24,8 +24,9 @@ from core import connect
 
 #: km/h by class where maxspeed is untagged, scaled by REAL_SPEED_FACTOR —
 #: posted limits are not journey speeds on valley roads. Product estimates,
-#: same posture as core/durations.py; the reference pin in tests/test_drive.py
-#: is Lecco -> the Piani Resinelli road at roughly half an hour.
+#: same posture as core/durations.py. Reference sanity (checked on the first
+#: build, 2026-09-12): Lecco -> Piani Resinelli reads ~33 min against a
+#: real-world 25-35; recalibrate the factor if a real drive disagrees.
 CLASS_KMH = {
     "motorway": 110.0,
     "motorway_link": 60.0,

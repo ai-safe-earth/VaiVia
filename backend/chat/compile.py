@@ -103,6 +103,15 @@ class CompiledWaypoint:
     role: str
 
 
+def find_area(gazetteer: list[dict], area: str) -> dict | None:
+    """The gazetteer entry an area name means, article stripped, by alias."""
+    key = _area_key(area)
+    for entry in gazetteer:
+        if key == entry["name"].lower() or key in (entry.get("aliases") or ()):
+            return entry
+    return None
+
+
 @dataclass
 class Constraints:
     """What the planner receives: bands, caps and factors — numbers only,
@@ -117,6 +126,10 @@ class Constraints:
     mtb_cap: str | None = None
     urban_share_max: float | None = None
     urban_share_min: float | None = None
+    #: The asked area's coarse polygon (lon/lat ring) from the gazetteer —
+    #: the planner keeps candidate starts inside it.
+    area_polygon: list | None = None
+    area_name: str | None = None
     #: surface -> cost multiplier the router applies
     surface_cost_factors: dict[str, float] = field(default_factory=dict)
     #: surface -> hard share cap the reject step counts against
@@ -162,27 +175,54 @@ def _area_key(area: str) -> str:
     return key
 
 
-def compile_outing(intent: OutingIntent) -> Constraints | ClarifyIntent:
+def compile_outing(
+    intent: OutingIntent, gazetteer: list[dict] | None = None
+) -> Constraints | ClarifyIntent:
     """The intent's words as the planner's numbers — or a Clarify when the
     ask leaves our coverage. A Clarify here is Python's, not the model's:
-    an area we do not cover must be said, never approximated (ask E)."""
-    if intent.area and _area_key(intent.area) not in COVERED_AREAS:
-        return ClarifyIntent(
-            question=(
-                f"We do not cover {intent.area.strip()} yet — VaiVia knows "
-                f"{COVERAGE_ANSWER}. Want an outing there instead?"
-            ),
-            suggestions=[
-                "three days hut to hut in the Orobie",
-                "a loop in the Grigne",
-                "a lakeside ride near Lecco",
-            ],
-        )
+    an area we do not cover must be said, never approximated (ask E).
+
+    With a pack mounted, coverage is the gazetteer it ships (R5): a covered
+    area brings its polygon, an uncovered or unknown one an honest refusal
+    naming what IS covered. The static name set stays as the no-pack
+    fallback."""
+    area_entry: dict | None = None
+    if intent.area:
+        area = intent.area.strip()
+        if gazetteer is not None:
+            area_entry = find_area(gazetteer, area)
+            if area_entry is None or not area_entry.get("covered"):
+                covered = ", ".join(e["name"] for e in gazetteer if e.get("covered"))
+                return ClarifyIntent(
+                    question=(
+                        f"We do not cover {area} yet — VaiVia knows "
+                        f"{covered}. Want an outing there instead?"
+                    ),
+                    suggestions=[
+                        "three days hut to hut in the Orobie",
+                        "a loop in the Grigne",
+                        "a lakeside ride near Lecco",
+                    ],
+                )
+        elif _area_key(area) not in COVERED_AREAS:
+            return ClarifyIntent(
+                question=(
+                    f"We do not cover {area} yet — VaiVia knows "
+                    f"{COVERAGE_ANSWER}. Want an outing there instead?"
+                ),
+                suggestions=[
+                    "three days hut to hut in the Orobie",
+                    "a loop in the Grigne",
+                    "a lakeside ride near Lecco",
+                ],
+            )
 
     out = Constraints(
         activity=COST_LAYER[intent.activity],
         shape=intent.shape,
         days=intent.days,
+        area_polygon=(area_entry or {}).get("polygon"),
+        area_name=(area_entry or {}).get("name") or (intent.area or None),
         start_mode=intent.start.mode,
         start_name=intent.start.name,
         max_drive_min=intent.start.max_drive_min,

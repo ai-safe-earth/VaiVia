@@ -27,6 +27,10 @@ class PlannerState:
     def run_id(self) -> str:
         return self.pack.run_id
 
+    @property
+    def gazetteer(self) -> list[dict]:
+        return self.pack.manifest.get("gazetteer") or []
+
 
 def load_planner(pack_dir: str) -> PlannerState:
     pack = load(Path(pack_dir))

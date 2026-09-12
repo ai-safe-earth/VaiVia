@@ -102,16 +102,6 @@ def plan_outing(
         return out
 
     net = _network(state, constraints)
-    starts = _candidate_starts(state.pack, net, constraints, anchor)
-    if not starts:
-        out.clarify = ClarifyIntent(
-            question=(
-                "I could not find a place to start from for that ask — "
-                "name a town or trailhead, or share your location?"
-            ),
-            suggestions=["start near Lecco", "from Bergamo, by train"],
-        )
-        return out
 
     band = constraints.distance_band_m
     target_m = (
@@ -127,6 +117,31 @@ def plan_outing(
         if any(w.role in ("end", "bathe") for w in constraints.waypoints)
         else "loop"
     )
+    wanted_kinds: set[str] = set()
+    if shape != "loop":
+        for w in constraints.waypoints:
+            if w.role in ("end", "bathe", "eat"):
+                wanted_kinds.update(w.kinds)
+
+    starts = _candidate_starts(
+        state.pack,
+        net,
+        constraints,
+        anchor,
+        out,
+        wanted_kinds or None,
+        target_m,
+    )
+    if not starts:
+        out.clarify = ClarifyIntent(
+            question=(
+                "I could not find a place to start from for that ask — "
+                "name a town or trailhead, widen the drive time, or share "
+                "your location?"
+            ),
+            suggestions=["start near Lecco", "from Bergamo, by train"],
+        )
+        return out
 
     candidates: list[dict] = []
     for vertex, lon, lat in starts:
@@ -168,6 +183,39 @@ def plan_outing(
     return out
 
 
+def _in_polygon(lon: np.ndarray, lat: np.ndarray, polygon: list) -> np.ndarray:
+    """Ray-cast point-in-polygon over a lon/lat ring — the gazetteer's
+    polygons are coarse by design, so a plain even-odd test is the whole
+    algorithm."""
+    ring = np.asarray(polygon, dtype=np.float64)
+    inside = np.zeros(len(lon), dtype=bool)
+    x1, y1 = ring[:-1, 0], ring[:-1, 1]
+    x2, y2 = ring[1:, 0], ring[1:, 1]
+    for a1, b1, a2, b2 in zip(x1, y1, x2, y2, strict=True):
+        crosses = ((b1 > lat) != (b2 > lat)) & (
+            lon < (a2 - a1) * (lat - b1) / (b2 - b1 + 1e-300) + a1
+        )
+        inside ^= crosses
+    return inside
+
+
+def _drive_minutes_from(
+    pack: Pack, anchor: tuple[float, float]
+) -> tuple[np.ndarray, str] | None:
+    """Minutes to every start PLACE from the settlement nearest the anchor,
+    with the settlement's name — or None when the pack has no drive rows."""
+    rows, _cols, matrix = pack.drive_matrix()
+    if len(rows) == 0:
+        return None
+    kx, ky = _metric(anchor[0])
+    d2 = (kx * (pack["place_lon"][rows] - anchor[1])) ** 2 + (
+        ky * (pack["place_lat"][rows] - anchor[0])
+    ) ** 2
+    nearest = int(d2.argmin())
+    name = str(pack["place_name"][rows[nearest]]) or "the nearest town"
+    return matrix[nearest].astype(np.float32), name
+
+
 # ── starts ───────────────────────────────────────────────────────────────────
 
 
@@ -176,8 +224,20 @@ def _candidate_starts(
     net: Network,
     constraints: Constraints,
     anchor: tuple[float, float] | None,
+    result: PlannerResult | None = None,
+    wanted_kinds: set[str] | None = None,
+    target_m: float | None = None,
 ) -> list[tuple[int, float, float]]:
-    """(vertex index, lon, lat) of the starts this ask fans out over."""
+    """(vertex index, lon, lat) of the starts this ask fans out over.
+
+    Selection, in order: the mode's class filter; the asked area's polygon;
+    the drive matrix when a drive-time limit is stated (crow-fly at 50 km/h
+    as the said-out-loud fallback when the pack carries no matrix); then
+    ranking — near the anchor, else busiest station, else the starts that
+    open the most unpaved ground (trail_share). For a destination shape,
+    starts whose potential field puts a wanted kind inside the crow band
+    sort first: "end at a lake" is a lookup, not a hope.
+    """
     is_start = pack["place_is_start"]
     classes = np.array(pack.decode("place_start_class"), dtype=object)
     mask = is_start.copy()
@@ -187,6 +247,38 @@ def _candidate_starts(
     on_main = pack["vertex_component"][vertices] == net.main_component
     mask &= on_main
 
+    if constraints.area_polygon:
+        mask &= _in_polygon(
+            pack["place_lon"], pack["place_lat"], constraints.area_polygon
+        )
+
+    if constraints.max_drive_min is not None and anchor is not None:
+        looked_up = _drive_minutes_from(pack, anchor)
+        if looked_up is not None:
+            minutes, settlement = looked_up
+            reachable = np.zeros(len(mask), dtype=bool)
+            cols = pack["drive_col_place"]
+            reachable[cols[minutes <= constraints.max_drive_min]] = True
+            mask &= reachable
+            if result is not None:
+                result.assumptions.append(
+                    f"within {constraints.max_drive_min:.0f} min drive of "
+                    f"{settlement} (measured on the road network)"
+                )
+        else:
+            radius_m = constraints.max_drive_min * (50.0 / 60.0) * 1000
+            kx, ky = _metric(anchor[0])
+            d2 = (kx * (pack["place_lon"] - anchor[1])) ** 2 + (
+                ky * (pack["place_lat"] - anchor[0])
+            ) ** 2
+            mask &= d2 <= radius_m**2
+            if result is not None:
+                result.assumptions.append(
+                    f"~{constraints.max_drive_min:.0f} min drive read as "
+                    f"{radius_m / 1000:.0f} km as the crow flies (no road "
+                    "matrix in this pack)"
+                )
+
     idx = np.flatnonzero(mask)
     if len(idx) == 0:
         return []
@@ -194,12 +286,28 @@ def _candidate_starts(
     lat = pack["place_lat"][idx]
     if anchor is not None:
         kx, ky = _metric(anchor[0])
-        d2 = (kx * (lon - anchor[1])) ** 2 + (ky * (lat - anchor[0])) ** 2
-        order = np.argsort(d2)
+        rank_key = (kx * (lon - anchor[1])) ** 2 + (ky * (lat - anchor[0])) ** 2
     elif constraints.start_mode == "station":
-        order = np.argsort(-pack["place_n_trips"][idx])  # busiest stations first
+        rank_key = -pack["place_n_trips"][idx].astype(np.float64)
     else:
-        order = np.arange(len(idx))
+        # No anchor: the starts that open the most unpaved ground first.
+        share = pack["start_trail_share_5km"][idx]
+        rank_key = -np.nan_to_num(share, nan=0.0).astype(np.float64)
+
+    if wanted_kinds and target_m:
+        # Feasible-first, not feasible-only: the potential field says which
+        # starts can END at a wanted kind inside the crow band; the others
+        # stay behind them rather than vanishing.
+        low, high = crow_band(target_m)
+        best = np.full(len(idx), np.inf)
+        for kind in wanted_kinds:
+            if kind in pack.manifest["codes"]["place_kind"]:
+                field = pack.potential(kind).astype(np.float64)
+                best = np.minimum(best, field[vertices[idx]])
+        feasible = (best >= low * 0.5) & (best <= high * 1.5)
+        order = np.lexsort((rank_key, ~feasible))
+    else:
+        order = np.argsort(rank_key)
 
     out: list[tuple[int, float, float]] = []
     seen: set[int] = set()

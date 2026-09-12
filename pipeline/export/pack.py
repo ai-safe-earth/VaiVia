@@ -212,9 +212,7 @@ def travel_arrays(
     a["drive_col_place"] = start_places.astype(np.int32)
     a["drive_min"] = drive.reshape(-1)
 
-    stations = sorted(
-        i for (src, _sid), i in key_index.items() if src == "gtfs_stop"
-    )
+    stations = sorted(i for (src, _sid), i in key_index.items() if src == "gtfs_stop")
     station_col = {i: c for c, i in enumerate(stations)}
     rail = np.full((len(stations), len(stations)), np.inf, dtype=np.float16)
     np.fill_diagonal(rail, 0.0)
@@ -232,9 +230,8 @@ def reach_arrays(a: dict[str, np.ndarray], codes: dict[str, list[str]]) -> None:
     """The computed reach fields: start_trail_share_5km and the potential
     field per place kind — bounded/multi-source Dijkstra over the pack's own
     foot CSR, so pack and planner agree on every metre by construction."""
-    from vaivia_routes.network import Network
-
     from vaivia_routes.assemble import OFF_ROAD_HIGHWAYS
+    from vaivia_routes.network import Network
 
     counts = {
         "V": len(a["vertex_id"]),
@@ -246,12 +243,12 @@ def reach_arrays(a: dict[str, np.ndarray], codes: dict[str, list[str]]) -> None:
         a["start_trail_share_5km"] = np.full(counts["K"], np.nan, dtype=np.float32)
         a["potential"] = np.empty(0, dtype=np.float16).reshape(-1)
         # Q rows over zero vertices is still Q*0 = 0 entries; validate agrees.
-        a["potential"] = np.zeros(
-            len(codes["place_kind"]) * 0, dtype=np.float16
-        )
+        a["potential"] = np.zeros(len(codes["place_kind"]) * 0, dtype=np.float16)
         return
     net = Network.build(
-        pack.Pack(manifest={"run_id": "tmp", "counts": counts, "codes": codes}, arrays=a),
+        pack.Pack(
+            manifest={"run_id": "tmp", "counts": counts, "codes": codes}, arrays=a
+        ),
         "foot",
     )
     highway_table = codes["highway"]
@@ -269,9 +266,7 @@ def reach_arrays(a: dict[str, np.ndarray], codes: dict[str, list[str]]) -> None:
         by_vertex.setdefault(int(a["place_vertex"][i]), []).append(int(i))
     for vertex, place_rows in by_vertex.items():
         dist = net.field_from(vertex, 5000.0)
-        opened = edge_off_road & (
-            (dist[u] <= 5000.0) | (dist[v] <= 5000.0)
-        )
+        opened = edge_off_road & ((dist[u] <= 5000.0) | (dist[v] <= 5000.0))
         metres = float(length[opened].sum())
         for i in place_rows:
             share[i] = metres
@@ -282,9 +277,7 @@ def reach_arrays(a: dict[str, np.ndarray], codes: dict[str, list[str]]) -> None:
     kind_table = codes["place_kind"]
     potential = np.full((len(kind_table), counts["V"]), np.inf, dtype=np.float16)
     for code, _kind in enumerate(kind_table):
-        sources = np.unique(
-            a["place_vertex"][np.flatnonzero(a["place_kind"] == code)]
-        )
+        sources = np.unique(a["place_vertex"][np.flatnonzero(a["place_kind"] == code)])
         if len(sources) == 0:
             continue
         field = dijkstra(net.graph, indices=sources, min_only=True)

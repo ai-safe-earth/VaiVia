@@ -123,9 +123,7 @@ def test_build_is_a_valid_pack_and_keeps_the_rows() -> None:
     assert counts["R"] == 1
     assert counts["S"] == int(arrays["place_is_start"].sum())
     # every vertex reaches the parking place on this connected 3-vertex line
-    assert np.isfinite(
-        arrays["potential"][: counts["V"] * 1].astype(np.float64)
-    ).any()
+    assert np.isfinite(arrays["potential"][: counts["V"] * 1].astype(np.float64)).any()
     assert arrays["edge_u"].tolist() == [0, 1] and arrays["edge_v"].tolist() == [1, 2]
     assert arrays["edge_cost_bike_rev"].tolist() == [-1.0, -1.0]
     assert np.isnan(arrays["edge_ascent_m"][1]) and arrays["edge_ascent_m"][0] == 5

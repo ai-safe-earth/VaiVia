@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import itertools
 import json
 import time
 import uuid
@@ -56,9 +57,7 @@ def leg_minutes(stop_times: list[dict[str, str]]) -> dict[tuple[str, str], float
     legs: dict[tuple[str, str], float] = {}
     for stops in by_trip.values():
         stops.sort()
-        for (_s1, a, _arr1, dep1), (_s2, b, arr2, _dep2) in zip(
-            stops, stops[1:], strict=False
-        ):
+        for (_s1, a, _arr1, dep1), (_s2, b, arr2, _dep2) in itertools.pairwise(stops):
             if dep1 is None or arr2 is None or arr2 < dep1 or a == b:
                 continue
             minutes = (arr2 - dep1) / 60.0
@@ -89,8 +88,7 @@ def all_pairs(
                 continue
             row = d[i]
             for j in range(n):
-                if dik + dk[j] < row[j]:
-                    row[j] = dik + dk[j]
+                row[j] = min(row[j], dik + dk[j])
     return {
         (stations[i], stations[j]): d[i][j]
         for i in range(n)
