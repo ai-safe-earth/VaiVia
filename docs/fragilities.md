@@ -190,3 +190,241 @@ Silently naming an untagged way a path is what turned a filter bug into
 routable water instead of a loud failure at ingestion. The default is now gone:
 a way with no `highway` tag is logged and skipped, so the line that decides
 what a segment *is* can no longer invent it. A test pins that too.
+
+## 13. RLS Policies Without Grants Read As Working, Because The Platform Was Granting For Us
+
+**Risk:** The browser reads `conversations` and `messages` directly from
+Supabase under the select-only policies in migration `0001`. That migration
+enables RLS and writes one policy per table — and never grants `select` on any
+of them. It worked against the hosted project because Supabase used to expose
+entities created in `public` to `anon`, `authenticated` and `service_role`
+automatically.
+
+**That default is gone.** New projects revoke by default, and the CLI's
+`auto_expose_new_tables` escape hatch is documented as removed on **2026-10-30**.
+So a migration that has been verified live against one project would have failed
+against the next one created — most likely the production project, on the day it
+was created, with:
+
+    42501  permission denied for table conversations
+
+which reads like a policy bug and is not one. **A policy can only narrow a
+privilege that already exists**; with no grant there is nothing for it to
+narrow, and the two failure modes look nothing alike from the client: a missing
+policy returns an empty list, a missing grant returns an error.
+
+It surfaced on the first run of the local stack, where the new default is
+already in force — which is the argument for developing against a real local
+instance rather than a bypass. `GATEWAY_DEV_NO_AUTH` would never have found it,
+because with auth off the browser never reads as `authenticated` at all.
+
+**Our mitigation:** Migration `0002_data_api_grants.sql` grants `select` to
+`anon` and `authenticated` explicitly, so the privilege no longer depends on a
+platform default. `anon` is included deliberately: the policies are
+`auth.uid() = user_id`, so an anonymous caller matches no row and reads zero of
+them — the behaviour verified against the hosted project. Confidentiality is
+RLS's job; the grant only decides whether the table is addressable. Writes are
+unaffected — they go through the backend, which connects as the owner.
+
+**The lesson to keep:** when a security control is verified live and passes,
+check *which layer* actually granted the access it was narrowing. A platform
+default that silently does half the work is indistinguishable from a migration
+that does all of it, right up until the default changes.
+
+## 14. A Prompt Rule Naming A Forbidden Source Is An Instruction To Use It
+
+**Risk:** The answer prompt carried a linking rule from the Trailforks era:
+*"When a trail has a `trailforks_url`, cite it as a markdown link on the trail's
+name. Never link a trail that has no `trailforks_url`."* Catalogue routes carry
+no such field, so by the rule's own terms none of them should have been linked.
+
+The first live smoke against the pipeline catalogue (2026-08-21) produced this:
+
+> The loop to [Corno dell'Arco](https://www.trailforks.com) is approximately
+> 11.0 km with an ascent of 1,049 m…
+
+Every one of the five routes, linked to a bare `trailforks.com`. The rule's
+negative half did not hold; naming the domain was enough to make the model
+reach for it. And the routes are OSM-derived and ODbL — sending a walker to a
+commercial site we have no agreement with, over data that is not theirs, is a
+misattribution as well as a dead link.
+
+**Why it matters beyond the one domain:** an invented URL about a real mountain
+is worse than no URL. It looks authoritative, it survives being screenshotted,
+and nothing downstream checks it.
+
+**Our mitigation:** two layers, and the code is the one that counts.
+`chat/sanitize.py` strips links from the answer *stream* — markdown links keep
+their label, bare URLs go — and the prompt rule now forbids links outright
+instead of describing when to write one. Stripping mid-stream is the fiddly
+part, because `[Name](url)` arrives token by token and no single chunk holds
+the whole link: `strip_links_stream` holds back the tail that could still grow
+into one and releases it as soon as it cannot, so the answer still streams.
+
+**The lesson to keep:** this is the Cypher boundary's rule applied to prose. A
+constraint that matters is enforced in Python, not requested in a prompt — and
+a prompt that mentions a forbidden thing at all is a prompt that suggests it.
+
+## 15. Read-Only Cypher On Community: What Actually Enforces It (measured 2026-08-21)
+
+**Risk:** The query-loop plan (`docs/`, agentic count-driven loop) will, behind a
+flag, execute model-*generated* Cypher. `CLAUDE.md`'s standing guarantee — the LLM
+never writes Cypher — becomes behavioural rather than structural there, so the
+controls that replace it have to actually hold. Neo4j **5.26.29 Community** has no
+RBAC (`SHOW ROLES` → *"Unsupported administration command"*) and no per-procedure
+`GRANT EXECUTE`, so "read-only" cannot be granted. It must be built, and each layer
+was probed live rather than assumed.
+
+**What holds (verified):**
+
+- **Driver `RoutingControl.READ` is a real control.** A write under read routing is
+  rejected with `Neo.ClientError.Statement.AccessMode` ("Writing in read access mode
+  not allowed"). This is the load-bearing result.
+- **Read mode also stops the APOC write-bypass.** `apoc.cypher.doIt` and
+  `apoc.cypher.runWrite` are mode WRITE and execute an arbitrary Cypher *string*, which
+  defeats any static "no CREATE/DELETE" check on the outer query. Under READ routing,
+  `CALL apoc.cypher.doIt("CREATE (:X) RETURN 1", {})` is rejected with the same
+  AccessMode error and **zero nodes land**. So read mode + the generated-query rule
+  "ban `CALL` outright" are two independent layers over the same hole.
+
+**What held only after it was actually sent (resolved 2026-08-21):**
+
+- **A client-supplied transaction timeout now bites, and it took two corrections to
+  get an honest measurement of it.** The first probe reported that
+  `execute_query(..., timeout=2.0)` ran an expensive read unbounded, and concluded the
+  server setting was the only control. Both halves of that probe were wrong.
+
+  *The timeout was never sent.* `execute_query` merges its `**kwargs` into the Cypher
+  **parameters**, so `timeout=2.0` arrived as an unused `$timeout` and no client timeout
+  was applied at all. A real one travels inside the query object — `Query(text,
+  timeout=...)` — which is what `Neo4jClient.run_read` builds now
+  (`backend/graph/neo4j_client.py`, pinned in `tests/test_neo4j_client.py`).
+
+  *And the expensive read was not expensive.* A three-way cartesian product over the
+  84k intersections returns in 0.05 s with 595,608,748,359,353: the planner multiplies
+  the counts rather than walking the rows. A timeout probe measures nothing against a
+  query the database never runs.
+
+  Re-run against half a billion non-optimisable iterations
+  (`uv run python -m scripts.probe_read_timeout`), with the container's
+  `db.transaction.timeout = 10s`:
+
+  | read | client timeout | outcome |
+  |---|---|---|
+  | `RETURN 1` | 10 s | ok, 0.01 s |
+  | 5e8 iterations with a predicate | **2 s** | **killed at 2.66 s**, `Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration` |
+  | the same | none | killed at 11.77 s by the server setting |
+
+  So both layers work and the client hint is the tighter one — the error code names the
+  client configuration as the cause. Two caveats to keep. The cap is **approximate**:
+  the check runs at a transaction poll interval, so 2 s became 2.66 s and 10 s became
+  11.77 s; treat it as "within a second or so", never as a deadline. And the server
+  setting is still the one that cannot be forgotten, because it is what bounds a read
+  whose caller passed no timeout — which is every read that does not go through
+  `run_read`.
+
+**The lesson to keep:** on Community, every "read-only" layer is something you build and
+must test empirically — the write-rejection was real, the timeout was theatre until the
+server setting backed it. Probe, do not assume, and pin the probe's result where the next
+person will read it before flipping the flag.
+
+## 16. A GDS Projection Built From The App's Configured Bbox Analyses A Third Of The Graph
+
+**Risk:** every GDS algorithm runs over an **in-memory projection**, and a
+projection is built from a bbox. Take that bbox from `settings.default_bbox` and
+the algorithm answers correctly about a graph nobody asked about. Nothing errors:
+the projection succeeds, the query succeeds, the numbers are internally
+consistent. They are simply numbers about 37% of the network.
+
+`DEFAULT_BBOX` is one **Lecco-shaped** rectangle, `45.8,9.3,46.0,9.6`. Once
+Bergamo was ingested the graph held **84,137 intersections** and that box covered
+**31,514** of them.
+
+**Four places had it, found one at a time over three days:**
+
+| where | what it silently did |
+|---|---|
+| `api/routes/routing.py` | endpoints outside the box were absent from the projection, so Dijkstra raised "sourceNode nodes do not exist in the in-memory graph", the `except Neo4jError` caught it, and **63% of the network got hop-count `shortestPath`** while the comfort weighting it was measured against never ran |
+| `scripts/build_trailheads.py` | `gds.wcc.write` labelled only what was inside, writing `component_id` to 30,125 nodes and leaving **Bergamo with none** — so every caller reading the component guard as "can a route exist from here", loop seeding included, was confined to Lecco, and 22 eastern trailheads could not be found at all |
+| `scripts/check_graph_connectivity.py` | the script whose whole job is *"is the network fragmented?"* judged fragmentation over a third of the network |
+| `scripts/build_routes.py` | a trailhead outside the box generated nothing and was reported as **barren**, which reads as a coverage fact about the terrain rather than an artefact of a rectangle |
+
+The last two are fixed in the same change as this entry; the first two were fixed
+on 2026-08-22.
+
+**The rule:** a projection bbox is the **query's** or the **graph's**, never the
+app's configured one.
+
+- The query's: `api/routes/routing.py` derives a box from the two endpoints plus
+  `max_distance_m`, which makes it exact — a route under that cap cannot leave a
+  margin of it around its own endpoints.
+- The graph's: `graph/extent.py::projection_bbox` returns the whole ingested
+  extent via the `graph_extent` template, or an explicit `--bbox` when an
+  operator deliberately narrows it. Analysis scripts take this branch.
+
+`settings.default_bbox` is the **ingestion** default and nothing else — what
+`ingestion.osm_ingest` fetches with neither `--bbox` nor `--region`, what
+`scripts.export_osm_extract` cuts the GraphHopper extract to, and what
+`scripts.smoke_graph` re-ingests. `backend/core/config.py` says so at the field.
+
+**What stops the fifth copy:** `tests/test_projection_bbox.py` discovers every
+source that mentions `graph_project_routing` and asserts, **by parsing the AST**,
+that none of them reads `settings.bbox` or `settings.default_bbox`. It parses
+rather than greps on purpose — each of these files explains *in prose* why it no
+longer uses that box, and a text search would force the explanation to be deleted
+to make the test pass.
+
+The guard recognises the settings object under all three of its spellings, which
+matters because the fifth copy will not be written the way the fourth one was: a
+module-level `settings`, the factory called inline (`get_settings().bbox`, the
+form `tests/test_api_routing.py` already uses), and any local bound from the
+factory (`cfg = get_settings()`). `default_bbox` is flagged on *any* receiver —
+nothing else in the codebase carries that name — while a bare `.bbox` is not,
+because `args.bbox` is the `--bbox` option that is the fix rather than the bug.
+
+**The lesson to keep:** a bound that is *configuration* and a bound that is a
+*fact about the data* look identical at the call site — both are four floats. The
+difference only shows up as an answer that is quietly about less than you think.
+When a value bounds an analysis, it has to come from the thing being analysed.
+
+## 17. A Point Index Cannot Serve `point.distance` Between Two Properties (measured 2026-08-27)
+
+`build_trailheads` snapped anchors with
+`point.distance(p.location, i.location) <= $snap_m`, and the plan for it was a
+`NodeByLabelScan` over all 84,137 intersections **per anchor** — 167k dbHits
+each — despite `inter_location` being a POINT index, ONLINE, on exactly that
+property. The script had been "fixed" for this once already by cutting the work
+into batches of 25 against the server's 10 s transaction timeout, sized to a
+measured per-anchor cost. The graph then grew, the margin evaporated, and the
+first batch died. Batching was treating the symptom of a plan that never used
+the index at all.
+
+The planner says why when asked for a hint:
+`USING INDEX i:Intersection(location)` is rejected with *"the comparison cannot
+be performed between two property values"*. A distance predicate is
+index-servable only when the reference side is a literal, a parameter, or a
+**bound variable** — `p.location` inline is a property access, not a bound
+variable. The fix is one line before the subquery:
+
+    WITH p, p.location AS anchor
+    CALL (p, anchor) {
+      MATCH (i:Intersection)
+      WHERE point.distance(anchor, i.location) <= $snap_m
+      ...
+
+Same predicate, same results, `NodeIndexSeekByRange` at ~30 dbHits per anchor:
+all 1,547 anchors snap in one 0.77 s transaction, and the batching apparatus
+was deleted rather than retuned.
+
+The trap has a twin that makes it easy to misdiagnose: `SCORE_ACCESS` in the
+same script also compares two properties and its plan **does** seek the index —
+the planner manages the rewrite in some shapes (an aggregate over the
+neighbourhood) and not in others (`ORDER BY distance LIMIT 1`). So "it profiled
+fine over there" proves nothing about the query here.
+
+**The rule:** any spatial predicate that matters gets a `PROFILE` before it
+ships, and the thing to look for is the seek — `NodeIndexSeekByRange` — not the
+runtime. A label scan under a warm cache on today's graph is fast enough to
+pass every test and die two regions later; the plan, unlike the timing, tells
+you which one you wrote. When the plan scans, bind the reference point to a
+variable first.

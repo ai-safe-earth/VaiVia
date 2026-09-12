@@ -1,547 +1,48 @@
 # Handoff — VaiVia
 
-Last updated 2026-08-18.
-
-The project was renamed from `get-out-door` to **VaiVia** on 2026-08-17. The
-GitHub remote is now `https://github.com/ai-safe-earth/VaiVia.git` and the local
-root folder is `A02_VaiVia`. README, LICENSE and CONTRIBUTING have been rewritten
-under the new name, and the in-code identifiers followed and are **merged to
-`main`** (PRs #2 and #3): package names (`vaivia`, `vaivia-gateway`,
-`vaivia-frontend`, both lockfiles relocked), the compose container
-(`vaivia-neo4j`), page title and headings, the Overpass User-Agent default, the
-FastAPI title, the `graph-model` skill description, and the doc and
-`.env.example` headers. All three unit suites pass after the rename (148 / 34 /
-33).
-
-Two things the rename touched that are worth knowing. The compose **volumes**
-(`neo4j_data`, `neo4j_logs`) are unchanged, so the ingested graph survives; only
-the container is renamed and `up -d` recreates it. And renaming the root folder
-broke every console-script shim in `backend/.venv` (Windows `.exe` launchers
-hardcode the absolute interpreter path, so `uv run black` failed with "Failed to
-canonicalize script path"); deleting `.venv` and re-running `uv sync` fixes it.
-Anyone else who pulls after the folder rename will hit the same thing.
-
-## Where the project stands
-
-A trail-query chatbot backed by a Neo4j knowledge graph. A working four-tier
-monorepo: Next.js frontend, Fastify gateway, FastAPI backend, Neo4j graph.
-
-**The data story changed on 2026-08-18.** It was "OSM geometry fused with
-Trailforks curation"; Trailforks turned out to be legally unavailable and OSM
-turned out to be enough, so it is now OSM throughout, with open-licensed
-enrichment (Wikipedia/Wikidata) over the marquee places. Supabase supplied auth
-and Postgres and is currently **switched off** — see the auth note below.
-
-The product works end to end against real infrastructure and has been driven in
-a real browser: sign-in, resumed conversation history, a live streamed chat turn
-grounded in the graph, and the trail drawn on the map — all of it pinned by a
-repeatable Playwright suite. Status stays amber for one reason only: three
-credentials were shared in plaintext during development and must be rotated
-before anything deploys. Everything else that remains is Phase 6 hardening
-(embeddings, deploy plumbing), not unverified core.
-
-## What is built and how far it is verified
-
-| Piece | State | Verification |
-|---|---|---|
-| Graph schema and ontology | Owner-validated, frozen | Applied to the live database (16 statements, region seeded) |
-| Ingestion (OSM) | Reworked 2026-08-18 | Filter widened to connective ways: Lecco now 70,847 routing edges, 3,195 POIs. Trailforks ingestion is a deliberate stub (licensing) |
-| Query service (FastAPI) | Complete | Tests against a fake graph client; live `/routes` and `/trails` verified over HTTP |
-| Gateway (Fastify) | Complete | 28 tests; real Supabase ES256 token verified against the live JWKS |
-| Chat orchestration (OpenAI) | Complete | 33 offline tests, plus 15/15 against the live OpenAI API; live turns persisted to Supabase |
-| Frontend (Next.js + MapLibre) | Complete | 33 unit tests; `next build` clean; driven in a real browser |
-| Supabase store and quotas | Complete | Schema applied; 12-check live round-trip of `PostgresStore`; gateway quota store queries the real database |
-| Supabase auth | **Parked 2026-08-18** | Works, but Supabase is being switched off. `GATEWAY_DEV_NO_AUTH=true` runs everything as `dev-local-user`; gateway refuses to boot with that flag in production |
-| Graph, live | Ingested and idempotent | Schema applied to a real Neo4j; both ingesters run twice leave counts identical (`scripts/smoke_graph.py`) |
-| Spatial matching | Complete | Fixture re-cut along real OSM ways; 39 `COMPOSED_OF` edges, idempotent |
-| Routing (GDS Dijkstra) | Works, but superseded by a decision | Now comfort-weighted (`cost_m`), off-road 17% -> 61-64%. `docs/routing-engine.md` decides in favour of GraphHopper for geometry; not migrated |
-| Sign-in + conversations | Complete | Real browser session against the full stack: sign-in, history resumed under RLS, live streamed turn, trail drawn on the map; anon role reads zero rows |
-| Playwright e2e | Complete | 4/4 against the live stack in ~10 s; first run caught a real mid-stream remount bug |
-| Gateway claim pinning | Complete | iss/aud pinned when SUPABASE_URL is set; right-key/wrong-claim tokens 401 in tests, real token passes live |
-| Semantic search | Complete | 503 verified live on the unpopulated index; job idempotent (3 embedded, 0 on re-run); three distinct queries each ranked the intended trail first |
-| Query decomposition + composer | Complete | Model decomposes into atomic subqueries; Python composer merges tightest-wins, drops vacuous 0-bounds, clarifies with suggestions when under-specified; 17/17 live containment (adversarial 7/7 clarify) |
-| Semantic + filters in chat | Complete | New `semantic_search_trails_filtered` template (vector pool → NULL-idiom filters); degrades to structured search with `semantic_unavailable` while the index is cold |
-| Trailforks links | Complete | `trailforks_url` stored at ingestion (from `alias`/explicit URL, never guessed), returned by all trail templates, linked on TrailCard and cited by the answer prompt |
-| Golden dataset eval | Complete | `fixtures/golden_questions.json` (24 questions incl. Bergamo + season-hazard cases) + `scripts/eval_golden.py`; live: decomposition 24/24, retrieval 16/21 ranked-first (misses: no bathing_water POI in either bbox; model over-constraining ambiguous phrasings) |
-| NEAR_POI proximity edges | Complete, live-verified | `(:Trail)-[:NEAR_POI {distance_m}]->(:POI)` at ingestion (500 m); fixture walks now anchor near a lake/hut, so lake and hut filters return the right trail live |
-| POI full-text lookup | Complete, live-verified | `poi_name_fulltext` Lucene index; route resolution queries it first with escaped input (`core/text.py`), CONTAINS as fallback |
-| Richer embedding input | Complete | Input now adds activity/difficulty, seasons, and POIs along the way; sha-gated job re-embedded only changed trails |
-| Season-scoped hazards | Complete | `hazards_<season>` lists on Trail, `seasonal_hazards` stays the union; queries check the requested season's list (union when unseasoned); unscoped records get the union in every season |
-| Bergamo region | Complete, live-ingested | Multi-region config (`REGIONS`), `osm_ingest --region`; 24,859 intersections / 25,755 segments / 51,503 edges / 101 POIs from live Overpass; two new mock trails (Canto Alto Skyline hike, Colli di Bergamo Ride mtb) anchored on real Bergamo POIs |
-
-Totals: 173 backend, 40 gateway, 33 frontend unit tests plus 4 e2e, all
-passing. CI runs the three unit suites and stays fully offline; the e2e suite
-is a local/pre-deploy check that skips itself without credentials.
-
-## The two properties the redesign exists to guarantee
-
-**The browser never reaches anything but the gateway.** The gateway is the only
-public service. It verifies Supabase JWTs, rate-limits per user with an IP
-fallback, enforces the origin allowlist, pre-checks the LLM quota, and proxies
-only `/trails`, `/routes`, and `/chat`. Everything else 404s there. The backend
-trusts only the shared-secret hop and never parses a token.
-
-**The model never writes Cypher.** Its only structured output is a plan of
-validated atomic subqueries (`TrailSearchIntent | RouteIntent |
-SemanticThemeIntent | ClarifyIntent`). `chat/composer.py` — Python, not the
-model — merges them tightest-wins and maps the result onto named, read-only,
-parameterized templates; a semantic theme is embedded server-side and reaches
-the vector index as a list of floats. No field in the schema can carry a query,
-a template name, or an identifier, and one `Clarify` anywhere in the plan stops
-the whole turn. Against the live API, seven of seven injection and jailbreak
-payloads were contained this way.
-
-## Read these before changing anything
-
-- `docs/plan.md` — the delivery plan, decisions, and per-phase checkboxes.
-- `docs/architecture.md` — the graph model, corrected during the redesign.
-- `docs/fragilities.md` — known failure modes and the mitigations chosen.
-- `CLAUDE.md` — the rules a contributor is most likely to break by accident.
-
-## Supabase is wired
-
-Project `fatktvawkmrytywegjjz` (eu-west-1) is live and the schema is applied:
-`conversations`, `messages`, `usage_ledger`, `daily_quotas`, RLS on with one
-policy each. Chat history, the cost ledger and quotas now survive a restart.
-
-Two things about the connection are worth knowing before anyone edits an env
-file, because both fail in ways that look like something else:
-
-- **The direct host is unusable.** `db.<ref>.supabase.co` publishes an AAAA
-  record and no A record, so without IPv6 it does not resolve at all. Every
-  `DATABASE_URL` points at the Supavisor pooler
-  (`aws-1-eu-west-1.pooler.supabase.com`) in **session** mode, port 5432 — not
-  6543, because these services hold long-lived connections.
-- **`sslmode=require` in the URL breaks the gateway.** The bundled `pg` treats
-  it as `verify-full`, and Supabase's pooler certificate does not chain to a
-  public root, so the connection is rejected as self-signed. TLS is instead
-  selected in `gateway/src/quotaStore.ts`, which encrypts for any non-local
-  host. This matters: a bare connection string connects happily *in plaintext*,
-  which is exactly what makes it easy to miss.
-
-## Dependency audit, triaged 2026-08-17
-
-`npm audit` reported 7 findings in the gateway and 8 in the frontend. They are
-not equally serious and the counts are misleading, so here is what each one
-actually meant.
-
-**The gateway's critical was real and is fixed.**
-`@fastify/http-proxy` 10 carried GHSA-gwhp-pf74-vj37 — a client can name a
-header in `Connection:` and have the proxy strip it *after* the rewrite hook
-added it. That is precisely the gateway's trust mechanism: `app.ts` injects
-`x-gateway-secret`, `x-user-id` and `x-user-email` in `rewriteRequestHeaders`.
-The saving grace is that both consumers **fail closed** —
-`GatewayTrustMiddleware` 401s on a missing or wrong secret, and `/chat` 401s on
-an empty `x-user-id` — so the reachable impact was a caller denying its own
-request, not forging an identity or evading the quota ledger. Client-supplied
-`x-user-id` was never a risk either: the rewrite spreads incoming headers first
-and then overwrites. Upgraded to `@fastify/http-proxy` 11.6.0; 34/34 gateway
-tests and typecheck pass. Gateway production dependencies are now at zero
-findings.
-
-**Everything else was dev- or build-time.** The `vitest`/`vite`/`esbuild` chain
-(GHSA-67mh-4wv8-2f99) only exposes a dev server on a developer's machine;
-bumping `vitest` to 3 in both packages cleared it, with all tests still passing.
-
-**Three high findings remain in the frontend and are deliberately deferred.**
-`postcss` (CSS-stringify XSS and `sourceMappingURL` path traversal) and `sharp`
-(inherited libvips CVEs) are both reached only through `next` 14, and npm's only
-fix is `next` 16 — a two-major framework migration. Neither is reachable as this
-app is built: the CSS is authored in-repo rather than attacker-supplied, and
-nothing imports `next/image`, which is what pulls `sharp` into a running server.
-Do the Next upgrade as its own piece of work, not as an audit drive-by.
-
-**Merged 2026-08-17.** The dependency audit landed on `main` (PR #4) after a
-manual browser pass confirmed SSE still streamed through the new
-`@fastify/http-proxy` major.
-
-## Session 2026-08-18: the product turned a corner
-
-Everything below is on **`spike/osm-coverage`**, 15 commits, not merged. The
-branch outgrew its name on the first afternoon; treat it as a feature branch and
-decide whether to rename or split it before merging.
-
-The short version: the Trailforks dependency was found to be unusable, OSM was
-measured and turned out to be enough, and the routing that was supposed to be
-the hard part turned out to be broken for a reason nobody had looked for.
-
-**Trailforks is not available, and this is settled.** Their data is API-only
-with a granted key, and the Outside terms require prior written consent for
-commercial use, use in a software program, and AI use — VaiVia is all three.
-Approval is discretionary and explicitly "not guaranteed". The saving grace is
-that **nothing was ever taken**: `fetch_live()` is a stub, there is no HTTP
-client, and the fixture is synthetic. Full brief with quoted terms and a draft
-access request in `docs/licensing.md`. Blocker re-triaged low -> high.
-
-**OSM covers more than assumed.** 302 named CAI *sentieri* across the two
-regions against the 5 synthetic trails we ship; `sac_scale` on 33-43% of paths
-and `mtb:scale` on 23-27%, both mapping onto our difficulty 1-4. Only
-`description` is thin (10-21%), so composed-from-facts stays the primary
-description source.
-
-**The routing graph was shattered and nobody knew.** Loop generation returned
-0/10, and the cause was not the algorithm: the ingestion filter took only
-path/track/cycleway/footway, and trail networks connect *through* roads. Lecco
-was 1,627 components with the largest holding 31.7%, and the waterfront the map
-opens on sat on an island of 14 intersections. Widening the filter took it to
-171 components / 98.1%, and loops went 0/10 -> 10/10. It had gone unnoticed
-because routing was only ever verified on a POI pair that happened to share a
-component, and every fixture trail was built by tracing existing ways, so it was
-connected by construction.
-
-**Routing then preferred roads**, because Dijkstra minimised raw distance and
-roads are straighter — a "10 km trail loop" came back ~83% asphalt. `cost_m`
-(distance x a per-highway/surface penalty, `core/comfort.py`) fixed it: off-road
-share 17% -> 61-64%. The trap it creates is recorded and guarded by a test:
-GDS `totalCost` is now a penalised figure in no real unit, so **every distance
-shown to a user must be summed from `distance_m`**.
-
-**Decision: adopt GraphHopper for geometry, keep Neo4j for meaning.** Gate
-passed — with our comfort model ported to its `custom_model`, off-road is 67.0%
-at 15 km and 67.7% at 20 km against our 61.0/64.1, retrace is 0.0-3.2% against
-our ~20%, all 30 candidates route, and climb comes back real (296-2,732 m) where
-ours is silent because elevation was never ingested. It also decodes `sac_scale`
-and `mtb:scale` natively and pruned 13,778 subnetworks on import without being
-asked. Full comparison in `docs/routing-engine.md`. **Not migrated.**
-
-**The map-back is proven**, which was the last unknown in that architecture.
-GraphHopper does not expose `osm_way_id`, so `graph/route_context.py` joins a
-route polyline to the graph *spatially*: a real 13.89 km loop returned 19 POIs
-within 150 m, three named saddles at 0.0 m because it crosses them. The spatial
-join is arguably better than an id join — it answers "what does this route
-pass", and it survives the engine splitting ways differently from our ingestion.
-
-**The POI layer was the real blocker for the product's route model** and is now
-fixed. It had 8 types, nodes only — no parking, no peaks, no ermitas. Lecco now
-has **3,195 POIs**: 1,511 parking, 569 chapels, 281 peaks (243 named), 127
-saddles, 155 lakes. **1,686 of them (53%) are areas** that a nodes-only query
-never saw; lakes were 154 areas against 1 node, which is why `NEAR_POI` needed a
-500 m radius — that tuning is now worth revisiting.
-
-**Trailheads exist**: 1,511 car parks cluster to **266 `(:Trailhead)` nodes**,
-each scored by off-road share within 750 m (46 trail / 145 mixed / 75 urban).
-Catalogue size is now predictable at roughly 4,000 routes for Lecco.
-
-**Auth is disconnected** so Supabase can be switched off:
-`GATEWAY_DEV_NO_AUTH=true` runs every request as `dev-local-user`. The gateway
-**refuses to boot** if that flag is set with `NODE_ENV=production`. Real
-credentials are commented out (not deleted) in the three gitignored `.env`
-files. Reconnecting means uncommenting **and rebuilding the frontend**, because
-`NEXT_PUBLIC_*` is inlined at build time. While parked, LLM quotas are not
-enforced and chat history is in-memory.
-
-Also fixed: an unstated `activity` was silently over-constraining every search
-(the model reached for `"mixed"` to mean "no preference", the one value that
-cannot mean it) — live golden retrieval 16/21 -> 18/21. And OSM data attribution
-now credits the data rather than only the basemap tiles.
-
-## Session 2026-08-18 (part two): the catalogue exists
-
-On **`feat/route-catalogue`**, 5 commits, branched from `main` and **not pushed**
-— everything below lives only on this machine until it is.
-
-The pipeline in `docs/route-pipeline.md` is now built end to end. Neo4j has
-stopped being the routing engine and become the catalogue a chat turn chooses
-from.
-
-**Stage 2-5: generate, score, dedup, enrich, persist**
-(`graph/route_generation.py`, `graph/route_scoring.py`, `scripts/build_routes.py`).
-Generation is deliberately prolific because offline it is cheap; quality comes
-from scoring and dedup afterwards. Scoring is pure functions with tests, since
-it encodes taste and taste should be arguable in a test rather than buried in a
-script. Weights are length 40 / off-road 30 / variety 20 / climb 10.
-
-**Stage 7: `loop_search`** — a new atomic intent beside trail_search / route /
-semantic_theme / clarify. It carries only what a walker says out loud (distance,
-features, a place to start near, activity, difficulty, ascent) and maps onto
-`search_loops`, which filters `(:Route)` and orders by the offline score.
-Verified live: *"a 15 km loop on trails past a peak near Lecco"* returns real
-catalogue loops over Monte Ocone and Punta Cermenati with no routing in the
-turn. `check_intents_live` stayed 17/17 with the adversarial half at 7/7, so
-adding an intent did not weaken containment.
-
-**GraphHopper is a real service now** (`infra/docker-compose.yml`,
-`infra/graphhopper/`), supplying the two things our own graph cannot:
-
-- **Elevation.** Every `CONNECTS_TO` edge reports 0 m (fragility #6), which made
-  duration and difficulty unanswerable even though `core/durations.py` has
-  implemented DIN 33466 all along. One config line (CGIAR SRTM) gives every
-  route real ascent.
-- **Per-activity profiles.** Activity is not a filter you apply to one catalogue
-  afterwards — a foot loop over steps and a T4 scramble is impassable on a bike
-  — so `hike` and `mtb` generate separate catalogues, with `mtb` excluding steps
-  outright. Activity is part of the route id and `CLEAR_ROUTES` is
-  activity-scoped, so rebuilding one cannot destroy the other.
-
-Difficulty arrived with them: GraphHopper decodes `sac_scale` to `hike_rating`
-and `mtb:scale` to `mtb_rating`, so the filter set the owner asked for — length,
-time, difficulty, activity — is now expressible. Time is the one still to
-compute, and it only ever needed ascent.
-
-Current catalogue:
-
-| | hike | mtb |
-|---|---|---|
-| Routes | 255 | 218 |
-| Mean score | 0.77 | 0.74 |
-| Off-road | 74% | 66% |
-| Retrace | 4% | 5% |
-| Mean ascent | 1,719 m | 1,631 m |
-
-Retrace 25% -> 4% against our own generator is the headline. The **length gate**
-is what bought the score: `round_trip.distance` overshoots, badly in steep
-terrain where the only paths out are long, so about half of what was generated
-answered a different question than the one it was filed under. Those are dropped
-at persistence — not in the scorer, which stays honest — and the drops are
-reported per target, because a target that mostly fails is a coverage fact.
-
-The 502 pre-activity routes were deleted after confirmation: no activity, no
-elevation, superseded. The query keeps an `activity IS NOT NULL` guard so a
-future unlabelled route cannot leak into results.
-
-**Two confident claims made this session were wrong, both recorded in the docs
-rather than quietly fixed:**
-
-1. *"A near-constant 113-121 m/km proves the elevation is SRTM noise."* It was a
-   selection effect — the catalogue only holds trailheads above 60% off-road,
-   which are mountain trailheads. Flat starts give 1-40 m/km. Smoothing was
-   added on that false diagnosis and kept only because it is harmless.
-2. *"Zero 5 km routes survived the gate, so short loops do not exist at alpine
-   trailheads."* A `tail -16` had cut the row off the table. There are 44 hike
-   and 43 mtb 5 km loops averaging 5.4 km against target.
-
-Both were the same failure: reading a filtered or truncated view as if it were
-the whole.
-
-## Session 2026-08-18 (part three): loops became visible, and one ingestion bug
-
-Still on **`feat/route-catalogue`**, still **not pushed**. One commit landed
-(`ef1df5b`); **seven files are modified and uncommitted** — finish or revert
-them before anything else (see "Where this was interrupted").
-
-### What shipped
-
-Driving the frontend showed loops as prose only: no name, no card, no line on
-the map. Three causes, all now fixed and committed.
-
-**Names.** A route's only id was `1461822581:hike:15000:0`, and trailhead names
-would not have helped (37 of 266). But every route already had
-`-[:PASSES]->(:POI)` edges carrying a name AND a type, so
-`scripts/name_routes.py` derives one from the best thing it passes — peak, then
-saddle, lake, castle, waterfall, chapel. **81% of 473 routes are named**, 190
-from peaks. Null stays null: the card shows distance rather than inventing
-something. No regeneration was needed, which mattered — that would have been
-hours of GraphHopper calls.
-
-**Durations** came with it. `core/durations.py` implemented DIN 33466 all along
-and only needed ascent; a loop returns to its start, so descent equals ascent.
-
-**The map.** Loop geometry never left the database — `route_geometry` sat in
-`queries.cypher` with no caller and no endpoint. `GET /routes/{route_id}/geojson`
-now serves it, needing no gateway change since `/routes` was already proxied.
-`LoopCard` mirrors `TrailCard`; all returned loops draw at once and clicking one
-highlights and zooms to it, via a `selected` feature property so switching is a
-restyle rather than a refetch.
-
-The live intent check earned its cost again: after the prompt change the model
-began calling "a 2 hour mountain bike ride" a loop, which exposed that
-`loop_search` could not express **duration at all** despite routes now having
-one. Added `max_duration_min`, tightened the prompt to require a real
-circularity signal, and it went back to 17/17 with the adversarial half at 7/7.
-
-### Why "a 5 km route around the lake" still cannot work
-
-Two independent faults, found by chasing that question:
-
-1. **The catalogue has no lakeside routes.** It was built with
-   `--min-off-road 0.6`, which is 46 of 266 trailheads and all of them mountain
-   ones. Near the Lecco shore there are 62 trailheads and **only 6 made the
-   cut** — a lakeside promenade is footway and road by nature. Every `lake` match
-   in the catalogue is an alpine tarn or pond.
-2. **Lago di Como could never be matched anyway.** It is a relation whose
-   centroid sits **5,122 m out on the water**, and the map-back radius is 150 m.
-   No bigger radius fixes it: 5 km would sweep in half the region.
-
-Fault 2 is fixed in the working tree: area POIs now keep a sampled (~100 point)
-boundary and an `extent_m`, the bounding query widens by that extent, and
-`route_context.poi_distance_to_route` measures to the boundary for areas and to
-the point for nodes. A test pins it — a shoreline route reads under 150 m from
-the lake with a boundary and over 4 km without.
-
-Fault 1 is **not** fixed. It needs a rebuild at `--min-off-road 0.3`, which is
-the next real task.
-
-### The ingestion bug this introduced, and what it teaches
-
-Switching POIs to `out geom` (needed for boundaries) made lake and car park
-outlines indistinguishable from routing ways — with `out geom` a POI way arrives
-carrying geometry AND a node list, exactly like a path. Having no `highway` tag
-it took the `"path"` default in
-
-    highway_type=tags.get("highway", "path")
-
-and became routable. **1,673 lake and parking outlines entered the routing graph
-as walkable paths.**
-
-It was not caught by a test. It surfaced because the boundary count came back as
-12 when ~1,686 was expected, and chasing that discrepancy found it. Every unit
-test passed throughout, because none fed a POI way and a routing way through
-`extract` together — there is now one that does.
-
-The fix discriminates by TAGS, not by shape: a routing way must have a `highway`
-tag, an area POI must not. Cleanup was surgical rather than a wipe: of 2,242
-suspect segments, 2,237 claimed `"path"` from 1,673 parent ways (the outlines)
-and 5 claimed `"service"` from one way — a genuine parking aisle that is
-legitimately both a road and a POI. Deleting all 2,242 would have removed real
-road; only the 2,237 were deleted, and segments returned to 104,812.
-
-**The lesson worth keeping:** `tags.get("highway", "path")` is a dangerous
-default. Silently calling an untagged way a path is what turned a filter bug
-into routable water. `None` plus an explicit skip would have failed loudly at
-ingestion instead of quietly corrupting the graph.
-
-### Where this was interrupted
-
-A Lecco re-ingest was **in flight** when the session ended, to give the way-based
-area POIs their boundaries under the fixed filter. At the last check the graph
-still showed only **12 boundaries** (the relations from the earlier broken run),
-so that re-ingest either did not finish or needs re-running. Verify before
-trusting any lake matching:
-
-    uv run python -m ingestion.osm_ingest --region Lecco
-    # expect ~1,686 POIs with a boundary, segments back at ~104,812
-
-Then, in order: re-run `scripts/build_trailheads` (component ids change with the
-routing graph), rebuild the catalogue at `--min-off-road 0.3`, and re-run
-`scripts/name_routes`.
-
-## The design that ties it together
-
-`docs/route-pipeline.md` records the architecture the owner set out: build
-geometry offline, enrich it, persist to Neo4j, and let chat **select** rather
-than compute. Neo4j stops being the routing engine and becomes the enriched,
-embedded catalogue. Two things it still needs a decision on: how generation is
-bounded (proposed: anchors x distances x top-N), and that Wikipedia/Wikidata is
-a supplement rather than a foundation — 48 real descriptions across 3,195 POIs,
-and the Wikidata one-liners must NOT be embedded, being ~27-character category
-labels that would add noise and make a POI look described when it is not.
-
-## What blocks progress
-
-1. **Credentials shared in plaintext must be rotated before any deployment.**
-   The OpenAI key in `backend/.env`, and the Supabase database password, have
-   both been pasted into chat transcripts. They work today and are gitignored;
-   treat both as compromised.
-2. **Trailforks licensing is a product constraint, not a data-plumbing task.**
-   Reviewed 2026-08-17 against the primary sources; full brief in
-   `docs/licensing.md`. Their Data Use Policy permits use only via the API with
-   a granted key, and the Outside Terms of Use (Trailforks is Outside-owned)
-   restrict the Services to "personal, noncommercial use" while separately
-   naming "development of any software program" and AI use as requiring prior
-   written consent. VaiVia is all three. Approval is discretionary and
-   explicitly "not guaranteed".
-
-   The good news: **nothing has ever been fetched from Trailforks.**
-   `fetch_live()` raises `NotImplementedError`, there is no HTTP client, and the
-   fixture is synthetic prose over OSM-traced geometry — so there is no exposure
-   to remediate, only a decision to make. Either pursue API access and written
-   consent (draft request in the brief), or scope an OSM-only product. Do not
-   assume approval in the roadmap.
-3. **The account password is `12345678`.** It is eight characters, entirely
-   numeric, and has been pasted into a chat transcript. Fine for a scratch
-   login today; it must not survive contact with a deployed service.
-
-
-## Running the graph locally
-
-Docker Desktop is installed and the stack runs. Note two local specifics:
-
-- **Neo4j is on 7688/7475, not the defaults.** An older copy of this project
-  (container `god-neo4j`, `restart: unless-stopped`, from
-  `…\Learning\google, kaggle, antropic, openai\dev\agentic\get-out-door`)
-  already binds 7687/7474 and starts with Docker Desktop. The compose ports are
-  now variables; the root `.env` moves this stack aside so both can run. Stop
-  that container and clear `NEO4J_*_PORT` if you would rather have the defaults.
-- **The first boot after Docker starts can lose GDS.** The plugin installer
-  fetches a version manifest over the network, and on a cold Docker Desktop it
-  ran before networking was ready: APOC installed, GDS silently did not, and
-  Neo4j started anyway. Recreating the container fixed it. If `gds.version()`
-  is unknown, that is what happened — recreate rather than debug.
-
-Current state: schema applied, two regions ingested — Lecco (15,937 segments /
-31,848 edges) and Bergamo (25,755 segments / 51,503 edges, live Overpass) —
-GDS 2.13.12 loaded, five mock trails matched and embedded. The data volume
-persists across `docker compose … down`, so `up -d neo4j` restores the graph
-without re-running ingestion.
-
-## Suggested order of work
-
-The whole product works end to end and is pinned by a repeatable Playwright
-suite (`cd frontend && E2E_EMAIL=… E2E_PASSWORD=… npm run test:e2e`, add
-`E2E_LIVE=1` to spend one real OpenAI turn). Its first run earned its keep by
-catching a bug the manual browser pass missed: a brand-new chat's first answer
-was destroyed mid-stream, because assigning the conversation id remounted the
-panel. What remains is deploy plumbing (Caddy TLS, VPS deploy script, backup
-cron, uptime check against /healthz) and the credential rotations. Rotate all
-three credentials before anything deploys.
-
-Both gateway findings from the auth verification are resolved. The "missing
-health endpoint" turned out to be a wrong finding: the gateway has always served
-`/healthz` (matching the backend's path) — the check that produced the finding
-curled `/health`. And the gateway now pins `iss` (`<project-url>/auth/v1`) and
-`aud` (`authenticated`) whenever `SUPABASE_URL` is configured, verified both by
-negative tests (right key, wrong issuer or audience -> 401) and live: a real
-Supabase token still passes with pinning active.
-
-## Running it locally
-
-```bash
-# Neo4j (needs Docker)
-docker compose --env-file .env -f infra/docker-compose.yml up -d neo4j
-
-# Backend
-cd backend && uv sync
-uv run python -m scripts.init_schema
-uv run python -m ingestion.osm_ingest
-uv run python -m ingestion.trailforks_ingest --mock
-uv run uvicorn api.main:app --reload
-
-# Gateway
-cd gateway && npm install && npm run dev
-
-# Frontend
-cd frontend && npm install && npm run dev
-```
-
-Test suites: `uv run pytest tests/ -v` in `backend/`, `npm test` in `gateway/`
-and `frontend/`. After changing chat prompts or intents, re-run
-`uv run python -m scripts.check_intents_live` — it costs money and the
-adversarial half must stay at seven of seven.
-
-## Knowing what a session cost
-
-`backend/scripts/cost_by_commit.py` attributes Claude Code token spend to git
-commits, sessions, or models. It reads the local transcripts under
-`~/.claude/projects/`, buckets each request into the commit whose interval
-contains its timestamp, and prices the tokens at list rates. Stdlib only, so it
-runs without `uv sync`.
-
-```bash
-python backend/scripts/cost_by_commit.py              # per commit
-python backend/scripts/cost_by_commit.py --by session # or model / branch
-python backend/scripts/cost_by_commit.py --json       # feeds sessions[].credits
-```
-
-Two things it gets right that a naive count does not. Each API request writes
-several assistant records to the transcript — one per content block — and every
-one repeats the *same* usage object, so the script dedupes on `requestId`;
-summing raw records roughly doubles the figure. And cache reads dominate the
-token volume by an order of magnitude while billing at a tenth of the input
-rate, so 5-minute writes, 1-hour writes, and reads are priced separately.
-
-The numbers are list-price API equivalents. On a subscription plan nothing here
-is billed per token — `/usage` is what reflects real plan consumption. Build
-cost through Phase 5 was roughly $62.
+Last updated 2026-09-02. State only; history is in `docs/pm-log.jsonl` and git
+log, doctrine in `docs/{plan,architecture,fragilities,route-design}.md` and `CLAUDE.md`.
+
+## What VaiVia is
+
+A trail-query product over OSM for Lecco and Bergamo. Four tiers — Next.js
+frontend, Fastify gateway (the only public service), FastAPI backend, Neo4j —
+plus `pipeline/`, a PostGIS working store where the value lives, and now
+`shared/routes/` (`vaivia_routes`), the package both Python tiers import. **The
+route document is the product** and, since 2026-09-02, **the network is the
+catalogue**: Phase 12 draws a route per ask over an exported pack instead of
+searching 627 pre-generated ones (`docs/route-design.md`). The data is OSM
+throughout; no Trailforks data has ever entered the system.
+
+## Where the data stands
+
+- **Network** — 101,951 edges, 9,238.0 km, height on every edge, 98%+ of
+  vertices in one component. 752 OSM route relations joined as the naming layer.
+- **Catalogue** — 627 generated routes, published to Neo4j, served from
+  `review/routes/`. Still what answers `/chat` until Phase 12 R4; then it is the
+  parity oracle only.
+- **Pack** — `export.pack` writes the whole store in 10 s: 80,113 vertices,
+  101,951 edges, 761,048 points, 17,697 places (10,489 starts), ~35 MB. Format 1
+  is `shared/routes/vaivia_routes/pack.py`. No fixture pack cut yet.
+- **Open QA** — 164 overlaps, judgement only; 370 islands stay deliberately.
+
+## Where the code stands
+
+Two checkouts. `A02_VaiVia-route-design` (worktree, branch `feat/pack-export`,
+two commits over develop `52c879a`, **not pushed**, `.env` copied in) carries
+Phase 12 R1: the pack export, the shared package, its CI job and docs; 291
+pipeline+shared tests green. `A02_VaiVia` (this one) sits on
+`feat/chat-feedback-ui-pass` at `b2f4a66` — PR #49 is **merged** — with 34
+files uncommitted that are not from the pack session: deploy-strategy and
+release-process sections in `docs/plan.md`, frontend and `CLAUDE.md` edits.
+Sort that tree before branching anything else from here.
+
+Other tiers: 378 backend, 112 frontend, 41 gateway unit tests, 4 Playwright e2e.
+Golden eval at `ece21a3`: decomposition 50/50, answers 44/44, retrieval 18/20.
+
+Two things look like bugs and are not: Supabase auth is **parked**, so
+`GATEWAY_DEV_NO_AUTH=true` runs all as `dev-local-user` (refused in production);
+and A→B routing is still GDS Dijkstra — GDS is retired by decision, not yet code.
 
 <!-- pmctl:handoff v1 -->
 ```json
@@ -549,7 +50,7 @@ cost through Phase 5 was roughly $62.
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-08-18",
+  "updated": "2026-09-02",
   "deadline": null,
   "people": [
     "oscar"
@@ -563,435 +64,18 @@ cost through Phase 5 was roughly $62.
   ],
   "phases": [
     {
-      "name": "Phase 0 - Foundations",
-      "status": "done",
-      "start": "2026-08-15",
-      "end": "2026-08-15",
-      "plan": "redesign",
-      "decisions": [
-        {
-          "date": "2026-08-15",
-          "text": "Fastify gateway is the only public ingress; backend and Neo4j stay internal and trust a shared-secret hop"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Monorepo restructured in place: backend/, gateway/, frontend/, infra/"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "uv with pyproject.toml instead of pip and requirements.txt"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Neo4j Community rather than Enterprise, which needs a paid license"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Supabase supplies both auth and the Postgres store for history, ledger and quotas"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "SSE streaming end to end from day one"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Beta data scope limited to the Lake Como and Lecco bbox"
-        }
-      ]
-    },
-    {
-      "name": "Phase 1 - Graph core and ingestion",
-      "status": "done",
-      "start": "2026-08-15",
-      "end": "2026-08-15",
-      "plan": "redesign",
-      "decisions": [
-        {
-          "date": "2026-08-15",
-          "text": "Routing graph is Intersection to Intersection; segments carry edge data and are not routing vertices"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "MAPS_TO dropped as redundant; one ordered COMPOSED_OF with seq and match_confidence"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "All distances in metres and durations in minutes, converted only for display"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Ontology extended by the owner: difficulty label plus numeric level plus free-text notes, per-activity durations, elevation gain and loss at trail, segment and per-direction edge, seasonality lists, landscape_description feeding the embedding"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Hiking duration follows DIN 33466; MTB uses speed by difficulty plus a climbing penalty, documented as recalibratable"
-        }
-      ]
-    },
-    {
-      "name": "Phase 2 - Query service",
-      "status": "done",
-      "start": "2026-08-15",
-      "end": "2026-08-15",
-      "plan": "redesign",
-      "decisions": [
-        {
-          "date": "2026-08-15",
-          "text": "Named Cypher template library rather than inline query strings, so the LLM boundary is enforceable by construction"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Guard tests fail the build if a template mutates data, traverses semantic edges in a path, or leaves a traversal unbounded"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "GDS Dijkstra templates written but not wired to the endpoint until they can be verified against a live GDS instance"
-        }
-      ]
-    },
-    {
-      "name": "Phase 3 - Gateway",
-      "status": "done",
-      "start": "2026-08-15",
-      "end": "2026-08-15",
-      "plan": "redesign",
-      "decisions": [
-        {
-          "date": "2026-08-15",
-          "text": "Pipeline ordered identify then rate limit then authenticate, so limits key on the verified user and unauthenticated floods are still IP-counted instead of escaping on an early 401"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Quota checks fail open on a Postgres error: a database blip degrades cost control, not availability"
-        }
-      ]
-    },
-    {
-      "name": "Phase 4 - Chat orchestration",
-      "status": "done",
-      "start": "2026-08-15",
-      "end": "2026-08-15",
-      "plan": "redesign",
-      "decisions": [
-        {
-          "date": "2026-08-15",
-          "text": "The model returns only a validated intent; Python maps intent to a read-only template, so no field can carry a query, template name or identifier"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "OpenAI strict structured outputs reject oneOf and discriminator, so to_strict_schema rewrites the tagged union to anyOf"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Quota enforced in the orchestrator as well as the gateway, since the orchestrator is the authoritative point before spending"
-        }
-      ]
-    },
-    {
-      "name": "Phase 5 - Frontend",
-      "status": "done",
-      "start": "2026-08-15",
-      "end": "2026-08-15",
-      "plan": "redesign",
-      "decisions": [
-        {
-          "date": "2026-08-15",
-          "text": "The gateway client is the app's only network surface; no path exists to backend, Neo4j or OpenAI"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Incremental SSE parser holding a remainder across chunks, since a network chunk can split a frame anywhere"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Map draws geometry from the same segments the answer was grounded in, so prose and map cannot disagree"
-        },
-        {
-          "date": "2026-08-15",
-          "text": "Sign-in page deferred rather than built speculatively against a Supabase project that does not exist"
-        }
-      ]
-    },
-    {
       "name": "Phase 6 - Beta hardening",
       "status": "active",
-      "start": "2026-08-16",
+      "start": "2026-08-17",
       "end": null,
-      "plan": "redesign",
-      "decisions": [
-        {
-          "date": "2026-08-16",
-          "text": "Claude Code spend is attributed per commit by bucketing transcript usage into commit time intervals, deduped on requestId because one request writes several assistant records that each repeat the same usage object"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "DATABASE_URL points at the Supavisor pooler in session mode because the direct host db.<ref>.supabase.co publishes an AAAA record only and does not resolve without IPv6"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Gateway selects TLS in quotaStore.ts for any non-local host rather than via sslmode in the URL: node-postgres sends no SSLRequest by default so a bare connection string is silently plaintext, while sslmode=require is aliased to verify-full by the bundled pg and fails against Supabase's pooler certificate"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Migrations are applied by scripts/apply_migrations.py rather than the Supabase CLI, which expects its own supabase/migrations layout; every migration must be idempotent, so the RLS policies now drop-if-exists first"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Backend tests pin gateway_shared_secret and database_url to empty via an autouse fixture; they previously inherited the developer's .env, so a populated secret 401'd 23 tests and a populated DATABASE_URL opened a real Postgres pool during unit tests"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Gateway builds from tsconfig.build.json with rootDir src: the base config includes test/ for typecheck, which made tsc emit dist/src/... so npm start could not find dist/server.js and the built artifact was unstartable"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Gateway dev and start load gateway/.env via node --env-file-if-exists rather than a dotenv dependency; nothing read that file before, so its Supabase settings were inert"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The auth plugin throws a named error when SUPABASE_JWT_JWKS_URL is empty; config only requires it in production, so outside production the empty string reached new URL and killed boot with a bare ERR_INVALID_URL"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "run_cypher_file strips // comments before splitting on semicolons; splitting first cut comments containing semicolons in half and executed the tail as Cypher, which is why applying the schema to a real database failed on 'durations are MINUTES.'"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The Overpass client sends a descriptive User-Agent, overridable via OVERPASS_USER_AGENT; Overpass answers the default python-httpx UA with 406, which is not retryable, so live OSM ingestion could never have worked"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Compose host ports for Neo4j are variables defaulting to 7474/7687, because an older copy of this project already binds those on the dev machine and starts with Docker Desktop"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Compose uses the Neo4j 5 server.memory.* setting names; the dbms.memory.* forms worked but warned on every boot"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The fixture's trail geometry is generated from the ingested graph by scripts/make_trailforks_fixture.py rather than hand-written, so it always traces real ways and spatial matching is exercised offline; metadata is preserved because tests pin it"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "/routes prefers GDS Dijkstra over a per-request bbox projection with a unique name dropped in finally, and falls back to shortestPath when GDS is unavailable, because the GDS plugin silently skips installation when its network fetch fails at container start"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "GDS streams node ids only, so the route_edge_details template maps consecutive node pairs back onto CONNECTS_TO to recover gain, surfaces and way ids; parallel edges resolve to the shortest, matching what Dijkstra weighted by"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The browser reads conversations and messages directly from Supabase under the migration's select-only RLS policies (auth.uid() = user_id); this is what those policies were written for and does not breach the gateway-only rule, which guards backend, Neo4j and OpenAI. Writes still go only through the backend"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Switching conversations remounts ChatPanel via a React key instead of syncing state with effects, so no message or stream state can leak across conversations"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The panel remount key changes only on explicit navigation, never when a fresh chat's first turn is assigned a conversation id: keying on selected remounted the panel mid-stream and destroyed the arriving answer, a bug the manual browser pass missed and the first scripted e2e run caught"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The e2e suite reads credentials from E2E_EMAIL/E2E_PASSWORD and skips when unset so CI stays offline; the live OpenAI turn is additionally gated behind E2E_LIVE=1"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The gateway pins token iss to <project-url>/auth/v1 and aud to authenticated whenever SUPABASE_URL is configured; unset leaves behaviour unchanged for dev without Supabase"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Semantic search embeds the user's text server-side and passes the vector as a query parameter, so free text never approaches Cypher; the endpoint returns 503 while the vector index is unpopulated rather than an empty list"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The embedding job stores a sha256 of the owner-ratified input text on each Trail and skips unchanged trails on re-run, making it idempotent and safe to run after every ingestion; vectors are written with db.create.setNodeVectorProperty so the index sees a typed vector"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Chat decomposes each message into atomic subqueries (trail_search, semantic_theme, route, clarify) and a Python composer merges them tightest-wins onto templates; one clarify anywhere poisons the whole plan so a half-adversarial decomposition never half-runs"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "The composer nullifies non-positive bounds: under strict structured outputs the model occasionally writes 0 to mean no-limit, and a 0-metre max silently filters out every trail (found by the golden eval, g09)"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Semantic themes compose with structured filters in one template (vector candidate pool then NULL-idiom WHERE); while the index is unpopulated chat degrades to structured search and flags semantic_unavailable instead of 503ing the turn"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "trailforks_url is stored only when the source record names it (alias or explicit URL) \u2014 never guessed from an id; mock fixture aliases are synthetic so their links 404 until real Trailforks data lands"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Golden eval (scripts/eval_golden.py) scores decomposition and retrieval separately so a failure names its layer; retrieval misses are all POI-coverage gaps in the mock graph, not pipeline bugs"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Trail-level NEAR_POI proximity edges (500 m, computed at ingestion with delete-then-recreate) complement segment-level PASSES_BY; 500 m because area features ingest as one node \u2014 the lake's node sits ~400 m off its own shoreline path"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Fixture trail walks anchor at the intersection nearest a lake/hut POI so the traced geometry passes the features its prose describes; owner declined season-scoped hazards for now"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "POI name resolution goes Lucene full-text first with Python-side escaping (core/text.py), CONTAINS as fallback; CALL subqueries modernized to the CALL (t) scope-clause form after live deprecation warnings"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Embedding input extended (owner-ratified) with activity/difficulty, best seasons, and POIs along the way; the sha gate re-embedded only changed trails"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Grouping variables cannot appear inside an aggregation expression in one WITH (direct + collect(x) is a syntax error live); offline FakeDb cannot catch Cypher syntax, only the live run did"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Hazards are season-scoped (hazards_spring/summer/autumn/winter; seasonal_hazards stays the union for display); a hazard filter with a season checks that season only, and unscoped source records put the union in every season as the conservative reading"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Coverage is multi-region via the REGIONS setting (Lecco, Bergamo); Bergamo's bbox starts at the city and runs north into the hills so the plains' road grid stays out of the graph; trail-region links recompute from geometry each run, deleted first so a moved trail drops its stale region"
-        },
-        {
-          "date": "2026-08-16",
-          "text": "Fixture anchors carry an optional near-point: with Bergamo data present, a type-only 'nearest hut' anchor silently relocated the Lecco traverse onto a Bergamo bivouac, so anchors that mean a specific area must say so"
-        },
-        {
-          "date": "2026-08-17",
-          "text": "Project renamed get-out-door to VaiVia: remote is github.com/ai-safe-earth/VaiVia.git, packages are vaivia / vaivia-gateway / vaivia-frontend, container is vaivia-neo4j. The compose volumes keep their names so the ingested graph survives the rename; only the container is recreated"
-        },
-        {
-          "date": "2026-08-17",
-          "text": "Renaming the root folder invalidates every console-script shim in backend/.venv, because Windows .exe launchers hardcode the absolute interpreter path; uv run black failed with 'Failed to canonicalize script path' until .venv was deleted and uv sync re-run"
-        },
-        {
-          "date": "2026-08-17",
-          "text": "@fastify/http-proxy upgraded 10 to 11.6.0 for GHSA-gwhp-pf74-vj37 (Connection-header abuse strips proxy-added headers, which is exactly how the gateway injects x-gateway-secret and x-user-id). Impact was bounded because both consumers fail closed: the trust middleware 401s on a bad secret and /chat 401s on an empty x-user-id, so the attack denied the caller's own request rather than forging identity"
-        },
-        {
-          "date": "2026-08-17",
-          "text": "next 14 to 16 deferred rather than taken as an audit fix: postcss and sharp are reachable only through next, the CSS is authored in-repo rather than attacker-supplied, and nothing imports next/image, so a two-major framework migration is not justified by these advisories"
-        },
-        {
-          "date": "2026-08-17",
-          "text": "chore/dep-audit merged to main on a manual browser verification of the SSE-proxied chat turn rather than the Playwright suite, since credentials for the automated run were not available in-session; sign-in, streaming and the map all worked through the new @fastify/http-proxy major"
-        },
-        {
-          "date": "2026-08-17",
-          "text": "An unstated activity was silently over-constraining every search: under strict structured outputs the model must fill the field, and it reached for 'mixed' to mean 'no preference'. The template already matches 'mixed' trails against any activity, so a 'mixed' filter is strictly narrower than null and often returned nothing. Fixed in the prompt and, independently, by mapping it to None in composer.sanitize so the boundary does not depend on model compliance. Live golden retrieval 16/21 to 18/21"
-        },
-        {
-          "date": "2026-08-17",
-          "text": "OSM attribution now credits the data, not just the tiles: the map control links to openstreetmap.org/copyright and the ODbL and renders expanded rather than behind the compact toggle, and a persistent footer carries the credit in the chat column. The footer exists because OSM-derived facts reach users through the written answers too, so a map-only credit would miss anyone who never opens the map"
-        },
-        {
-          "date": "2026-08-17",
-          "text": "Trailforks licensing re-triaged from low to high after reading the primary sources: use is API-only with a granted key, and the Outside ToU restricts the Services to personal noncommercial use while separately naming software development and AI use as needing prior written consent. Nothing has ever been fetched (fetch_live is a stub, the fixture is synthetic), so the position is clean and the choice is consent-or-OSM-only. docs/fragilities.md #4 and docs/data-sources.md were also corrected: both described live-API backoff, bbox chunking and a response cache that do not exist"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Trailforks abandoned as a data source rather than deferred: API-only with a discretionary key, and the Outside terms require prior written consent for commercial, in-software and AI use. OSM measured as sufficient instead - 302 named CAI sentieri, sac_scale on 33-43% of paths, mtb:scale on 23-27%"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "The ingestion filter must include connective road ways. Trail-only ingestion shattered Lecco into 1,627 components with the largest at 31.7%, because paths connect through lanes; widening it gives 171 components at 98.1% and loop generation goes from 0/10 to 10/10. motorway/trunk/primary stay excluded"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Routing weights cost_m (distance x per-highway/surface penalty) rather than raw distance, because roads are straighter and a distance-optimal trail loop came back ~83% asphalt. Consequence: GDS totalCost is a penalised figure in no real unit, so every distance shown to a user must be summed from distance_m"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Untagged surface is deliberately NOT penalised in the comfort model: ~38% of paths lack the tag and are disproportionately the small trails the app exists to find, so penalising unknown would turn a mapping gap into a routing preference against them"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Adopt GraphHopper for geometry, keep Neo4j for meaning. With our comfort model ported, off-road is 67.0% and 67.7% at 15 and 20 km against our 61.0 and 64.1, retrace 0.0-3.2% against ~20%, 30/30 candidates route, and climb comes back real where ours is silent. It also decodes sac_scale and mtb_rating natively. Decided, not yet migrated"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "The route-to-graph join is spatial, not by osm_way_id, which GraphHopper does not expose. A spatial join answers what a route passes rather than which exact ways it traversed, and survives the engine splitting ways differently from our ingestion - the mismatch that orphaned 5,489 edges"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "core/geo.min_distance_to_polyline_m measures to vertices, not perpendicular, and reported a POI 7.8 m off a line as 556 m away. Added distance_to_polyline_m for engine output and left the vertex-based one untouched, because changing it would alter every PASSES_BY edge"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "POIs are ingested in two roles: ANCHORS to start from (parking, station) and DESTINATIONS worth reaching (peak, saddle, chapel/ermita, beach, waterfall, castle). Parking is deliberately not exposed to chat, since nobody asks for a walk past a car park. Area POIs come from a second out-center statement; 53% of POIs are areas a nodes-only query never saw"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Trailheads are derived nodes rather than labels on Intersection, so re-running ingestion cannot clobber them. 1,511 car parks cluster to 266, each scored by off-road share within 750 m; the score is descriptive rather than a filter because what counts as enough trail is a product decision"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Wikipedia and Wikidata are a supplement, not a foundation: 48 real descriptions across 3,195 POIs. The Wikidata one-liners must NOT be embedded - at ~27 characters they are category labels that add noise and make a POI look described when it is not. Attribution is stored per POI so CC-BY-SA text can always be credited"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "GATEWAY_DEV_NO_AUTH lets the app run with Supabase off, and loadConfig THROWS if it is set with NODE_ENV=production. A switch that disables authentication must not be one env var away from being live; failing to boot is the only refusal a misconfigured deploy cannot ignore"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Neo4j stops being the routing engine and becomes the catalogue a chat turn selects from. Generation, scoring, dedup and the POI map-back all run offline in scripts.build_routes, so a turn is a filter and an ORDER BY. Generation is bounded as trailheads x distances x keep, which makes catalogue size predictable and coverage auditable"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Route scoring is pure functions with tests (length 40 / off-road 30 / variety 20 / climb 10) because it encodes taste, and taste should be arguable in a test rather than buried in a script. Unknown climb scores neutral rather than zero, so a route is not punished for missing instrumentation; nothing is filtered inside the scorer, because good-enough-to-offer is a product decision"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "loop_search is its own atomic intent rather than a flag on trail_search: a circular outing is a different ask from a named trail and from point-to-point directions. Its field set is pinned by a test so each addition is checked against the LLM boundary rule deliberately"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "A single stated loop distance is a point estimate, not an interval. The model returns '15 km' as min=max=15000 and real routes are 15,771 m, so it matched nothing while 500 loops sat in the catalogue. widen_narrow_band fixes it in Python rather than as another prompt rule, the same reasoning as the 0-bound scrub"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "GraphHopper runs as a real service for geometry and elevation. One config line (CGIAR SRTM) replaced the elevation backfill we never built, which is what blocked duration and difficulty; core/durations.py has implemented DIN 33466 all along and only ever needed ascent"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Activity is generated, not filtered: hike and mtb are separate GraphHopper profiles producing separate catalogues, mtb excluding steps outright rather than penalising them, because a foot loop over steps and a T4 scramble is impassable on a bike. Activity is part of the route id and CLEAR_ROUTES is activity-scoped so one rebuild cannot destroy the other"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Difficulty comes from GraphHopper decoding sac_scale to hike_rating and mtb:scale to mtb_rating. The rating stored is the hardest covering at least 5% of the route, since a plain max would let 30 m of scramble label a 20 km valley walk alpine. Our 1-4 level maps onto both scales but only the one matching the activity is applied"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "build_routes declines to STORE a route whose length fit is poor, and reports the drops per target. round_trip.distance overshoots badly in steep terrain, so half of what was generated answered a different question than the one it was filed under. This is filtering at persistence, not in the scorer: mean score went 0.65 to 0.77"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Two confident diagnoses this session were wrong and are recorded in the docs rather than quietly fixed. A near-constant 113-121 m/km was read as SRTM noise and was a selection effect (the catalogue only holds mountain trailheads; flat starts give 1-40 m/km). And 'no 5 km routes survived' came from a truncated table; there are 44. Both were reading a filtered or truncated view as the whole"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "A route is named after the most prominent POI it passes (peak, then saddle, lake, castle, waterfall, chapel), with no 'loop' suffix, owner's choice. 81% of routes get a name this way and no regeneration was needed, since the PASSES edges already carried name and type. Null stays null and the card shows distance: 'Route 4312828180' must never reach a user"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Loop geometry is served per route from GET /routes/{route_id}/geojson rather than inlined in the chat payload, because the same results dict is handed to the answer model and a few hundred coordinate pairs per route would put tens of kilobytes of numbers in the prompt every turn"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "The map draws every returned loop and highlights the clicked one, styled data-driven on a `selected` feature property so switching selection is a restyle rather than a refetch. A trail (one feature, no such property) renders exactly as before"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Area POIs keep a sampled ~100-point boundary and an extent_m, and the map-back measures to the boundary for areas and to the point for nodes. A centroid cannot answer 'does this path run along the lake': Lago di Como's sits 5,122 m out on the water, and no radius fixes that without sweeping in half the region"
-        },
-        {
-          "date": "2026-08-18",
-          "text": "Routing ways and area POIs are told apart by TAGS, not by shape. With `out geom` a lake outline arrives with geometry and a node list exactly like a path, and having no highway tag it took the 'path' default and became routable -- 1,673 outlines entered the routing graph. A routing way must now have a highway tag and an area POI must not. The dangerous part was the default itself: tags.get('highway', 'path') turned a filter bug into routable water instead of failing loudly"
-        }
-      ]
+      "plan": "redesign"
+    },
+    {
+      "name": "Phase 12 - On-demand routes",
+      "status": "active",
+      "start": "2026-09-02",
+      "end": null,
+      "plan": "redesign"
     }
   ],
   "blockers": [
@@ -1002,62 +86,44 @@ cost through Phase 5 was roughly $62.
       "since": "2026-08-15"
     },
     {
-      "text": "Supabase database password was shared in plaintext and must be rotated before any deployment",
-      "severity": "high",
-      "owner": "oscar",
-      "since": "2026-08-16"
-    },
-    {
-      "text": "Trailforks is unavailable and this is settled: API-only with a granted key, and the Outside terms need prior written consent for commercial, in-software and AI use, which VaiVia is all three of. Nothing was ever taken (fetch_live is a stub, the fixture is synthetic), so the position is clean. The product moved to OSM instead, so this blocks nothing now unless someone tries to use their data. See docs/licensing.md",
-      "severity": "medium",
-      "owner": "oscar",
-      "since": "2026-08-15"
-    },
-    {
       "text": "The Supabase account password is 12345678 and was shared in plaintext; it must be changed before any deployment",
       "severity": "high",
       "owner": "oscar",
       "since": "2026-08-16"
     },
     {
-      "text": "Supabase is being switched off, so auth is bypassed via GATEWAY_DEV_NO_AUTH=true. While parked: LLM quotas are NOT enforced and chat history is in-memory. Reconnecting means uncommenting the three gitignored .env files AND rebuilding the frontend, because NEXT_PUBLIC_* is inlined at build time",
+      "text": "next is on ^15.1.3 and the postcss and sharp advisories stay deferred until the 16 upgrade",
+      "severity": "low",
+      "owner": "oscar",
+      "since": "2026-08-16"
+    },
+    {
+      "text": "Trailforks is unavailable and this is settled: API-only with a granted key, and the Outside terms need prior written consent for commercial, in-software and AI use, which VaiVia is all three of. Nothing was ever taken. Blocks nothing unless someone tries to use their data. See docs/licensing.md",
       "severity": "medium",
       "owner": "oscar",
-      "since": "2026-08-18"
-    },
-    {
-      "text": "feat/route-catalogue holds 5 commits of the whole route pipeline and is NOT pushed \u2014 it exists only on the dev machine. spike/osm-coverage was merged to main; this one has not been",
-      "severity": "high",
-      "owner": "oscar",
-      "since": "2026-08-18"
-    },
-    {
-      "text": "Seven files are modified and uncommitted on feat/route-catalogue (the area-POI boundary work). A Lecco re-ingest was in flight and the graph still shows only 12 POI boundaries where ~1,686 are expected, so lake matching is not yet working. Finish the re-ingest and verify before building anything on top",
-      "severity": "high",
-      "owner": "oscar",
-      "since": "2026-08-18"
+      "since": "2026-08-15"
     }
   ],
   "nextSteps": [
     {
-      "title": "Finish the interrupted Lecco re-ingest and verify ~1,686 POI boundaries and ~104,812 segments, then commit the seven modified files",
+      "title": "Push feat/pack-export from the A02_VaiVia-route-design worktree and open the PR against develop. Before that, if wanted: cut the fixture pack (cd pipeline && uv run python -m export.pack --out ../shared/routes/tests/fixtures --bbox 9.38,45.84,9.42,45.87 --name pack-lecco-3km; needs live PostGIS, writes a build_run row) and add a load-the-fixture test in shared/routes/tests",
       "est": 0.25,
       "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
+      "phase": "Phase 12 - On-demand routes",
       "plan": "redesign"
     },
     {
-      "title": "Rebuild trailheads and the catalogue at --min-off-road 0.3 so lakeside and valley routes exist at all; 220 of 266 trailheads are currently unbuilt",
-      "est": 1,
+      "title": "R2 feat/pack-engine: move assemble/loops/destinations/document/ids into vaivia_routes (re-exports left in pipeline until R7), network.py with CSR per activity and scipy dijkstra(limit=), planner invariants as pure functions, the 627-id parity test over the full pack, latency measured and written into docs/route-design.md",
+      "est": 3,
       "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
+      "phase": "Phase 12 - On-demand routes",
       "plan": "redesign"
     },
     {
-      "title": "Push feat/route-catalogue and merge it; the whole route pipeline exists only on the dev machine",
-      "est": 0.25,
+      "title": "R3 feat/outing-intent: OutingIntent/Waypoint/StartSpec in chat/intents.py (no query, template, id, coordinate or weight fields), chat/compile.py owns every number, golden dataset extended, check_intents_live adversarial half stays 7/7 clarify",
+      "est": 2,
       "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
+      "phase": "Phase 12 - On-demand routes",
       "plan": "redesign"
     },
     {
@@ -1068,49 +134,28 @@ cost through Phase 5 was roughly $62.
       "plan": "redesign"
     },
     {
-      "title": "Make a catalogue rebuild atomic: CLEAR_ROUTES then MERGE leaves it briefly empty, and a live query in that window honestly returns nothing",
+      "title": "Decide how the named CAI sentieri come back into the answerable corpus (302 went out with the mapped relations). Phase 12 reframes it: a named relation can be a waypoint/theme the planner routes along, which is the honest option; re-admitting mapped routes through a quality gate is the cheap one",
+      "est": 2,
+      "owner": "oscar",
+      "phase": "Phase 12 - On-demand routes",
+      "plan": "redesign"
+    },
+    {
+      "title": "Judge the 86 start vertices that are not on the main component; in the pack they are starts the planner cannot leave, so decide whether the export drops them or the planner refuses them",
       "est": 0.5,
       "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
+      "phase": "Phase 12 - On-demand routes",
       "plan": "redesign"
     },
     {
-      "title": "Calibrate duration. DIN 33466 rates the classic Grigna ascent (12 km / 1,600 m) at 10 hours where guidebooks say 6-8, so catalogue figures read 15+ hours and a user will not trust them",
-      "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Replace the tags.get('highway', 'path') default with None plus an explicit skip, so an untagged way fails loudly instead of becoming routable",
-      "est": 0.25,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Investigate the off-road drop from 87% to 74%: comfort.json layered on hike.json is not biting as hard as the standalone model did (67% in the gate test)",
-      "est": 0.5,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Name the trailheads. 37 of 266 have one; route names now cover 81% so this is no longer blocking, but 'starts at' is still often blank",
+      "title": "Calibrate duration: DIN 33466 rates the classic Grigna ascent at 10 hours where guidebooks say 6-8. Cards will show it labelled our estimate from R4; the schema still refuses the field until the figure is one a walker would trust",
       "est": 1,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
       "plan": "redesign"
     },
     {
-      "title": "Upgrade next 14 to 16, clearing the deferred postcss and sharp advisories",
-      "est": 1,
-      "owner": "oscar",
-      "phase": "Phase 6 - Beta hardening",
-      "plan": "redesign"
-    },
-    {
-      "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check",
+      "title": "Caddy TLS, VPS deploy script, Neo4j and Postgres backup cron, uptime check against /healthz; migration 0005 must be applied before the backend deploys",
       "est": 2,
       "owner": "oscar",
       "phase": "Phase 6 - Beta hardening",
@@ -1119,59 +164,24 @@ cost through Phase 5 was roughly $62.
   ],
   "sessions": [
     {
-      "date": "2026-08-15",
+      "date": "2026-09-02",
       "model": "fable-5",
-      "credits": 69,
       "person": "oscar",
+      "credits": null,
       "hours": null
     },
     {
-      "date": "2026-08-16",
+      "date": "2026-08-28",
       "model": "opus-5",
-      "credits": 175,
       "person": "oscar",
+      "credits": null,
       "hours": null
     },
     {
-      "date": "2026-08-16",
+      "date": "2026-08-28",
       "model": "fable-5",
-      "credits": 61,
       "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-17",
-      "model": "opus-5",
-      "credits": 7,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-17",
-      "model": "opus-5",
-      "credits": 41,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-18",
-      "model": "opus-5",
-      "credits": 31,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-18",
-      "model": "opus-5",
-      "credits": 79,
-      "person": "oscar",
-      "hours": null
-    },
-    {
-      "date": "2026-08-18",
-      "model": "opus-5",
-      "credits": 98,
-      "person": "oscar",
+      "credits": null,
       "hours": null
     }
   ]

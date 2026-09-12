@@ -20,7 +20,7 @@ export const REQUEST_ID_HEADER = 'x-request-id';
 export const GATEWAY_SECRET_HEADER = 'x-gateway-secret';
 
 /** Proxied to the backend. Everything else 404s at the gateway. */
-const PROXIED_PREFIXES = ['/trails', '/routes', '/chat'] as const;
+const PROXIED_PREFIXES = ['/trails', '/routes', '/chat', '/feedback'] as const;
 
 /** Endpoints that spend LLM budget and therefore need a quota pre-check. */
 const QUOTA_PREFIXES = ['/chat'] as const;

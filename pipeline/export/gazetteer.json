@@ -1,0 +1,62 @@
+{
+  "_comment": "Named areas a walker asks by (docs/route-design.md): name, aliases, covered, and a COARSE polygon (lon,lat ring) for anchoring starts - deliberately rough, drawn by hand from the region bboxes; refine any entry when a wrong anchor is actually observed. covered:false entries carry no polygon: their whole job is an honest refusal that names what IS covered.",
+  "areas": [
+    {
+      "name": "Lecco",
+      "aliases": ["lecco", "lecchese"],
+      "covered": true,
+      "polygon": [[9.32, 45.80], [9.46, 45.80], [9.46, 45.92], [9.32, 45.92], [9.32, 45.80]]
+    },
+    {
+      "name": "Bergamo",
+      "aliases": ["bergamo", "bergamasca"],
+      "covered": true,
+      "polygon": [[9.60, 45.66], [9.75, 45.66], [9.75, 45.76], [9.60, 45.76], [9.60, 45.66]]
+    },
+    {
+      "name": "Grigne",
+      "aliases": ["grigne", "grigna", "grignetta", "grignone"],
+      "covered": true,
+      "polygon": [[9.33, 45.87], [9.45, 45.87], [9.45, 46.00], [9.33, 46.00], [9.33, 45.87]]
+    },
+    {
+      "name": "Resegone",
+      "aliases": ["resegone", "monte resegone"],
+      "covered": true,
+      "polygon": [[9.43, 45.83], [9.53, 45.83], [9.53, 45.91], [9.43, 45.91], [9.43, 45.83]]
+    },
+    {
+      "name": "Orobie",
+      "aliases": ["orobie", "alpi orobie", "orobie bergamasche", "prealpi orobie"],
+      "covered": true,
+      "polygon": [[9.55, 45.84], [9.85, 45.84], [9.85, 46.00], [9.55, 46.00], [9.55, 45.84]]
+    },
+    {
+      "name": "Valsassina",
+      "aliases": ["valsassina", "val sassina"],
+      "covered": true,
+      "polygon": [[9.38, 45.87], [9.55, 45.87], [9.55, 46.00], [9.38, 46.00], [9.38, 45.87]]
+    },
+    {
+      "name": "Val Brembana",
+      "aliases": ["val brembana", "valle brembana"],
+      "covered": true,
+      "polygon": [[9.55, 45.72], [9.75, 45.72], [9.75, 45.92], [9.55, 45.92], [9.55, 45.72]]
+    },
+    {
+      "name": "Val Seriana",
+      "aliases": ["val seriana", "valle seriana"],
+      "covered": true,
+      "polygon": [[9.70, 45.70], [9.85, 45.70], [9.85, 45.92], [9.70, 45.92], [9.70, 45.70]]
+    },
+    {
+      "name": "Lago di Como",
+      "aliases": ["lago di como", "lake como", "como", "lario"],
+      "covered": true,
+      "polygon": [[9.25, 45.80], [9.42, 45.80], [9.42, 46.00], [9.25, 46.00], [9.25, 45.80]]
+    },
+    { "name": "Valtellina", "aliases": ["valtellina"], "covered": false, "polygon": null },
+    { "name": "Dolomites", "aliases": ["dolomites", "dolomiti"], "covered": false, "polygon": null },
+    { "name": "Tuscany", "aliases": ["tuscany", "toscana"], "covered": false, "polygon": null }
+  ]
+}

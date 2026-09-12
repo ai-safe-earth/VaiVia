@@ -15,7 +15,14 @@ class Settings(BaseSettings):
     neo4j_password: str = ""
     neo4j_database: str = "neo4j"
 
-    # "minLat,minLon,maxLat,maxLon"
+    # "minLat,minLon,maxLat,maxLon". This is the INGESTION default and nothing
+    # else: what `ingestion.osm_ingest` fetches when given neither --bbox nor
+    # --region, what `scripts.export_osm_extract` cuts the GraphHopper extract
+    # to, and what `scripts.smoke_graph` re-ingests. It is NOT a routing or
+    # analysis bound. Anything projecting the graph into GDS derives its own box
+    # -- the query's, in api/routes/routing.py, or the graph's own extent, via
+    # graph/extent.py -- because this one holds 31,514 of the graph's 84,137
+    # intersections now that Bergamo is ingested (docs/fragilities.md #16).
     default_bbox: str = "45.8,9.3,46.0,9.6"
     default_region_name: str = "Lecco"
     # Every region the beta covers: "Name:minLat,minLon,maxLat,maxLon;..."
@@ -36,19 +43,25 @@ class Settings(BaseSettings):
     # near a town means the hills above it, not the town square.
     loop_near_radius_m: float = 8000.0
 
-    trailforks_api_key: str = ""
-    trailforks_base_url: str = "https://www.trailforks.com/api/1"
+    # Where the route DOCUMENTS live (docs/route-document.md): the canonical
+    # JSON per route the pipeline emits, which carries the geometry and the
+    # profile the graph deliberately does not. Unset -> the geometry endpoint
+    # returns 503, never an empty or invented shape (the semantic-search rule).
+    route_documents_dir: str | None = None
 
-    # Internal service, like Neo4j: never published, only the gateway is.
-    graphhopper_url: str = "http://localhost:8989"
+    # Where the exported PACK lives (docs/route-design.md): the routable
+    # network as numpy arrays, one directory per pipeline build. Set -> the
+    # backend loads it at startup and draws outings over it in-process.
+    # Unset -> outing asks degrade to the catalogue view (the R3 posture).
+    pack_dir: str | None = None
+    # Production refuses to boot without a pack (deploy sets REQUIRE_PACK):
+    # an on-demand product with no network is not degraded, it is down.
+    require_pack: bool = False
 
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout_s: int = 120
 
     log_level: str = "info"
-
-    api_host: str = "0.0.0.0"  # noqa: S104 — container-internal, never published
-    api_port: int = 8000
 
     # The backend is not public: every request must carry this shared secret in
     # the X-Gateway-Secret header, proving it came through the Fastify gateway.
@@ -90,7 +103,12 @@ class Settings(BaseSettings):
 
     @property
     def bbox(self) -> tuple[float, float, float, float]:
-        """(min_lat, min_lon, max_lat, max_lon)."""
+        """(min_lat, min_lon, max_lat, max_lon) — the INGESTION bounds.
+
+        Not the bounds of anything that reads the graph. See the note on
+        `default_bbox` above; `tests/test_projection_bbox.py` pins that no GDS
+        projection reads this.
+        """
         parts = [float(p) for p in self.default_bbox.split(",")]
         if len(parts) != 4:
             raise ValueError(

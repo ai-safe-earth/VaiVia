@@ -49,11 +49,115 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d neo4j
 ```
 
 Run this from the repo root — `--env-file` is required because the compose file
-lives in `infra/`. The container needs both **APOC** and **GDS**. If
-`gds.version()` comes back unknown, the plugin installer lost its network race
-on a cold Docker start: recreate the container rather than debugging it.
+lives in `infra/`. The container needs both **APOC** and **GDS**, and they do not
+arrive the same way:
 
-### 4. Seed the graph
+- **APOC is bundled.** The image ships it at `/var/lib/neo4j/labs/` and the
+  entrypoint copies it into place on every start. No network involved, so it is
+  the only entry in `NEO4J_PLUGINS`.
+- **GDS is a download, and it is deliberately *not* in `NEO4J_PLUGINS`.** The
+  image ships no GDS jar, so listing it there would refetch it from
+  `graphdatascience.ninja` on every single start. The jar lives on the
+  **`neo4j_plugins` volume** instead, put there once by hand.
+
+The volume is what makes GDS survive `up -d --force-recreate`, and leaving GDS
+out of `NEO4J_PLUGINS` is what makes the volume trustworthy: the entrypoint's
+installer runs unconditionally, never checks whether the jar is already present,
+and never checks `wget`'s exit status — and `wget --output-document` truncates
+its destination *before* the transfer. One 64 MB download dying halfway would
+overwrite a working jar with a corrupt one. Losing GDS is not loud: routing falls
+back to hop-count `shortestPath` inside a `Neo4jError` catch, so the app keeps
+answering, with worse routes.
+
+**Seeding the volume**, once per machine — `RETURN gds.version()` coming back
+unknown means it has not been done, or the local copy is gone:
+
+```bash
+mkdir -p infra/neo4j/plugins        # ~64 MB, gitignored
+
+# Either copy it out of a container that already has a working GDS. The path
+# differs by container: this branch mounts /plugins, but a container created
+# before it has the jar under NEO4J_HOME instead, so try both.
+docker cp vaivia-neo4j:/plugins/graph-data-science.jar \
+          infra/neo4j/plugins/graph-data-science.jar
+docker cp vaivia-neo4j:/var/lib/neo4j/plugins/graph-data-science.jar \
+          infra/neo4j/plugins/graph-data-science.jar
+
+# ...or fetch it once, to a temp name, so a failed transfer cannot destroy a
+# good copy. Match the version to the Neo4j image in infra/docker-compose.yml.
+curl -fL --output infra/neo4j/plugins/gds.jar.part \
+  https://graphdatascience.ninja/neo4j-graph-data-science-2.13.12.jar \
+  && mv infra/neo4j/plugins/gds.jar.part \
+        infra/neo4j/plugins/graph-data-science.jar
+
+# then, into the volume:
+docker cp infra/neo4j/plugins/graph-data-science.jar vaivia-neo4j:/plugins/
+docker restart vaivia-neo4j
+```
+
+`infra/neo4j/plugins/` is gitignored: it is a local pin, not a repo artefact.
+Keep the copy — it is what makes the next recreate safe. See
+`docs/fragilities.md` #16 for why a silent GDS fallback matters.
+
+### 4. Start Supabase (auth, chat history, quotas)
+
+Development runs against a **local** Supabase stack, not a hosted project. The
+config lives in `infra/supabase/`, so the CLI is pointed at it:
+
+```bash
+cd infra && supabase start
+supabase status          # prints the URL, the anon/publishable key and the DB URL
+```
+
+First run pulls several GB of images; later ones take seconds. `supabase stop`
+shuts it down and keeps the data, `supabase stop --no-backup` throws it away.
+
+Two things about this stack are deliberate.
+
+**It signs with ES256.** `infra/supabase/signing_keys.json` holds a locally
+generated asymmetric key, so the local Auth service publishes a JWKS endpoint
+and the gateway verifies tokens through exactly the code path it uses against a
+hosted project. A symmetric local secret would have meant developing against an
+auth path that production never runs. **That file is a private key**: it is
+gitignored, and it must stay that way. Regenerate with
+`supabase gen signing-key --algorithm ES256`.
+
+**Only auth, Postgres and PostgREST are enabled.** Realtime, Storage, Edge
+Functions and the analytics collector are switched off in `config.toml`, because
+nothing in VaiVia reaches them and every container left running is memory spent
+on nothing.
+
+The stack seeds a development account and one stored conversation
+(`infra/supabase/seed.sql`), so a fresh clone has something to sign in as and
+something to resume:
+
+```
+dev@vaivia.local / vaivia-local-dev
+```
+
+That password is in the repository on purpose. The stack binds to loopback,
+holds nothing but fixture data, and `supabase db reset` recreates it — a shared,
+documented local account is what makes the setup reproducible. It follows that
+it must never be used for anything that is not this stack. The Playwright suite
+signs in as it:
+
+```bash
+cd frontend
+E2E_EMAIL=dev@vaivia.local E2E_PASSWORD=vaivia-local-dev npm run test:e2e
+```
+
+Three of the four tests run against the local stack. The fourth spends a real
+OpenAI turn and stays behind `E2E_LIVE=1`.
+
+Migrations under `infra/supabase/migrations/` are applied when the stack starts.
+Against a hosted project, apply them with the repo's own runner instead — the
+Supabase CLI expects a linked project and its own directory layout:
+
+```bash
+cd backend && uv run python -m scripts.apply_migrations
+```
+
+### 5. Seed the graph
 
 ```bash
 cd backend
@@ -66,7 +170,7 @@ Local dev and CI ingestion must stay **offline**: always `--mock` for
 Trailforks, never the live API. OSM ingestion does hit live Overpass; it is
 idempotent, so re-running is cheap in graph terms but not in Overpass load.
 
-### 5. Run the checks
+### 6. Run the checks
 
 From `backend/`, before every PR:
 
@@ -198,11 +302,46 @@ test: cover the proximity threshold edge cases
 
 ### Branches
 
+Two long-lived branches, and everything else is short-lived.
+
+```
+main      ----o------------o----------o    production, protected, tagged
+             /            /          /
+          release      release   hotfix/*
+           /            /
+develop  -o--o--o--o---o--o--o----o-------  the development environment
+          /     /        /
+      feat/a  fix/b   feat/c
+```
+
+- **`main` is production.** It is protected: no direct pushes, no force pushes,
+  no deletion, and a pull request with all three CI jobs green before anything
+  merges. Nothing lands here except a release from `develop` or a hotfix.
+- **`develop` is the development environment** and the repository default, so a
+  new pull request targets it unless you deliberately say otherwise. This is
+  where features integrate, and what the local stack in
+  [Development setup](#development-setup) is pointed at.
+- **Work branches off `develop`** and merges back into it:
+
 ```
 feat/elevation-backfill
 fix/null-surface-tag
 docs/query-cookbook
+chore/branch-strategy
 ```
+
+- **A release is a pull request from `develop` to `main`**, tagged on merge
+  (`v0.2.0`). Nothing is rebased or cherry-picked into it: what has been tested
+  on `develop` is exactly what ships.
+- **A hotfix branches from `main`** (`hotfix/gateway-401`), merges to `main`,
+  and is then merged back into `develop` in the same sitting — a fix that lives
+  only on production will be silently reverted by the next release.
+
+One thing the protection deliberately does not do: it requires no approving
+review, because a single maintainer cannot approve their own pull request and a
+rule nobody can satisfy gets switched off rather than followed. The pull request
+itself is still required, so every change to production is reviewable after the
+fact and CI has always run on the merge result.
 
 ### Secrets
 
@@ -230,11 +369,17 @@ A change is not finished until the docs match it:
 ## Pull request process
 
 1. Open an issue first for anything non-trivial, so the approach can be agreed.
-2. Keep the PR focused — one feature or fix.
-3. Add or update tests for changed behaviour.
-4. Update the relevant `docs/` file.
-5. Make sure `ruff`, `black`, `pytest`, and both `npm test` suites pass.
-6. One review approval is required to merge.
+2. Branch from `develop`, and target `develop` — the repository default, so this
+   is what a new pull request does on its own. Only a release or a hotfix
+   targets `main`.
+3. Keep the PR focused — one feature or fix.
+4. Add or update tests for changed behaviour.
+5. Update the relevant `docs/` file.
+6. Make sure `ruff`, `black`, `pytest`, and both `npm test` suites pass. CI runs
+   the same three jobs and they must be green before a merge into `main`.
+7. Review: an outside contribution needs a maintainer's approval. The
+   maintainer's own pull requests do not, since GitHub does not let anyone
+   approve their own — CI and the pull request itself are the gate there.
 
 ---
 

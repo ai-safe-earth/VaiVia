@@ -1,0 +1,318 @@
+"""The document → graph-row mapping, and the template parser. No database.
+
+Neo4j is a reader of the route documents; these tests pin what the reading
+carries and what it deliberately leaves behind.
+"""
+
+from __future__ import annotations
+
+import json
+
+from export import document as document_rules
+from export import neo4j_load, route_documents
+from export.document import SCHEMA_VERSION, Span, build_document, published
+from export.neo4j_load import document_rows, templates
+
+
+def _base_kwargs(**overrides):
+    base = {
+        "route_id": "vv2-0123456789abcdef",
+        "direction": None,
+        "kind": "generated",
+        "shape": "destination",
+        "identity": {
+            "name": "To Rifugio Elisa",
+            "ref": None,
+            "activity": "hiking",
+            "network": None,
+            "waymark": None,
+            "from": None,
+            "to": "Rifugio Elisa",
+            "operator": None,
+            "regions": ["Lecco"],
+            "osm_relation_id": None,
+        },
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[9.33, 45.92], [9.35, 45.94]],
+        },
+        "bbox": [9.33, 45.92, 9.35, 45.94],
+        "distance_m": 9000.0,
+        "ascent_m": 800.0,
+        "descent_m": 800.0,
+        "lowest_m": 400.0,
+        "highest_m": 1200.0,
+        "profile": {"distance_m": [0.0, 9000.0], "elevation_m": [400.0, 1200.0]},
+        "surface_spans": [Span("gravel", 9000.0)],
+        "sac_spans": [Span("mountain_hiking", 8000.0), Span("alpine_hiking", 100.0)],
+        "pieces": 1,
+        "edges_without_profile": 0,
+        "matched_fraction": None,
+        "places": [
+            {
+                "id": "n1",
+                "kind": "hut",
+                "name": "Rifugio Elisa",
+                "ele_m": 1515.0,
+                "lon": 9.35,
+                "lat": 45.94,
+                "offset_m": 12.0,
+                "distance_along_m": 8800.0,
+                "is_start": False,
+            }
+        ],
+        "terminals": [
+            {
+                "vertex_id": 42,
+                "point": {"type": "Point", "coordinates": [9.33, 45.92]},
+                "names": [],
+                "start_classes": ["parking"],
+                "car_free": True,
+                "nearest_start_m": 3.0,
+                "reachable": True,
+                "seasons": {
+                    "spring": True,
+                    "summer": True,
+                    "autumn": True,
+                    "winter": True,
+                    "unverified": False,
+                },
+            }
+        ],
+        "provenance": {
+            "run_id": "draw-x",
+            "producer": "pipeline/draw/emit.py",
+            "generation": {
+                "activity": "foot",
+                "shape": "destination",
+                "destination": {"id": "poi:n1", "kind": "hut", "name": "Rifugio Elisa"},
+                "target_m": 10000.0,
+                "seed": 0,
+                "score": 0.81,
+                "mtb_rideable": True,
+                "mtb_scale": None,
+                "bike_blocked_m": 0.0,
+                "off_road_share": 0.62,
+                "retrace_share": 0.05,
+            },
+            "sources": [
+                {"name": "OpenStreetMap", "licence": "ODbL 1.0", "attribution": "©"}
+            ],
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+def sample(**overrides):
+    return document_rows(build_document(**_base_kwargs(**overrides)))
+
+
+def test_selection_properties_travel_and_geometry_does_not():
+    rows = sample()
+    props = rows["route"]["props"]
+
+    assert rows["route"]["route_id"] == "vv2-0123456789abcdef"
+    assert props["name"] == "To Rifugio Elisa"
+    assert props["sac_scale"] == "mountain_hiking"  # character
+    assert props["sac_max"] == "alpine_hiking"  # exigent
+    # Ranks travel as ints because Cypher cannot order the grade strings.
+    assert props["sac_scale_rank"] == 2
+    assert props["sac_max_rank"] == 4
+    assert props["mtb_rideable"] is True
+    assert props["destination_name"] == "Rifugio Elisa"
+    # The contract fields the API verifies before serving the document: a
+    # :Route from export N wearing a file from export N-1 must fail visibly.
+    assert props["schema_version"] == SCHEMA_VERSION
+    assert props["doc_run_id"] == "draw-x"
+    assert props["bbox"] == [9.33, 45.92, 9.35, 45.94]
+    # The document stays canonical for these; Neo4j must not grow a second copy.
+    assert "geometry" not in props
+    assert "profile" not in props
+
+
+def test_places_and_passes_stay_aligned():
+    rows = sample()
+
+    assert rows["places"][0]["place_id"] == "n1"
+    assert rows["places"][0]["lat"] == 45.94
+    assert rows["passes"][0] == {
+        "route_id": "vv2-0123456789abcdef",
+        "place_id": "n1",
+        "seq": 0,
+        "offset_m": 12.0,
+        "distance_along_m": 8800.0,
+        "is_start": False,
+    }
+
+
+def test_the_start_becomes_a_node_and_a_link():
+    rows = sample()
+
+    assert rows["start"]["vertex_id"] == 42
+    assert rows["start"]["car_free"] is True
+    assert rows["start_link"]["nearest_m"] == 3.0
+
+
+def test_a_document_without_a_start_loads_without_one():
+    # A route can have terminals none of which is a network vertex we know —
+    # the loader then anchors on nothing rather than inventing a start.
+    rows = sample(terminals=[])
+
+    assert rows["start"] is None
+    assert rows["start_link"] is None
+
+
+def test_a_place_without_coordinates_is_skipped_not_invented():
+    # Spike-era documents carried no coordinates; a node at (0, 0) would be a
+    # lie on the map.
+    rows = sample(
+        places=[
+            {
+                "id": "n9",
+                "kind": "peak",
+                "name": None,
+                "ele_m": None,
+                "offset_m": 5.0,
+                "distance_along_m": 1.0,
+                "is_start": False,
+            }
+        ]
+    )
+
+    assert rows["places"] == []
+    assert rows["passes"] == []
+
+
+def test_an_osm_document_maps_with_its_measured_shape():
+    rows = sample(
+        route_id="vv2-0074613007461300-fwd",
+        kind="osm_route",
+        shape="circular",  # measured by export/shape.py, carried top-level
+        matched_fraction=0.97,
+        provenance={
+            "run_id": "export-x",
+            "producer": "pipeline/export/route_documents.py",
+            "sources": [
+                {"name": "OpenStreetMap", "licence": "ODbL 1.0", "attribution": "©"}
+            ],
+        },
+    )
+    props = rows["route"]["props"]
+
+    assert props["kind"] == "osm_route"
+    assert props["shape"] == "circular"
+    assert props["matched_fraction"] == 0.97
+    assert props["score"] is None  # absent is not zero
+
+
+def test_a_legacy_document_without_shape_falls_back():
+    """Schema 1.1 documents carry no top-level shape. The loader serves them
+    with the old chain -- generation shape for generated, 'named' for OSM --
+    so a store that predates the bump still loads rather than lying."""
+    from export.document import build_document
+
+    generated = build_document(**_base_kwargs())
+    del generated["shape"]
+    assert document_rows(generated)["route"]["props"]["shape"] == "destination"
+
+    osm = build_document(
+        **{
+            **_base_kwargs(),
+            "route_id": "vv2-0074613007461300-fwd",
+            "kind": "osm_route",
+            "provenance": {
+                "run_id": "export-x",
+                "producer": "pipeline/export/route_documents.py",
+                "sources": [
+                    {"name": "OpenStreetMap", "licence": "ODbL 1.0", "attribution": "©"}
+                ],
+            },
+        }
+    )
+    del osm["shape"]
+    assert document_rows(osm)["route"]["props"]["shape"] == "named"
+
+
+def test_every_template_the_loader_runs_exists_and_is_parameterised():
+    cypher = templates()
+    needed = {
+        "constraints_route",
+        "constraints_place",
+        "constraints_start",
+        "count_owned",
+        "wipe_owned_batch",
+        "load_routes",
+        "load_places",
+        "load_starts",
+        "link_passes",
+        "link_starts",
+        "verify_counts",
+        "sample_selection",
+    }
+
+    assert needed <= set(cypher)
+    # Parameters only, never interpolation: the backend/graph discipline.
+    for name in ("load_routes", "load_places", "link_passes"):
+        assert "$rows" in cypher[name]
+
+
+def test_a_mapped_relation_is_not_a_kind_the_catalogue_publishes():
+    """The decision of 2026-08-26, in the one place both publishers read it.
+
+    Of the 751 mapped relations emitted the day before, 187 carried warnings,
+    56 were under 500 m and 131 came out in more than one piece — a clipped
+    shred of a relation is not a route a walker can be offered, however famous
+    the name on it.
+    """
+    assert published("generated")
+    assert not published("osm_route")
+
+
+def test_the_emitter_and_the_loader_read_ONE_publication_rule():
+    """Not equal — the SAME object.
+
+    Two copies of "which kinds do we serve" is how the store and the graph
+    start disagreeing about the same document, and the disagreement is silent
+    until a user clicks a route that is only half withdrawn.
+    """
+    assert neo4j_load.PUBLISHED_KINDS is document_rules.PUBLISHED_KINDS
+    assert route_documents.published is document_rules.published
+    # And this is WHY the mapped emitter's default is to withdraw: its own
+    # kind is not one the catalogue publishes.
+    assert not published(route_documents.KIND)
+
+
+def test_the_withdrawal_takes_only_what_its_manifest_lists(tmp_path):
+    """Both emitters write vv2-*.json since the id cutover.
+
+    A glob would have taken the generated catalogue with it — the whole
+    product — which is why ownership lives in a manifest.
+    """
+    mine = tmp_path / "vv2-1111111111111111.json"
+    mine.write_text("{}", encoding="utf-8")
+    legacy = tmp_path / "osm-relation-42.json"
+    legacy.write_text("{}", encoding="utf-8")
+    theirs = tmp_path / "vv2-2222222222222222.json"
+    theirs.write_text("{}", encoding="utf-8")
+    (tmp_path / "routes.geojson").write_text("{}", encoding="utf-8")
+    (tmp_path / route_documents.MANIFEST).write_text(
+        json.dumps([mine.name]), encoding="utf-8"
+    )
+
+    removed = route_documents.withdraw(tmp_path)
+
+    assert removed == 2
+    assert not mine.exists()
+    assert not legacy.exists()
+    assert not (tmp_path / "routes.geojson").exists()
+    assert theirs.exists(), "the generated catalogue is not this emitter's to delete"
+
+
+def test_withdrawing_twice_removes_nothing_the_second_time(tmp_path):
+    """Idempotent, like every destructive step here: a re-run is the normal
+    case, and a second withdrawal reporting a count would be a lie."""
+    (tmp_path / route_documents.MANIFEST).write_text(
+        json.dumps(["vv2-3333333333333333.json"]), encoding="utf-8"
+    )
+    assert route_documents.withdraw(tmp_path) == 0

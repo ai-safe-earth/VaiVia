@@ -130,6 +130,20 @@ describe('backend trust', () => {
     expect(upstream.requests[0]!.headers['x-user-id']).toBe('user-123');
   });
 
+  it('proxies /feedback with the verified identity', async () => {
+    await build();
+    const token = await signToken(keys);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/feedback',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { message_id: 'm1', conversation_id: 'c1', vote: -1 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(upstream.requests).toHaveLength(1);
+    expect(upstream.requests[0]!.headers['x-user-id']).toBe('user-123');
+  });
+
   it('does not expose unknown paths to the backend', async () => {
     await build();
     const token = await signToken(keys);
@@ -255,6 +269,15 @@ describe('LLM quota', () => {
       payload: {},
     });
     expect(response.statusCode).toBe(200);
+    // A user whose budget is spent must still be able to downvote the
+    // answer that spent it: /feedback is proxied but never quota-checked.
+    const feedback = await app.inject({
+      method: 'POST',
+      url: '/feedback',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { message_id: 'm1', conversation_id: 'c1', vote: -1 },
+    });
+    expect(feedback.statusCode).toBe(200);
   });
 
   it('fails open when the quota store errors', async () => {

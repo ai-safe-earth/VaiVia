@@ -1,0 +1,447 @@
+{
+ "run_id": "pack-lecco-3km",
+ "created": "2026-09-12T14:56:01+00:00",
+ "bbox": [
+  9.38,
+  45.84,
+  9.42,
+  45.87
+ ],
+ "regions": [
+  "Lecco"
+ ],
+ "activities": [
+  "foot",
+  "bike"
+ ],
+ "counts": {
+  "V": 3000,
+  "E": 3842,
+  "P": 16234,
+  "K": 307,
+  "Q": 16,
+  "D": 1,
+  "S": 272,
+  "R": 1
+ },
+ "codes": {
+  "surface": [
+   "asphalt",
+   "cobblestone",
+   "cobblestone:flattened",
+   "concrete",
+   "dirt",
+   "fine_gravel",
+   "grass",
+   "grass_paver",
+   "gravel",
+   "ground",
+   "metal",
+   "metal_grid",
+   "paved",
+   "paving_stones",
+   "pebblestone",
+   "rock",
+   "sett",
+   "unhewn_cobblestone",
+   "unpaved",
+   "wood"
+  ],
+  "highway": [
+   "cycleway",
+   "footway",
+   "living_street",
+   "path",
+   "pedestrian",
+   "residential",
+   "secondary",
+   "service",
+   "steps",
+   "tertiary",
+   "track",
+   "unclassified"
+  ],
+  "sac_scale": [
+   "alpine_hiking",
+   "demanding_alpine_hiking",
+   "demanding_mountain_hiking",
+   "hiking",
+   "mountain_hiking"
+  ],
+  "mtb_scale": [
+   "1",
+   "3",
+   "4",
+   "6"
+  ],
+  "place_source": [
+   "gtfs_stop",
+   "poi",
+   "settlement",
+   "urban_exit"
+  ],
+  "place_kind": [
+   "beach",
+   "chapel",
+   "city",
+   "footway",
+   "hamlet",
+   "lake",
+   "parking",
+   "path",
+   "peak",
+   "picnic_site",
+   "residential",
+   "service",
+   "station",
+   "stop",
+   "unclassified",
+   "viewpoint"
+  ],
+  "start_class": [
+   "other",
+   "parking",
+   "settlement",
+   "station",
+   "urban_exit"
+  ]
+ },
+ "sources": [
+  {
+   "name": "OpenStreetMap",
+   "licence": "ODbL 1.0",
+   "attribution": "© OpenStreetMap contributors",
+   "url": "https://www.openstreetmap.org/copyright",
+   "provides": [
+    "geometry",
+    "names",
+    "waymarks",
+    "surface",
+    "difficulty",
+    "places"
+   ]
+  },
+  {
+   "name": "Copernicus GLO-30 DEM",
+   "licence": "Free, full and open (Regulation 1159/2013)",
+   "attribution": "© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA",
+   "url": "https://spacedata.copernicus.eu/",
+   "provides": [
+    "elevation",
+    "ascent",
+    "descent",
+    "profile"
+   ]
+  }
+ ],
+ "source_runs": [
+  "curate-8790d03f",
+  "topology-92f85575"
+ ],
+ "gazetteer": [
+  {
+   "name": "Lecco",
+   "aliases": [
+    "lecco",
+    "lecchese"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.32,
+     45.8
+    ],
+    [
+     9.46,
+     45.8
+    ],
+    [
+     9.46,
+     45.92
+    ],
+    [
+     9.32,
+     45.92
+    ],
+    [
+     9.32,
+     45.8
+    ]
+   ]
+  },
+  {
+   "name": "Bergamo",
+   "aliases": [
+    "bergamo",
+    "bergamasca"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.6,
+     45.66
+    ],
+    [
+     9.75,
+     45.66
+    ],
+    [
+     9.75,
+     45.76
+    ],
+    [
+     9.6,
+     45.76
+    ],
+    [
+     9.6,
+     45.66
+    ]
+   ]
+  },
+  {
+   "name": "Grigne",
+   "aliases": [
+    "grigne",
+    "grigna",
+    "grignetta",
+    "grignone"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.33,
+     45.87
+    ],
+    [
+     9.45,
+     45.87
+    ],
+    [
+     9.45,
+     46.0
+    ],
+    [
+     9.33,
+     46.0
+    ],
+    [
+     9.33,
+     45.87
+    ]
+   ]
+  },
+  {
+   "name": "Resegone",
+   "aliases": [
+    "resegone",
+    "monte resegone"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.43,
+     45.83
+    ],
+    [
+     9.53,
+     45.83
+    ],
+    [
+     9.53,
+     45.91
+    ],
+    [
+     9.43,
+     45.91
+    ],
+    [
+     9.43,
+     45.83
+    ]
+   ]
+  },
+  {
+   "name": "Orobie",
+   "aliases": [
+    "orobie",
+    "alpi orobie",
+    "orobie bergamasche",
+    "prealpi orobie"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.55,
+     45.84
+    ],
+    [
+     9.85,
+     45.84
+    ],
+    [
+     9.85,
+     46.0
+    ],
+    [
+     9.55,
+     46.0
+    ],
+    [
+     9.55,
+     45.84
+    ]
+   ]
+  },
+  {
+   "name": "Valsassina",
+   "aliases": [
+    "valsassina",
+    "val sassina"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.38,
+     45.87
+    ],
+    [
+     9.55,
+     45.87
+    ],
+    [
+     9.55,
+     46.0
+    ],
+    [
+     9.38,
+     46.0
+    ],
+    [
+     9.38,
+     45.87
+    ]
+   ]
+  },
+  {
+   "name": "Val Brembana",
+   "aliases": [
+    "val brembana",
+    "valle brembana"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.55,
+     45.72
+    ],
+    [
+     9.75,
+     45.72
+    ],
+    [
+     9.75,
+     45.92
+    ],
+    [
+     9.55,
+     45.92
+    ],
+    [
+     9.55,
+     45.72
+    ]
+   ]
+  },
+  {
+   "name": "Val Seriana",
+   "aliases": [
+    "val seriana",
+    "valle seriana"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.7,
+     45.7
+    ],
+    [
+     9.85,
+     45.7
+    ],
+    [
+     9.85,
+     45.92
+    ],
+    [
+     9.7,
+     45.92
+    ],
+    [
+     9.7,
+     45.7
+    ]
+   ]
+  },
+  {
+   "name": "Lago di Como",
+   "aliases": [
+    "lago di como",
+    "lake como",
+    "como",
+    "lario"
+   ],
+   "covered": true,
+   "polygon": [
+    [
+     9.25,
+     45.8
+    ],
+    [
+     9.42,
+     45.8
+    ],
+    [
+     9.42,
+     46.0
+    ],
+    [
+     9.25,
+     46.0
+    ],
+    [
+     9.25,
+     45.8
+    ]
+   ]
+  },
+  {
+   "name": "Valtellina",
+   "aliases": [
+    "valtellina"
+   ],
+   "covered": false,
+   "polygon": null
+  },
+  {
+   "name": "Dolomites",
+   "aliases": [
+    "dolomites",
+    "dolomiti"
+   ],
+   "covered": false,
+   "polygon": null
+  },
+  {
+   "name": "Tuscany",
+   "aliases": [
+    "tuscany",
+    "toscana"
+   ],
+   "covered": false,
+   "polygon": null
+  }
+ ],
+ "rail_note": "track time from the GTFS timetable; no transfer penalty",
+ "format": 2
+}

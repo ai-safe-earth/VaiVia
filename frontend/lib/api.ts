@@ -5,7 +5,7 @@
 
 import { readSSE } from './sse';
 import { getAccessToken } from './supabaseClient';
-import type { ChatResults } from './types';
+import type { ChatResults, Loop, RouteDetail } from './types';
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? 'http://localhost:3001';
 
@@ -14,32 +14,64 @@ export type ChatStreamEvent =
   | { type: 'intent'; intent: Record<string, unknown> }
   | { type: 'results'; results: ChatResults }
   | { type: 'token'; delta: string }
-  | { type: 'done'; usage: { input_tokens: number; output_tokens: number } }
+  | { type: 'done'; messageId?: string; usage: { input_tokens: number; output_tokens: number } }
   | { type: 'error'; error: string; message: string };
 
 export class AuthRequiredError extends Error {}
+
+/**
+ * Every call to the gateway goes through here.
+ *
+ * The bearer token was attached in six places and the 401 read differently in
+ * each: two threw AuthRequiredError, one returned null, three raised
+ * "route detail failed: 401" — so an expired session showed up as a card that
+ * would not load rather than as an invitation to sign in. A 401 means one
+ * thing, and it says it once here. Everything else is the caller's to judge:
+ * a 404 is "gone" on one endpoint and an error on another.
+ */
+async function gatewayFetch(
+  path: string,
+  init: RequestInit = {},
+  authMessage = 'Please sign in.',
+): Promise<Response> {
+  const token = await getAccessToken();
+  const headers = new Headers(init.headers);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${GATEWAY_URL}${path}`, { ...init, headers });
+  if (response.status === 401) throw new AuthRequiredError(authMessage);
+  return response;
+}
 
 /** Stream a chat turn. Yields typed events as the gateway forwards them. */
 export async function* sendChat(
   message: string,
   conversationId: string | null,
-  signal?: AbortSignal,
+  opts: {
+    signal?: AbortSignal;
+    /** The user's location, sent only when the browser already granted it —
+     *  typed, validated server-side, and attached AFTER intent extraction. */
+    near?: { lat: number; lon: number };
+    /** A refinement tap: a typed delta merged onto the standing outing in
+     *  Python, with no model call. */
+    chip?: Record<string, unknown>;
+  } = {},
 ): AsyncGenerator<ChatStreamEvent> {
-  const token = await getAccessToken();
-
-  const response = await fetch(`${GATEWAY_URL}/chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  const response = await gatewayFetch(
+    '/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId,
+        ...(opts.near ? { near: opts.near } : {}),
+        ...(opts.chip ? { chip: opts.chip } : {}),
+      }),
+      signal: opts.signal,
     },
-    body: JSON.stringify({ message, conversation_id: conversationId }),
-    signal,
-  });
+    'Please sign in to keep chatting.',
+  );
 
-  if (response.status === 401) {
-    throw new AuthRequiredError('Please sign in to keep chatting.');
-  }
   if (response.status === 429) {
     const body = await response.json().catch(() => ({}));
     yield {
@@ -80,6 +112,8 @@ function toEvent(name: string, raw: string): ChatStreamEvent | null {
     case 'done':
       return {
         type: 'done',
+        messageId:
+          typeof data.message_id === 'string' ? data.message_id : undefined,
         usage: (data.usage as { input_tokens: number; output_tokens: number }) ?? {
           input_tokens: 0,
           output_tokens: 0,
@@ -98,10 +132,7 @@ function toEvent(name: string, raw: string): ChatStreamEvent | null {
 
 /** Trail geometry for the map, fetched lazily when a trail is selected. */
 export async function fetchTrailGeoJson(trailId: string): Promise<GeoJSON.Feature | null> {
-  const token = await getAccessToken();
-  const response = await fetch(`${GATEWAY_URL}/trails/${encodeURIComponent(trailId)}/geojson`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await gatewayFetch(`/trails/${encodeURIComponent(trailId)}/geojson`);
   if (!response.ok) return null;
   return (await response.json()) as GeoJSON.Feature;
 }
@@ -113,13 +144,91 @@ export async function fetchTrailGeoJson(trailId: string): Promise<GeoJSON.Featur
  * explanation, so anything else throws and the caller decides.
  */
 export async function fetchRouteGeoJson(routeId: string): Promise<GeoJSON.Feature | null> {
-  const token = await getAccessToken();
-  const response = await fetch(`${GATEWAY_URL}/routes/${encodeURIComponent(routeId)}/geojson`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await gatewayFetch(`/routes/${encodeURIComponent(routeId)}/geojson`);
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(`route geometry failed: ${response.status}`);
   }
   return (await response.json()) as GeoJSON.Feature;
+}
+
+/** The expandable card's payload: profile, measures, places, attribution.
+ *
+ * Same contract as fetchRouteGeoJson: a 404 (route left the catalogue) is
+ * null, anything else throws — a 503 means the document store is unmounted
+ * and silence would misreport it as "no detail".
+ */
+export async function fetchRouteDetail(routeId: string): Promise<RouteDetail | null> {
+  const response = await gatewayFetch(`/routes/${encodeURIComponent(routeId)}/detail`);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`route detail failed: ${response.status}`);
+  }
+  return (await response.json()) as RouteDetail;
+}
+
+/** This user's saved routes, hydrated into the same rows a search returns,
+ *  plus the ids whose route left the catalogue (shown, never dropped). */
+export interface FavoritesList {
+  routes: Loop[];
+  missing: string[];
+}
+
+/** The resume path: conversation turns store only route ids (result_refs);
+ *  this hydrates them back into the same card rows a live answer carries.
+ *  Ids whose route left the catalogue come back in `missing`. */
+export async function fetchRoutesByIds(ids: string[]): Promise<FavoritesList> {
+  if (ids.length === 0) return { routes: [], missing: [] };
+  const response = await gatewayFetch(
+    `/routes/by-ids?ids=${encodeURIComponent(ids.join(','))}`,
+  );
+  if (!response.ok) throw new Error(`routes by ids failed: ${response.status}`);
+  return (await response.json()) as FavoritesList;
+}
+
+export async function fetchFavorites(): Promise<FavoritesList> {
+  const response = await gatewayFetch('/routes/favorites');
+  if (!response.ok) throw new Error(`favorites failed: ${response.status}`);
+  return (await response.json()) as FavoritesList;
+}
+
+/** Idempotent toggle; unfavorite is a POST because the gateway forwards only
+ *  GET and POST. */
+export async function setFavorite(routeId: string, on: boolean): Promise<void> {
+  const response = await gatewayFetch(
+    `/routes/${encodeURIComponent(routeId)}/favorite`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on }),
+    },
+  );
+  if (!response.ok) throw new Error(`favorite toggle failed: ${response.status}`);
+}
+
+/** Thumbs vote on an assistant answer, or on ONE route card in it. An upsert
+ *  server-side: a re-vote flips, a second call with a comment attaches it.
+ *  The route vote is its own row — a good answer can still offer a wrong
+ *  route, and that pair is what the golden dataset wants. */
+export async function sendFeedback(
+  messageId: string,
+  conversationId: string,
+  vote: 1 | -1,
+  comment?: string,
+  expected?: string,
+  routeId?: string,
+): Promise<void> {
+  const response = await gatewayFetch('/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message_id: messageId,
+      conversation_id: conversationId,
+      vote,
+      comment: comment ?? null,
+      expected: expected ?? null,
+      route_id: routeId ?? '',
+    }),
+  });
+  if (!response.ok) throw new Error(`feedback failed: ${response.status}`);
 }

@@ -1,0 +1,65 @@
+[project]
+name = "vaivia-pipeline"
+version = "0.1.0"
+description = "VaiVia geodata pipeline: sources -> PostGIS -> curated route map -> Neo4j"
+requires-python = ">=3.11"
+dependencies = [
+    # Division of labour (docs/metadata-rules.md): PostGIS does set-based work
+    # over whole tables; Python does procedural logic, per-feature judgement,
+    # and anything that needs a unit test or a plot.
+    "geopandas>=1.0", # dataframe transforms, QA analysis, testable geometry logic
+    "shapely>=2.0", # vectorised geometry, no DB in the test loop
+    "pyproj>=3.6", # real CRS handling: 4326 <-> 32632
+    "osmium>=4.0", # streaming the Geofabrik PBF, tag-complete
+    "psycopg[binary]>=3.2", # the PostGIS boundary
+    # Not used directly: GeoPandas builds an engine internally, so everything
+    # through read_postgis needs it (core.sqlalchemy_url spells the dialect).
+    "sqlalchemy>=2.0",
+    "matplotlib>=3.8", # near-miss histograms, profile renders
+    # The route document is the product (docs/route-document.md), and its schema
+    # is a contract other tiers read. Validating the emitter against it in the
+    # test suite is what stops the contract and the producer drifting apart.
+    "jsonschema>=4.0",
+    # The Neo4j export: the catalogue's reader-side load (docs/route-document.md
+    # — Neo4j is a READER of the route documents, and this is the reading).
+    "neo4j>=5.0",
+    "contextily>=1.7.1",
+    # The pack (docs/route-design.md): the network the planner draws over,
+    # exported by export.pack in the format shared/routes defines. numpy was
+    # transitive already; the pack makes it direct.
+    "numpy>=1.26",
+    "vaivia-routes",
+]
+
+[tool.uv.sources]
+# Editable path dependency, so the pipeline and the backend run the same
+# route code from one checkout (route-design.md, decision 5). Its tests run
+# from here: `uv run pytest ../shared/routes/tests`.
+vaivia-routes = { path = "../shared/routes", editable = true }
+
+[dependency-groups]
+# The state notebook (notebooks/state.ipynb). Not in `dev` because a normal
+# `uv sync` should not pull a Jupyter stack to run the tests: this group is for
+# whoever refreshes the review page. Everything the notebook DRAWS with --
+# geopandas, matplotlib, shapely, pandas -- is already a runtime dependency.
+notebook = ["ipykernel>=6", "nbconvert>=7", "jupyter-client>=8"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "black>=24.0",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+# The notebook is a rendered artefact: its cells are one-liners calling
+# notebooks/review_data.py, which IS linted. Ruff checks .ipynb by default, and
+# there is nothing in there worth a lint rule.
+extend-exclude = ["notebooks/*.ipynb"]
+
+[tool.black]
+line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

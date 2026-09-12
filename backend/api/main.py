@@ -12,9 +12,10 @@ from fastapi import FastAPI
 
 from api.middleware import GatewayTrustMiddleware, RequestContextMiddleware
 from api.models import HealthResponse
-from api.routes import chat, routing, trails
+from api.routes import chat, favorites, feedback, routing, trails
 from core.config import get_settings
 from core.logging import configure_logging
+from core.pg import asyncpg_ssl
 from graph.neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # statements are not safe across pooled connections.
             app.state.pg_pool = await asyncpg.create_pool(
                 settings.database_url,
-                ssl="require",
+                ssl=asyncpg_ssl(settings.database_url),
                 statement_cache_size=0,
                 min_size=1,
                 max_size=5,
@@ -67,6 +68,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
             logger.warning("DATABASE_URL unset — chat history and quotas are in-memory")
             app.state.store = InMemoryStore()
+
+    # Favorites follow the same split as the chat store: Postgres when it is
+    # there, a real-but-unpersisted double when it is not (dev only).
+    if getattr(app.state, "favorites", None) is None:
+        if getattr(app.state, "pg_pool", None) is not None:
+            app.state.favorites = favorites.PostgresFavorites(app.state.pg_pool)
+        else:
+            app.state.favorites = favorites.InMemoryFavorites()
+
+    # The pack: the routable network the planner draws over. Loading
+    # validates every invariant, so a backend that boots is one that routes;
+    # production (REQUIRE_PACK) refuses to boot without one — an on-demand
+    # product with no network is down, not degraded.
+    if getattr(app.state, "planner", None) is None:
+        if settings.pack_dir:
+            from chat.pack_state import load_planner
+
+            app.state.planner = load_planner(settings.pack_dir)
+        elif settings.require_pack:
+            raise RuntimeError(
+                "REQUIRE_PACK is set but PACK_DIR is not — refusing to boot "
+                "without the routable network"
+            )
+        else:
+            app.state.planner = None
+            logger.warning("PACK_DIR unset — outing asks answer from the catalogue")
+
+    # Feedback rides the same pool for the same reason.
+    if getattr(app.state, "feedback", None) is None:
+        if getattr(app.state, "pg_pool", None) is not None:
+            app.state.feedback = feedback.PostgresFeedback(app.state.pg_pool)
+        else:
+            app.state.feedback = feedback.InMemoryFeedback()
 
     try:
         yield
@@ -90,16 +124,21 @@ app.add_middleware(GatewayTrustMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
 app.include_router(trails.router)
+# favorites before routing: /routes/favorites must not be read as a route id.
+app.include_router(favorites.router)
 app.include_router(routing.router)
 app.include_router(chat.router)
+app.include_router(feedback.router)
 
 
 @app.get("/healthz", response_model=HealthResponse, tags=["ops"])
 async def healthz() -> HealthResponse:
     """Liveness + database reachability. Public (no gateway secret required)."""
+    planner = getattr(app.state, "planner", None)
+    pack_run_id = planner.run_id if planner else None
     try:
         await app.state.db.run_named("healthcheck")
     except Exception:
         logger.exception("healthcheck failed")
-        return HealthResponse(status="degraded", database="down")
-    return HealthResponse(status="ok", database="up")
+        return HealthResponse(status="degraded", database="down", pack=pack_run_id)
+    return HealthResponse(status="ok", database="up", pack=pack_run_id)

@@ -22,6 +22,15 @@ build/
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
+# ...except the pipeline's state notebook, which is a REVIEW SURFACE rather
+# than someone's scratch pad: it is committed with its outputs so the state of
+# the build reads on GitHub without a database.
+!pipeline/notebooks/*.ipynb
+# The HTML export is not committed. GitHub renders the .ipynb with its outputs,
+# which is the whole reason that file is exempt above, so the export bought
+# nothing but 1.8 MB and a second copy to go stale. Regenerate it locally when
+# you want one offline: jupyter nbconvert --to html pipeline/notebooks/state.ipynb
+pipeline/notebooks/*.html
 
 # OSM / data files (can be large)
 *.osm
@@ -54,3 +63,33 @@ desktop.ini
 # Logs
 *.log
 logs/
+
+# Supabase local JWT signing keys. These are private keys: the local stack signs
+# every access token with them, so a leak forges a session against any stack
+# that trusts the matching JWKS.
+infra/supabase/signing_keys.json
+**/signing_keys*.json
+
+# Pipeline source downloads (large, reproducible from the URLs in sources/)
+pipeline/data/
+
+# Review bundles: exported snapshots of PostGIS layers, rebuildable with
+# `uv run python -m export.review_bundle --zip`. The database is the product.
+/review/
+/review.zip
+
+# Packs: the network exported for the planner (`uv run python -m export.pack`),
+# ~35 MB each and rebuilt from PostGIS. The 3 km test fixture under
+# shared/routes/tests/fixtures/ is committed on purpose.
+pipeline/packs/
+
+# Personal working note, not part of the repo.
+Oscar_continua_desde_aqui.md
+
+# A local pin of the Neo4j GDS jar (64 MB), kept so a container recreate can
+# seed the neo4j_plugins volume without reaching graphdatascience.ninja.
+# See CONTRIBUTING "Neo4j plugins" and docs/fragilities.md #16.
+infra/neo4j/plugins/
+
+# Browser-automation debris (playwright MCP)
+.playwright-mcp/

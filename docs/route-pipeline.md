@@ -1,6 +1,19 @@
 # Route pipeline: build geometry offline, serve meaning at runtime
 
-Proposed 2026-08-18. **Design, not yet built.**
+Proposed 2026-08-18. **Built 2026-08-20 in `pipeline/draw/`** — over the curated
+PostGIS network with pgRouting, not over the backend graph this document originally
+assumed (the backend catalogue built 2026-08-18 was the proof of shape; the pipeline
+build is the one the product uses, per docs/route-document.md). What follows is the
+original design; where the two differ, `pipeline/draw/` and
+`pipeline/docs/metadata-rules.md` are authoritative. Three differences matter:
+
+- **Route ids derive from geometry** (`draw/route_id.py`), never from sequence or run,
+  so photos and comments cannot orphan on a rebuild (docs/social-layer.md).
+- **The MTB verdict and all metadata run along the walked edge sequence** — direction
+  explicit per edge, ascent/descent swapping on reversed edges — not a spatial match.
+- **The engine is pgRouting over our own edges** (provider spike verdict: every engine
+  draws on the same OSM ways; ours returns edge ids natively).
+
 
 ## The inversion
 
@@ -282,3 +295,21 @@ documented in `docs/fragilities.md` #1, and it is genuinely hard. The existing
 `spatial_match.py` does a constrained version (proximity plus highway
 compatibility) and took real effort. Any multi-source geometry plan should
 budget for that rather than assume a join.
+
+**Runtime, both kinds — BUILT 2026-08-21 (owner rule).** A `trail_search` no
+longer answers from the trail graph alone: `chat/composer.py::catalogue_view`
+derives the same ask against the route catalogue whenever every stated
+constraint can be honoured there, and the turn returns `trails` and `loops` as
+two distinguishable blocks — the cards carry a kind label (Loop / Out & back /
+Named route / Named trail) and the answer prose is told to keep them apart. A
+constraint the catalogue cannot express (season, hazards, surfaces, difficulty
+or climb floors) kills the view rather than being dropped — with one ratified
+exception: a duration cap is dropped loudly, exactly as the explicit loop path
+drops it, until DIN 33466 is calibrated.
+
+The other half of the rule is agentic guiding: an ask that is only an activity
+("I want to go hiking") composes to a deterministic clarify — what shape of
+outing, roughly how far — with tappable suggestions that each land on a
+different shape. Python decides when to ask, never the model. Two intent-prompt
+rules back it: a bare invitation sets activity and nothing else, and history
+feeds follow-ups only — a self-contained ask is decomposed on its own.

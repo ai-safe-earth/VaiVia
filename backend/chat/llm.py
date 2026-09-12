@@ -35,7 +35,10 @@ class PlanResult:
 
 class LLMClient(Protocol):
     async def extract_plan(
-        self, message: str, history: list[dict[str, str]]
+        self,
+        message: str,
+        history: list[dict[str, str]],
+        standing: dict | None = None,
     ) -> PlanResult: ...
 
     def stream_answer(
@@ -58,15 +61,31 @@ class OpenAIClient:
         self._answer_usage = Usage()
 
     async def extract_plan(
-        self, message: str, history: list[dict[str, str]]
+        self,
+        message: str,
+        history: list[dict[str, str]],
+        standing: dict | None = None,
     ) -> PlanResult:
+        # The standing plan rides in as validated intent JSON — the model sees
+        # WHAT is in force so it can emit only the delta; it still cannot name
+        # a template or an id, because the envelope schema has nowhere to put one.
+        import json
+
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": PLAN_SYSTEM_PROMPT},
+            *history,
+        ]
+        if standing:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": "CURRENT PLAN:\n" + json.dumps(standing),
+                }
+            )
+        messages.append({"role": "user", "content": message})
         response = await self._client.chat.completions.create(
             model=self._intent_model,
-            messages=[
-                {"role": "system", "content": PLAN_SYSTEM_PROMPT},
-                *history,
-                {"role": "user", "content": message},
-            ],
+            messages=messages,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
