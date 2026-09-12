@@ -25,6 +25,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
+from chat.compile import Constraints, compile_outing
 from chat.composer import (
     ComposedPlan,
     TrailSearchIntent,
@@ -35,8 +36,10 @@ from chat.composer import (
     standing_dump,
     standing_load,
 )
-from chat.intents import RouteIntent
-from chat.llm import LLMClient, results_to_json
+from chat.intents import ClarifyIntent, RouteIntent
+from chat.llm import LLMClient, Usage, results_to_json
+from chat.pack_state import PlannerState
+from chat.planner import plan_outing
 from chat.readback import readback
 from chat.sanitize import strip_links_stream
 from chat.store import ConversationStore
@@ -122,7 +125,13 @@ def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
     view = dict(results)
     for key in ("loops", "trails"):
         if isinstance(view.get(key), list):
-            view[key] = view[key][:ANSWER_RESULT_LIMIT]
+            # Geometry never reaches the answer model (docs/route-design.md:
+            # it receives facts, the assumptions strip and the counts) — a
+            # coordinate list is thousands of tokens the prose cannot use.
+            view[key] = [
+                {k: v for k, v in row.items() if k != "geometry"}
+                for row in view[key][:ANSWER_RESULT_LIMIT]
+            ]
     return view
 
 
@@ -146,11 +155,18 @@ class ChatOrchestrator:
         llm: LLMClient,
         store: ConversationStore,
         embedder: Embedder | None = None,
+        planner: PlannerState | None = None,
+        outing_docs: dict[str, list[dict]] | None = None,
     ) -> None:
         self._db = db
         self._llm = llm
         self._store = store
         self._embedder = embedder
+        self._planner = planner
+        # Per-conversation drawn documents, ordinal = 1-based list position.
+        # Shared via app.state so it survives across requests (not restarts:
+        # ponytail — a favourite after a redeploy asks the user to redraw).
+        self._outing_docs = outing_docs if outing_docs is not None else {}
 
     async def run(
         self,
@@ -158,11 +174,14 @@ class ChatOrchestrator:
         message: str,
         conversation_id: str | None = None,
         near: tuple[float, float] | None = None,
+        chip: dict | None = None,
     ) -> AsyncIterator[ChatEvent]:
         # `near` is the typed, coverage-validated "from here" point. It is
         # attached AFTER extraction — extract_plan below receives only the
         # message, history and standing plan, never a coordinate (pinned by
-        # test). The planner consumes it in R4; until then it only exists.
+        # test). `chip` is a refinement tap: a typed, whitelisted delta that
+        # skips BOTH model calls — the composer merges it and the planner
+        # redraws, deterministically.
         settings = get_settings()
 
         used = await self._store.tokens_used_today(user_id)
@@ -186,23 +205,51 @@ class ChatOrchestrator:
         last_intent = await self._store.last_standing(conversation_id)
         standing_raw = (last_intent or {}).get("standing")
 
-        plan_result = await self._llm.extract_plan(
-            message, history, standing=standing_raw
-        )
-        subqueries = plan_result.envelope.subqueries
-        plan = compose(subqueries)
-        # reset discards the plan in force BEFORE refine is considered: it is
-        # the only way to clear a constraint (a delta can change one but not
-        # unset it), and it must also stop a clarify turn carrying the old
-        # plan forward below.
-        if plan_result.envelope.reset:
-            standing_raw = None
         refined = False
-        if plan_result.envelope.refine and not plan.is_clarify:
+        subqueries: list = []
+        plan_usage = Usage()
+        if chip is not None:
+            # No model in the loop: the chip IS the delta, already typed and
+            # bounded (api/routes/chat.py whitelists the fields). It lands on
+            # the standing outing exactly as a spoken refinement would.
             standing = standing_load(standing_raw)
-            if standing is not None:
-                plan = apply_delta(standing, plan)
+            if standing is None or standing.outing is None:
+                plan = ComposedPlan(
+                    clarify=ClarifyIntent(
+                        question=(
+                            "There is no outing to refine yet — " "ask for one first."
+                        )
+                    )
+                )
+            else:
+                from chat.composer import outing_view
+
+                delta = standing.outing.model_copy(update=chip)
+                plan = ComposedPlan(
+                    outing=delta,
+                    loop=outing_view(delta),
+                    loop_from_outing=True,
+                )
                 refined = True
+        else:
+            plan_result = await self._llm.extract_plan(
+                message, history, standing=standing_raw
+            )
+            plan_usage = plan_result.usage
+            subqueries = plan_result.envelope.subqueries
+            plan = compose(subqueries)
+            # reset discards the plan in force BEFORE refine is considered: it
+            # is the only way to clear a constraint (a delta can change one
+            # but not unset it), and it must also stop a clarify turn carrying
+            # the old plan forward below.
+            if plan_result.envelope.reset:
+                standing_raw = None
+            if plan_result.envelope.refine and not plan.is_clarify:
+                standing = standing_load(standing_raw)
+                if standing is not None:
+                    plan = apply_delta(standing, plan)
+                    refined = True
+        plan.near = near
         yield ChatEvent("intent", {"subqueries": [s.model_dump() for s in subqueries]})
         logger.info(
             "plan composed",
@@ -211,13 +258,13 @@ class ChatOrchestrator:
                 "subqueries": len(subqueries),
                 "clarify": plan.is_clarify,
                 "refined": refined,
-                "reset": plan_result.envelope.reset,
+                "chip": chip is not None,
                 "routes": len(plan.routes),
                 "theme": bool(plan.theme),
             },
         )
 
-        results, refs = await self._execute(plan)
+        results, refs = await self._execute(plan, conversation_id)
         # answered_count is where the client folds the card list: the prose
         # narrates the first N, the rest sit behind "show more".
         yield ChatEvent(
@@ -235,13 +282,27 @@ class ChatOrchestrator:
             },
         )
 
+        # A clarify can arrive from the model (plan.clarify) or from Python —
+        # compile's coverage refusal, the planner's built-from-counts question.
+        # Either way it is streamed verbatim and the turn runs no answer model.
+        turn_clarify = plan.is_clarify or "clarification" in results
+
         answer_parts: list[str] = []
-        if plan.is_clarify:
-            # No model call: the clarification is the model's own structured
-            # output, so streaming it back costs nothing extra.
-            assert plan.clarify is not None
-            answer_parts.append(plan.clarify.question)
-            yield ChatEvent("token", {"delta": plan.clarify.question})
+        if turn_clarify:
+            question = (
+                plan.clarify.question if plan.is_clarify else results["clarification"]
+            )
+            answer_parts.append(question)
+            yield ChatEvent("token", {"delta": question})
+        elif chip is not None:
+            # A chip turn spends nothing: the answer is a count, and the count
+            # is Python's.
+            drawn = results.get("loops") or []
+            text = f"I drew {len(drawn)} routes for the refined ask."
+            if results.get("relaxed"):
+                text += f" {results['relaxed'].capitalize()}."
+            answer_parts.append(text)
+            yield ChatEvent("token", {"delta": text})
         else:
             # Links are stripped here, not asked for in the prompt: a live
             # smoke had the model linking every route name to trailforks.com,
@@ -265,16 +326,18 @@ class ChatOrchestrator:
             answer,
             intent={
                 "subqueries": [s.model_dump() for s in subqueries],
-                "standing": (
-                    standing_dump(plan) if not plan.is_clarify else standing_raw
-                ),
+                "standing": (standing_dump(plan) if not turn_clarify else standing_raw),
             },
             result_refs=refs,
         )
 
-        answer_usage = self._llm.last_answer_usage()
-        total_in = plan_result.usage.input_tokens + answer_usage.input_tokens
-        total_out = plan_result.usage.output_tokens + answer_usage.output_tokens
+        answer_usage = (
+            self._llm.last_answer_usage()
+            if not (turn_clarify or chip is not None)
+            else Usage()
+        )
+        total_in = plan_usage.input_tokens + answer_usage.input_tokens
+        total_out = plan_usage.output_tokens + answer_usage.output_tokens
         await self._store.record_usage(
             user_id, message_id, settings.intent_model, total_in, total_out
         )
@@ -302,7 +365,7 @@ class ChatOrchestrator:
         return "trail_search"
 
     async def _execute(
-        self, plan: ComposedPlan
+        self, plan: ComposedPlan, conversation_id: str | None = None
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Composed plan -> named templates. The only place plans touch the graph."""
         if plan.is_clarify:
@@ -315,6 +378,44 @@ class ChatOrchestrator:
         results: dict[str, Any] = {}
         refs: dict[str, Any] = {}
 
+        # The on-demand path: an outing with a pack mounted is DRAWN, not
+        # searched. compile owns the numbers; the planner draws and counts;
+        # a Python clarify (coverage, infeasibility) poisons the turn like a
+        # model clarify would — no other block runs beside it.
+        outing_handled = False
+        if plan.outing is not None and self._planner is not None:
+            compiled = compile_outing(plan.outing)
+            if isinstance(compiled, ClarifyIntent):
+                return {
+                    "clarification": compiled.question,
+                    "suggestions": compiled.suggestions,
+                }, {}
+            anchor = await self._outing_anchor(plan, compiled)
+            drawn = await asyncio.to_thread(
+                plan_outing, self._planner, compiled, anchor
+            )
+            if drawn.clarify is not None:
+                return {
+                    "clarification": drawn.clarify.question,
+                    "suggestions": drawn.clarify.suggestions,
+                    "counts": drawn.counts,
+                }, {}
+            cards = [dict(r["card"]) for r in drawn.routes]
+            ordinals = self._remember(
+                conversation_id, [r["document"] for r in drawn.routes]
+            )
+            for card, ordinal in zip(cards, ordinals, strict=True):
+                card["ordinal"] = ordinal
+            results["loops"] = cards
+            results["total_loops"] = len(cards)
+            results["drawn"] = True
+            results["assumptions"] = drawn.assumptions
+            results["counts"] = drawn.counts
+            if drawn.relaxed:
+                results["relaxed"] = drawn.relaxed
+            refs["loop_ids"] = [card["id"] for card in cards]
+            outing_handled = True
+
         # Which catalogue ask, if any, runs beside the trails. An implicit one
         # is the trail ask posed to the catalogue as well (owner rule
         # 2026-08-21): a walker compares a loop against a sentiero without
@@ -322,6 +423,10 @@ class ChatOrchestrator:
         # cannot be honoured there — and a theme cannot be, the catalogue has
         # no embeddings, which is why a semantic turn stays trails-only.
         loop_intent: Any = plan.loop
+        if outing_handled and plan.loop_from_outing:
+            # The derived stand-in exists for the no-pack posture; with the
+            # planner answering, running it too would answer twice.
+            loop_intent = None
         implicit_loops = False
         if loop_intent is None and plan.search is not None and plan.theme is None:
             loop_intent = catalogue_view(plan.search)
@@ -367,7 +472,7 @@ class ChatOrchestrator:
                     results["loops"] = []
                     results["loops_unknown_place"] = loop_intent.near
                     refs["loop_ids"] = []
-            elif loops or not implicit_loops:
+            elif (loops or not implicit_loops) and "loops" not in results:
                 # One publish site for both the implicit and the explicit turn.
                 # An implicit block that came back empty is omitted rather than
                 # making the answer apologise for a list nobody asked for.
@@ -393,6 +498,38 @@ class ChatOrchestrator:
                         results.setdefault(key, routes[0][key])
 
         return results, refs
+
+    #: Conversations whose drawn documents stay resident; oldest evicted.
+    OUTING_CACHE_CONVERSATIONS = 50
+
+    def _remember(
+        self, conversation_id: str | None, documents: list[dict]
+    ) -> list[int]:
+        """Append this turn's documents; ordinals are 1-based positions in
+        the conversation, stable for `refine_from` and favourite/share."""
+        if conversation_id is None:
+            return list(range(1, len(documents) + 1))
+        docs = self._outing_docs.setdefault(conversation_id, [])
+        first = len(docs) + 1
+        docs.extend(documents)
+        while len(self._outing_docs) > self.OUTING_CACHE_CONVERSATIONS:
+            self._outing_docs.pop(next(iter(self._outing_docs)))
+        return list(range(first, first + len(documents)))
+
+    async def _outing_anchor(
+        self, plan: ComposedPlan, compiled: Constraints
+    ) -> tuple[float, float] | None:
+        """Where the ask is anchored: the validated `near` for "here", a
+        geocoded name otherwise. Resolution is the one I/O an ask needs, so
+        it happens here rather than inside the CPU-bound planner."""
+        if compiled.start_mode == "here" and plan.near is not None:
+            return plan.near
+        name = compiled.start_name or (plan.outing.area if plan.outing else None)
+        if name:
+            rows = await self._find_poi(name)
+            if rows:
+                return rows[0]["lat"], rows[0]["lon"]
+        return plan.near
 
     async def _loops(
         self, intent: Any

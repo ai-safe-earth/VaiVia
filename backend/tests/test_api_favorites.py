@@ -108,3 +108,67 @@ def test_the_list_is_newest_first(client, db):
     db.when("routes_by_ids", [ROW, {**ROW, "id": second, "name": "Second"}])
     body = client.get("/routes/favorites", headers=USER).json()
     assert [r["id"] for r in body["routes"]] == [second, first]
+
+
+# ── keeping a DRAWN route persists it (Phase 12 R4) ──────────────────────────
+
+
+def _drawn_document(route_id: str = "vv2-feedfacecafebeef") -> dict:
+    from chat.pack_state import load_planner
+    from chat.planner import plan_outing
+    from tests.test_planner import ANCHOR, FIXTURE, constraints
+
+    state = load_planner(str(FIXTURE))
+    result = plan_outing(state, constraints(shape="loop", max_hours=2), ANCHOR)
+    return result.routes[0]["document"]
+
+
+def test_favoriting_a_drawn_route_writes_document_and_node(
+    client, db, tmp_path, monkeypatch
+):
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "route_documents_dir", str(tmp_path))
+    document = _drawn_document()
+    rid = document["id"]
+    client.app.state.outing_docs = {"c1": [document]}
+    db.when("route_exists", [])  # not in the catalogue: it was drawn
+
+    response = client.post(
+        f"/routes/{rid}/favorite", json={"on": True}, headers={"X-User-Id": "u1"}
+    )
+    assert response.status_code == 200
+    # the document landed where the geometry endpoints serve from
+    assert (tmp_path / f"{rid}.json").exists()
+    # and the graph got its writes: node, places, passes, start, starts_at
+    assert len(db.writes) >= 3
+    assert any("MERGE (r:Route" in q for q, _p in db.writes)
+    node_params = next(p for q, p in db.writes if "MERGE (r:Route" in q)
+    assert node_params["route_id"] == rid
+    assert node_params["props"]["kind"] == "generated"
+
+
+def test_favoriting_an_unknown_drawn_id_is_a_404(client, db):
+    client.app.state.outing_docs = {}
+    db.when("route_exists", [])
+    response = client.post(
+        "/routes/vv2-0000000000000000/favorite",
+        json={"on": True},
+        headers={"X-User-Id": "u1"},
+    )
+    assert response.status_code == 404
+
+
+def test_favoriting_a_drawn_route_without_a_store_is_a_503(client, db, monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "route_documents_dir", None)
+    document = _drawn_document()
+    client.app.state.outing_docs = {"c1": [document]}
+    db.when("route_exists", [])
+    response = client.post(
+        f"/routes/{document['id']}/favorite",
+        json={"on": True},
+        headers={"X-User-Id": "u1"},
+    )
+    assert response.status_code == 503

@@ -208,3 +208,6 @@ class RouteResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     database: Literal["up", "down"]
+    #: The loaded pack's run_id — the network outings are drawn over.
+    #: None when no pack is mounted (catalogue-only, dev).
+    pack: str | None = None

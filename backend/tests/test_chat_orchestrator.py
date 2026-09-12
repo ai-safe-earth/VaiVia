@@ -446,8 +446,10 @@ async def test_usage_is_recorded_for_the_user(db):
         db, {"kind": "trail_search", "activity": "mtb"}, store=store
     )
     await collect(orchestrator, user_id="u1", message="find trails")
-    # 30+10 plan + 120+40 answer
-    assert await store.tokens_used_today("u1") == 200
+    # 30+10 plan only: an activity-only ask composes to the guided clarify,
+    # which runs no answer model — and a turn that spends nothing must bill
+    # nothing (last_answer_usage is shared client state, stale on clarify).
+    assert await store.tokens_used_today("u1") == 40
 
 
 async def test_history_is_persisted_and_replayed(db):

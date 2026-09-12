@@ -185,6 +185,13 @@ Absolute rules:
   matched and suggest relaxing one specific constraint.
 - If RESULTS says semantic_unavailable, mention that matching by description is
   temporarily off and these results come from the structured filters only.
+- If RESULTS carries `drawn: true` these routes were DRAWN for this ask, not
+  found: say "I drew N routes for you". If it carries `assumptions`, weave
+  the FIRST one into the reply in your own words ("reading ~3 h as
+  12–18 km"); the strip on screen shows the rest. If `relaxed` is present,
+  say the routes are near misses rather than exact fits. `counts` is
+  diagnostic data — mention a count reason only when the result list is
+  empty.
 - If RESULTS says loops_unknown_place, we could not find that place in our
   coverage: say so plainly, name it, and do not offer catalogue outings as if
   they were near it. Suggest a nearby place we do cover instead.

@@ -8,6 +8,7 @@ frontend renders tokens as they arrive.
 import json
 import logging
 from collections.abc import AsyncIterator
+from typing import Literal
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -39,10 +40,28 @@ class NearPoint(BaseModel):
         raise ValueError("near is outside the covered regions")
 
 
+class OutingChip(BaseModel):
+    """A refinement tap: a typed delta onto the conversation's standing
+    outing, merged in Python with NO model call. Only these fields exist —
+    a chip cannot carry a query, an id, a coordinate or a weight any more
+    than the intent it refines can."""
+
+    max_hours: float | None = Field(default=None, ge=0, le=24)
+    max_distance_km: float | None = Field(default=None, ge=0, le=200)
+    max_ascent_m: int | None = Field(default=None, ge=0, le=5000)
+    surface_exclusions: list[Literal["asphalt", "paved", "gravel"]] | None = None
+    setting: Literal["nature", "mixed", "town"] | None = None
+
+    def delta(self) -> dict:
+        """Only the fields the tap actually set."""
+        return self.model_dump(exclude_none=True)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str | None = None
     near: NearPoint | None = None
+    chip: OutingChip | None = None
 
 
 def _sse(event: ChatEvent) -> str:
@@ -85,11 +104,15 @@ async def chat(
     user_id: UserDep,
 ) -> StreamingResponse:
     state = http_request.app.state
+    if getattr(state, "outing_docs", None) is None:
+        state.outing_docs = {}
     orchestrator = ChatOrchestrator(
         db=db,
         llm=state.llm,
         store=state.store,
         embedder=getattr(state, "embedder", None),
+        planner=getattr(state, "planner", None),
+        outing_docs=state.outing_docs,
     )
 
     return StreamingResponse(
@@ -99,6 +122,7 @@ async def chat(
                 message=request.message,
                 conversation_id=request.conversation_id,
                 near=((request.near.lat, request.near.lon) if request.near else None),
+                chip=(request.chip.delta() if request.chip else None),
             )
         ),
         media_type="text/event-stream",

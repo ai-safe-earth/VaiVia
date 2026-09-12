@@ -148,10 +148,44 @@ async def set_favorite(
 ) -> FavoriteState:
     """Idempotent toggle. Saving checks the route exists (an honest 404 beats
     a favorite that can never hydrate); unsaving does not — a route that left
-    the catalogue must still be removable from the list."""
+    the catalogue must still be removable from the list.
+
+    A DRAWN route exists only in the conversation until someone keeps it:
+    favouriting one is the moment its document is written to the store and
+    its (:Route) to Neo4j (docs/route-design.md, "Ask time" step 5) — after
+    which it hydrates, serves geometry and takes feedback exactly as a
+    catalogue route does."""
     if body.on:
         rows = await db.run_named("route_exists", route_id=route_id)
         if not rows:
-            raise HTTPException(status_code=404, detail=f"unknown route {route_id!r}")
+            document = _drawn_document(request, route_id)
+            if document is None:
+                raise HTTPException(
+                    status_code=404, detail=f"unknown route {route_id!r}"
+                )
+            from chat.save_route import save_drawn_route
+            from core.config import get_settings
+
+            documents_dir = get_settings().route_documents_dir
+            if not documents_dir:
+                raise HTTPException(
+                    status_code=503,
+                    detail="route documents are not mounted "
+                    "(ROUTE_DOCUMENTS_DIR unset); a drawn route cannot be "
+                    "kept until they are",
+                )
+            await save_drawn_route(db, document, documents_dir)
     await _store(request).set(user_id, route_id, body.on)
     return FavoriteState(route_id=route_id, on=body.on)
+
+
+def _drawn_document(request: Request, route_id: str) -> dict[str, Any] | None:
+    """The route's document from the conversation cache, if this backend
+    drew it. In-memory only (ponytail): after a restart the answer is an
+    honest 404 and the user redraws — a favourite is usually taps after
+    the cards appeared, not days later."""
+    for documents in (getattr(request.app.state, "outing_docs", None) or {}).values():
+        for document in documents:
+            if document.get("id") == route_id:
+                return document
+    return None
