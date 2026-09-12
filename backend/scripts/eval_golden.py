@@ -71,6 +71,49 @@ from chat.sanitize import find_link
 DATASET = Path(__file__).resolve().parent.parent / "fixtures" / "golden_questions.json"
 RUN_LOG = Path(__file__).resolve().parent.parent / "eval_runs.jsonl"
 
+#: Where the full pack for expect_facts entries lives (the parity export);
+#: override with VAIVIA_PACK_DIR. Facts entries are PINNED to a pack run_id —
+#: bands measured on one network are meaningless on another — and are
+#: reported as stale, not failed, when the loaded pack is a different build.
+import os  # noqa: E402
+
+PACK_DIR = Path(
+    os.environ.get(
+        "VAIVIA_PACK_DIR",
+        Path(__file__).resolve().parents[2] / "pipeline" / "packs" / "pack-parity",
+    )
+)
+
+
+def check_facts(expected: dict[str, Any], results: dict[str, Any]) -> list[str]:
+    """Band checks over the FIRST drawn card — distance, ascent, surface
+    shares, ends-at kind, car-free — the planner's honesty, measured."""
+    cards = results.get("loops") or []
+    if not cards:
+        return [f"no routes drawn (counts: {results.get('counts')})"]
+    card = cards[0]
+    problems: list[str] = []
+    for key, want in expected.items():
+        got: Any = card
+        for part in key.split("."):
+            got = got.get(part) if isinstance(got, dict) else None
+        if isinstance(want, dict) and want.keys() & {"lt", "lte", "gt", "gte"}:
+            ok = (
+                got is not None
+                and ("lt" not in want or got < want["lt"])
+                and ("lte" not in want or got <= want["lte"])
+                and ("gt" not in want or got > want["gt"])
+                and ("gte" not in want or got >= want["gte"])
+            )
+            if not ok:
+                problems.append(f"facts {key}: want {want}, got {got}")
+        elif isinstance(want, list):
+            if got not in want:
+                problems.append(f"facts {key}: want one of {want}, got {got}")
+        elif got != want:
+            problems.append(f"facts {key}: want {want}, got {got}")
+    return problems
+
 
 def select(entries: list[dict[str, Any]], only: str | None) -> list[dict[str, Any]]:
     """The entries this run covers.
@@ -228,20 +271,26 @@ async def main() -> None:
 
     orchestrator = None
     db = None
+    planner = None
     if args.graph:
         from core.embeddings import OpenAIEmbedder
         from graph.neo4j_client import Neo4jClient
 
+        if PACK_DIR.is_dir():  # noqa: ASYNC240 — startup, nothing awaits yet
+            from chat.pack_state import load_planner
+
+            planner = load_planner(str(PACK_DIR))
         db = Neo4jClient()
         await db.connect()
         # llm/store stay None: _execute never touches them, and going through
         # run() would drag in the store and its quota pre-check.
         orchestrator = ChatOrchestrator(
-            db=db, llm=None, store=None, embedder=OpenAIEmbedder()
+            db=db, llm=None, store=None, embedder=OpenAIEmbedder(), planner=planner
         )
 
     plan_pass = plan_total = 0
     hit_first = hit_any = retrieval_total = 0
+    facts_pass = facts_total = facts_stale = 0
     answer_pass = answer_total = 0
     # What the aggregates cannot say: which entry. Stage-prefixed so a line
     # tells decomposition drift from answer drift without rerunning anything.
@@ -266,13 +315,47 @@ async def main() -> None:
 
             expected_trails = entry.get("expect_trails") or []
             expected_loops = entry.get("expect_loops") or []
-            wants_execution = expected_trails or expected_loops or args.answers
+            expected_facts = entry.get("expect_facts") or {}
+            if expected_facts and args.graph:
+                if plan.outing is None:
+                    # facts measure the PLANNER; a turn that decomposed away
+                    # from outing already failed at the decomposition stage.
+                    facts_total += 1
+                    failed.setdefault(entry["id"], []).append(
+                        "facts: no outing decomposed"
+                    )
+                    print("         facts [FAIL]: no outing decomposed")
+                    expected_facts = {}
+                elif planner is None:
+                    print("         facts [SKIP]: no pack loaded")
+                    expected_facts = {}
+                elif entry.get("pack_run_id") not in (None, planner.run_id):
+                    # A band measured on another network is not a failure of
+                    # this one; it is a fixture waiting to be re-pinned.
+                    facts_stale += 1
+                    print(
+                        f"         facts [STALE]: pinned to "
+                        f"{entry.get('pack_run_id')!r}, loaded {planner.run_id!r}"
+                    )
+                    expected_facts = {}
+            wants_execution = (
+                expected_trails or expected_loops or expected_facts or args.answers
+            )
             if not (args.graph and wants_execution and not plan.is_clarify):
                 continue
 
             results, _ = await orchestrator._execute(
                 plan
             )  # noqa: SLF001 — eval reuses the real path
+            if expected_facts:
+                facts_problems = check_facts(expected_facts, results)
+                facts_total += 1
+                facts_pass += not facts_problems
+                print(f"         facts [{'PASS' if not facts_problems else 'FAIL'}]")
+                for problem in facts_problems:
+                    print(f"         {problem}")
+                if facts_problems:
+                    failed.setdefault(entry["id"], []).extend(facts_problems)
             for expected, key in (
                 (expected_trails, "trails"),
                 (expected_loops, "loops"),
@@ -327,6 +410,14 @@ async def main() -> None:
         )
         summary["retrieval_hit"] = [hit_any, retrieval_total]
         summary["retrieval_first"] = [hit_first, retrieval_total]
+        if facts_total or facts_stale:
+            print(
+                f"facts:         {facts_pass}/{facts_total} passed"
+                + (f", {facts_stale} stale" if facts_stale else "")
+            )
+            summary["facts"] = [facts_pass, facts_total]
+            if facts_stale:
+                summary["facts_stale"] = facts_stale
     if args.answers:
         print(f"answers:       {answer_pass}/{answer_total} passed")
         summary["answers"] = [answer_pass, answer_total]

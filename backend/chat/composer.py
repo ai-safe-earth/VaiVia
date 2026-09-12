@@ -114,10 +114,15 @@ class ComposedPlan:
     theme: str | None = None
     routes: list[RouteIntent] = field(default_factory=list)
     loop: LoopSearchIntent | None = None
-    #: The on-demand ask, verbatim. The planner consumes it in R4; until
-    #: then `outing_view` degrades it to a catalogue ask so the turn still
-    #: answers (the same posture as catalogue_view).
+    #: The on-demand ask, verbatim. The planner consumes it when a pack is
+    #: mounted; `outing_view` degrades it to a catalogue ask otherwise.
     outing: OutingIntent | None = None
+    #: True when `loop` is the derived stand-in for `outing`, not an ask of
+    #: its own — the planner suppresses it rather than answering twice.
+    loop_from_outing: bool = False
+    #: The typed, coverage-validated "from here" point, attached by the
+    #: orchestrator AFTER extraction. Never dumped, never shown to a model.
+    near: tuple[float, float] | None = None
 
     @property
     def is_clarify(self) -> bool:
@@ -404,8 +409,10 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     # speaks. (compile.py owns everything downstream of this.)
     outings = [s for s in subqueries if isinstance(s, OutingIntent)]
     outing = outings[0] if outings else None
+    loop_from_outing = False
     if outing is not None and loop is None:
         loop = outing_view(outing)
+        loop_from_outing = True
 
     search = merge_searches(searches) if searches else None
     theme = "; ".join(themes) if themes else None
@@ -457,7 +464,12 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
         )
 
     return ComposedPlan(
-        search=search, theme=theme, routes=routes, loop=loop, outing=outing
+        search=search,
+        theme=theme,
+        routes=routes,
+        loop=loop,
+        outing=outing,
+        loop_from_outing=loop_from_outing,
     )
 
 
@@ -547,6 +559,7 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
         # an explicit loop delta below still wins.
         if delta.loop is None:
             merged.loop = outing_view(merged.outing)
+            merged.loop_from_outing = True
     if delta.search is not None:
         if merged.search is not None:
             merged.search = _overlay(merged.search, delta.search)

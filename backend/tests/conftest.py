@@ -54,6 +54,17 @@ class FakeDb:
     def params_for(self, name: str) -> dict[str, Any]:
         return next(params for called, params in self.calls if called == name)
 
+    async def run(self, query: str, /, **params: Any) -> list[dict[str, Any]]:
+        """The WRITE path (ingestion, favourite-save). Recorded, never routed."""
+        self.writes.append((query, params))
+        return []
+
+    @property
+    def writes(self) -> list:
+        if not hasattr(self, "_writes"):
+            self._writes = []
+        return self._writes
+
 
 class FakeEmbedder:
     """Deterministic embedder: unit vector per call, records inputs."""

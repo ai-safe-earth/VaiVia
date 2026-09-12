@@ -240,6 +240,26 @@ body {
   cursor: not-allowed;
 }
 
+/* ── Assumptions strip ────────────────────────────────────────────────────
+   The compiler's judgements over a drawn answer, said where a wrong reading
+   gets corrected. Quiet: it annotates the answer, it is not the answer. */
+
+.assumptions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vv-s1);
+  padding: var(--vv-s2) var(--vv-s7) 0;
+}
+
+.assumptions span {
+  color: var(--vv-muted);
+  font: 400 11px/1.5 var(--vv-sans);
+}
+
+.assumptions span::before {
+  content: '· ';
+}
+
 /* ── How I read it ────────────────────────────────────────────────────────
    Inactive: the composed plan does not reach the browser yet, so the grid
    below is unreachable and the pending line is what renders. */

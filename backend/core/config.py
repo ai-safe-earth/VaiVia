@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     # returns 503, never an empty or invented shape (the semantic-search rule).
     route_documents_dir: str | None = None
 
+    # Where the exported PACK lives (docs/route-design.md): the routable
+    # network as numpy arrays, one directory per pipeline build. Set -> the
+    # backend loads it at startup and draws outings over it in-process.
+    # Unset -> outing asks degrade to the catalogue view (the R3 posture).
+    pack_dir: str | None = None
+    # Production refuses to boot without a pack (deploy sets REQUIRE_PACK):
+    # an on-demand product with no network is not degraded, it is down.
+    require_pack: bool = False
+
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout_s: int = 120
 

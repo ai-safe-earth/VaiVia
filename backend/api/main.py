@@ -77,6 +77,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             app.state.favorites = favorites.InMemoryFavorites()
 
+    # The pack: the routable network the planner draws over. Loading
+    # validates every invariant, so a backend that boots is one that routes;
+    # production (REQUIRE_PACK) refuses to boot without one — an on-demand
+    # product with no network is down, not degraded.
+    if getattr(app.state, "planner", None) is None:
+        if settings.pack_dir:
+            from chat.pack_state import load_planner
+
+            app.state.planner = load_planner(settings.pack_dir)
+        elif settings.require_pack:
+            raise RuntimeError(
+                "REQUIRE_PACK is set but PACK_DIR is not — refusing to boot "
+                "without the routable network"
+            )
+        else:
+            app.state.planner = None
+            logger.warning("PACK_DIR unset — outing asks answer from the catalogue")
+
     # Feedback rides the same pool for the same reason.
     if getattr(app.state, "feedback", None) is None:
         if getattr(app.state, "pg_pool", None) is not None:
@@ -116,9 +134,11 @@ app.include_router(feedback.router)
 @app.get("/healthz", response_model=HealthResponse, tags=["ops"])
 async def healthz() -> HealthResponse:
     """Liveness + database reachability. Public (no gateway secret required)."""
+    planner = getattr(app.state, "planner", None)
+    pack_run_id = planner.run_id if planner else None
     try:
         await app.state.db.run_named("healthcheck")
     except Exception:
         logger.exception("healthcheck failed")
-        return HealthResponse(status="degraded", database="down")
-    return HealthResponse(status="ok", database="up")
+        return HealthResponse(status="degraded", database="down", pack=pack_run_id)
+    return HealthResponse(status="ok", database="up", pack=pack_run_id)
