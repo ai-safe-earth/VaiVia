@@ -140,10 +140,14 @@ def test_out_and_back_ends_at_a_wanted_kind(state):
         assert r["document"]["shape"] == "out_and_back"
 
 
-def test_multi_day_is_an_honest_clarify(state):
+def test_multi_day_is_refused_not_promised(state):
+    # Dropped by the owner (2026-09-12): the ask is understood, the refusal
+    # is plain, and nothing ever says "coming soon".
     c = compile_outing(OutingIntent(activity="hike", days=3, sleep="hut"))
     result = plan_outing(state, c, ANCHOR)
-    assert result.clarify is not None and "Multi-day" in result.clarify.question
+    assert result.clarify is not None
+    assert "not offered" in result.clarify.question
+    assert "single-day" in result.clarify.question
 
 
 def test_station_mode_with_no_station_in_tile_clarifies(state):

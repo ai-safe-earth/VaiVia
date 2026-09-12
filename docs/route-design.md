@@ -12,7 +12,7 @@ that only existed to make a pre-generated catalogue answerable.
 | A | A bike loop for the kids, no asphalt, some interesting stops, ~3 h, no more than an hour's drive from here | party, surface exclusion, hours→distance, drive time from a point |
 | B | A 2 h out, 2 h back trail in nature ending at a lake or river to bathe, not far | strict out-and-back, a *role* for the destination (bathe), setting |
 | C | A one-hour cultural walk from the station | urban theme, a station as start, town setting allowed |
-| D | Three days on the Orobie sleeping in rifugi, challenging for my level | multi-day chain over sleep places, fitness scaling, a named area |
+| D | ~~Three days on the Orobie sleeping in rifugi, challenging for my level~~ *(dropped 2026-09-12: VaiVia plans single-day outings; the ask is understood and refused honestly)* | multi-day chain over sleep places, fitness scaling, a named area |
 | E | Seven days by bike around Tuscany sleeping in agriturismi | the same, plus an area we do not cover — which must be said, not approximated |
 
 The catalogue answers "which of these 627 fits" and nothing in A–E is in the 627. A catalogue
@@ -120,8 +120,8 @@ out loud (the posture `handoff.md` already records for travel time).
    names what *is* covered (E).
 3. **Plan** (`vaivia_routes`, shared package): per candidate start, one bounded Dijkstra
    gives the distance field; loops use the catalogue's rule (s→v1→v2→s, walked edges ×3),
-   out-and-back is strict retrace, destination picks the alt return, multi-day chains
-   day-legs over sleep-kind places. `assemble` → facts → **reject by stated limits, counting
+   out-and-back is strict retrace, destination picks the alt return. (Multi-day
+   chaining was dropped 2026-09-12 — a days>1 ask gets an honest refusal.) `assemble` → facts → **reject by stated limits, counting
    each rejection** → one rung of relaxation → `keep_distinct` → 3.
 4. **Answer.** Three cards, an assumptions strip ("we read ~3 h as 12–18 km for kids on
    bikes"), refinement chips. Chips send a typed delta straight to the composer — no model
@@ -138,7 +138,7 @@ activity, both once at startup; bounded field (8 km limit) 3 ms median; point-to
 26 ms, 30 ms with the walked-edge penalty (the reduction is patched per affected pair,
 not rebuilt); a 10 km three-leg loop draw 165 ms median / 225 ms p90; an out-and-back
 with alternative return 213 ms. That keeps turn 1 (LLM + plan) at 3–5 s, chip refine
-0.4–0.8 s, multi-day 1.5–3 s. Planning runs in a 2-worker `ProcessPool` (scipy holds
+0.4–0.8 s. Planning runs in a 2-worker `ProcessPool` (scipy holds
 the GIL) on the 4-vCPU box. The engine reproduces all 627 catalogue ids from the pack
 (`shared/routes/tests/test_parity.py`); the one divergence class found and fixed on the
 way was parallel-arc reduction before the penalty — the pack is a multigraph, and the
@@ -247,7 +247,7 @@ GraphHopper (`docs/routing-engine.md`); Phase 9 D4 *publish-catalogue* → *publ
 | 3 | `feat/outing-intent` | 2 | `OutingIntent`, `compile.py`, golden entries, `check_intents_live` 7/7 |
 | 4 | `feat/outing-planner` | 3 | `/chat` wiring, demo A–C, infeasibility counts + ladder, ordinals, assumptions strip + chips |
 | 5 | `feat/pack-drive-rail` | 1.5 | `curate/drive.py`, GTFS rail matrix, gazetteer, `trail_share_5km`, potential fields |
-| 6 | `feat/multi-day` | 2 | `trek.json`, day cards, D |
+| 6 | ~~`feat/multi-day`~~ | — | dropped (owner, 2026-09-12): single-day outings only |
 | 7 | `chore/retire-catalogue` | 1 | drop templates and loads, publish script → pack, GDS plugin off |
 
 Each slice is independently mergeable; the catalogue keeps serving until slice 7. Decision 6

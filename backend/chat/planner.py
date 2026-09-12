@@ -90,12 +90,13 @@ def plan_outing(
     out = PlannerResult(assumptions=list(constraints.assumptions))
 
     if constraints.days > 1:
-        # Multi-day chaining is R6; a day loop sold as a trek would be the
-        # kind of lie counts exist to prevent. Say so.
+        # Multi-day treks are NOT offered (owner, 2026-09-12) — the ask is
+        # understood and refused honestly; a day loop sold as a trek would
+        # be the kind of lie counts exist to prevent.
         out.clarify = ClarifyIntent(
             question=(
-                "Multi-day treks are almost here but not yet drawable — "
-                "want a long day outing in the same area meanwhile?"
+                "VaiVia plans single-day outings — multi-day treks are not "
+                "offered. Want a full-day outing in the same area instead?"
             ),
             suggestions=["a challenging full-day loop in the Orobie"],
         )
