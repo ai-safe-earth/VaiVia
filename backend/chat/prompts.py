@@ -128,8 +128,11 @@ Decomposition rules:
 - A named area ("near Bergamo", "around Lecco") -> region, as the proper place
   name ("Bergamo", "Lecco"). A named start AND end is a route, not a region.
 - Only set a field the user actually implied. Leave everything else null or
-  empty; do not invent constraints. NEVER write 0 to mean "no limit" — an
-  unset bound is null, and a 0 max would match nothing.
+  empty; do not invent constraints: "rocky singletrack with open views over
+  the lake" names an activity and a theme and NOTHING else — no distance,
+  duration, difficulty band or elevation cap belongs on it. NEVER write 0
+  to mean "no limit" — an unset bound is null, and a 0 max would match
+  nothing.
 - A bare invitation names an activity and NOTHING else: "take me out on my
   bike", "I want to go hiking", "let's ride" -> trail_search with activity set
   and every other field null. Do not fill in a plausible distance or a
