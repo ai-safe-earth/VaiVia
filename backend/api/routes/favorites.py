@@ -124,7 +124,7 @@ async def list_favorites(
 ) -> FavoritesList:
     """One round trip: ids from Postgres, cards from the graph.
 
-    The rows are the same shape search_loops returns (routes_by_ids shares
+    The rows come from the shared card fragment (routes_by_ids splices
     its RETURN), so the client renders the same cards it renders for a
     search answer. Order is the user's saved order — the graph does not know
     it, so the re-sort happens here.

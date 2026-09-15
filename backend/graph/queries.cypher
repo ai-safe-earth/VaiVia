@@ -134,7 +134,7 @@ LIMIT $limit
 
 // name: route_between_intersections
 // Bounded shortest path on the Intersection routing graph. Semantic edges never
-// appear in the path expression. For large graphs use route_gds_dijkstra below
+// appear in the path expression. Bounded, and the only A-to-B walk left (R7)
 // (needs a live GDS instance to verify — see docs/plan.md Phase 2).
 MATCH (src:Intersection {osm_node_id: $start_node}),
       (dst:Intersection {osm_node_id: $end_node})
@@ -250,60 +250,6 @@ RETURN t.id AS id, t.name AS name, t.activity AS activity,
 ORDER BY score DESC
 LIMIT $limit
 
-// name: route_edge_details
-// Map a computed path's consecutive node pairs back onto CONNECTS_TO edges to
-// recover per-edge properties — GDS streams node ids only. Parallel edges
-// between the same pair (two ways joining the same intersections) resolve to
-// the shortest, matching what Dijkstra weighted by.
-UNWIND range(0, size($node_ids) - 2) AS i
-MATCH (a:Intersection)-[c:CONNECTS_TO]->(b:Intersection)
-WHERE a.osm_node_id = $node_ids[i] AND b.osm_node_id = $node_ids[i + 1]
-WITH i, c ORDER BY i, c.cost_m
-WITH i, collect(c)[0] AS edge
-RETURN i,
-       edge.osm_way_id AS osm_way_id,
-       edge.surface AS surface,
-       edge.highway_type AS highway_type,
-       edge.distance_m AS distance_m,
-       coalesce(edge.elevation_gain_m, 0.0) AS gain_m
-ORDER BY i
-
-// name: route_gds_dijkstra
-// Comfort-weighted routing over a named GDS projection. The projection is
-// created by graph_project_routing (below) and dropped after use.
-//
-// Weighted on cost_m, NOT distance_m: roads are straighter than trails, so
-// minimising raw distance returns road walks (docs/fragilities.md #10).
-// totalCost is therefore a penalised cost in no real unit — it is returned as
-// total_cost and must never be shown to a user or treated as a length. Real
-// distance comes from summing distance_m over route_edge_details.
-MATCH (src:Intersection {osm_node_id: $start_node}),
-      (dst:Intersection {osm_node_id: $end_node})
-CALL gds.shortestPath.dijkstra.stream($graph_name, {
-  sourceNode: src,
-  targetNode: dst,
-  relationshipWeightProperty: 'cost_m'
-})
-YIELD totalCost, nodeIds
-RETURN totalCost AS total_cost,
-       [nodeId IN nodeIds |
-         [gds.util.asNode(nodeId).location.longitude,
-          gds.util.asNode(nodeId).location.latitude]] AS coordinates,
-       [nodeId IN nodeIds | gds.util.asNode(nodeId).osm_node_id] AS node_ids
-
-// name: intersection_locations
-// Where these intersections are, so a caller can project the bbox its QUERY
-// needs. Two ids in practice (a route's endpoints). component_id comes along
-// because a caller picking waypoints needs the start's component to ask for
-// reachable ones (see intersections_in_ring); it is null outside the region
-// scripts.build_trailheads was run over.
-MATCH (i:Intersection)
-WHERE i.osm_node_id IN $osm_node_ids
-RETURN i.osm_node_id AS osm_node_id,
-       i.location.latitude AS lat,
-       i.location.longitude AS lon,
-       i.component_id AS component_id
-
 // name: graph_project_routing
 // Bounded projection: only intersections inside the query bbox are projected,
 // so Dijkstra never sees the whole country.
@@ -328,149 +274,6 @@ RETURN g.graphName AS graph_name, g.nodeCount AS nodes, g.relationshipCount AS r
 // name: graph_drop_routing
 CALL gds.graph.drop($graph_name, false) YIELD graphName
 RETURN graphName
-
-// name: intersections_in_ring
-// Loop seeding: intersections in an annulus around a start point. A loop of
-// perimeter L approximates a circle of radius L/(2*pi), so waypoints are drawn
-// from a ring at roughly that radius and spread by bearing (Python side) to
-// stop all three legs collapsing onto the same corridor. Point-indexed
-// distance predicate; no traversal.
-MATCH (i:Intersection)
-WHERE point.distance(
-        i.location, point({latitude: $lat, longitude: $lon})) >= $min_m
-  AND point.distance(
-        i.location, point({latitude: $lat, longitude: $lon})) <= $max_m
-  // Same component as the start. component_id is written by
-  // scripts.build_trailheads from a projection over the region bbox, so this
-  // one predicate excludes both unreachable waypoints and — importantly —
-  // waypoints outside the projection. A ring near the bbox edge otherwise
-  // returns nodes GDS has never heard of, and Dijkstra throws
-  // "targetNode nodes do not exist in the in-memory graph".
-  AND ($component_id IS NULL OR i.component_id = $component_id)
-RETURN i.osm_node_id AS osm_node_id,
-       i.location.latitude AS lat,
-       i.location.longitude AS lon
-LIMIT $limit
-
-// name: pois_near_points
-// Map-back: what does a route polyline pass? A routing engine returns geometry
-// and nothing else (GraphHopper does not even expose osm_way_id), so the join
-// back to meaning is spatial.
-//
-// This is the BOUNDING half — cheap, index-backed, deliberately generous. The
-// caller samples the polyline, asks for anything near those samples, then
-// filters exactly with core/geo.min_distance_to_polyline_m. Same two-step as
-// ingestion's PASSES_BY: a point index cannot measure distance to a line, so
-// bound in Cypher and be exact in Python.
-//
-// The radius is a CONSTANT on purpose. Widening it per POI by that POI's own
-// reach (`<= $radius_m + p.extent_m`, to catch lakes whose centroid sits out on
-// the water) reads naturally and quietly destroys this query: the predicate then
-// depends on the node being tested, so the point index cannot serve it and every
-// sample point scans every POI. At 1,707 samples that took 14 s per route and
-// turned a catalogue rebuild into a seven-hour job. Areas are handled by
-// area_pois_near_point instead, which pays for one scan rather than 1,707.
-UNWIND $points AS pt
-MATCH (p:POI)
-WHERE point.distance(
-        p.location, point({latitude: pt[0], longitude: pt[1]})) <= $radius_m
-RETURN DISTINCT p.osm_id AS osm_id, p.name AS name, p.type AS type,
-       p.location.latitude AS lat, p.location.longitude AS lon,
-       [c IN coalesce(p.boundary, []) | [c.latitude, c.longitude]] AS boundary,
-       p.description AS description,
-       p.description_source AS description_source,
-       p.description_license AS description_license,
-       p.description_url AS description_url
-
-// name: area_pois_near_point
-// The other half of the map-back's bounding step: areas big enough that their
-// centroid says nothing useful. Lago di Como's sits 5,122 m out on the water, so
-// a centroid radius rules out every shoreline route before the exact check ever
-// sees one -- and no fixed radius fixes it, because 5 km would sweep in half the
-// region.
-//
-// So the reach is per-POI, which means this cannot use the point index. That is
-// affordable exactly once: the caller passes ONE point (the centre of the
-// route's bounding box) and `$reach_m` covers the whole route, so this is a
-// single scan of the POIs that have an extent at all. It must stay that way --
-// per-sample-point, it is the query that cost 14 s a route.
-MATCH (p:POI)
-WHERE coalesce(p.extent_m, 0.0) > 0
-  AND point.distance(
-        p.location, point({latitude: $lat, longitude: $lon}))
-      <= $reach_m + p.extent_m
-RETURN p.osm_id AS osm_id, p.name AS name, p.type AS type,
-       p.location.latitude AS lat, p.location.longitude AS lon,
-       [c IN coalesce(p.boundary, []) | [c.latitude, c.longitude]] AS boundary,
-       p.description AS description,
-       p.description_source AS description_source,
-       p.description_license AS description_license,
-       p.description_url AS description_url
-
-// fragment: loop_candidates
-// The loop-catalogue filter block, shared by search_loops and estimate_loops
-// via '// include:' so a count can never disagree with the search it counts
-// (query_loader.py). Everything through the near-distance filter lives here;
-// each reader adds only its own tail. It ends in 'WITH r, s WHERE ...', so a
-// reader appending another WHERE must open its own WITH first.
-//
-// warnings = 0 is not optional. The export's own smoke test proved why: the
-// unfiltered catalogue puts 0.0 km OSM fragments wearing famous names at the
-// top of any list. A route with warnings is qa's business, not an answer.
-MATCH (r:Route)
-WHERE r.warnings = 0
-  // Activity is a hard filter, never a preference: a bike question must only
-  // see bike-legal routes. The caller resolves the user's activity to the
-  // catalogue's vocabulary ('hike' covers hiking and foot relations; 'mtb' is
-  // the by-construction bike-legal family plus rideable OSM mtb relations).
-  AND ($activities IS NULL OR r.activity IN $activities)
-  AND ($mtb_only IS NULL OR r.mtb_rideable = true)
-  AND ($min_distance_m IS NULL OR r.distance_m >= $min_distance_m)
-  AND ($max_distance_m IS NULL OR r.distance_m <= $max_distance_m)
-  AND ($max_ascent_m IS NULL OR coalesce(r.ascent_m, 0) <= $max_ascent_m)
-  // Difficulty ceilings compare RANKS (T1..T6 as 1..6; mtb:scale as 0..6),
-  // against sac_max -- the EXIGENT grade, the hardest metre walked (owner rule
-  // 2026-08-20): a ceiling is a safety promise, and the character grade would
-  // let a T2 walk with a T4 move through a T2 ceiling. An ungraded route is
-  // NOT excluded by a ceiling: unrated is unknown, and dropping it would hide
-  // most of the catalogue behind a filter the data cannot answer.
-  AND ($max_sac_rank IS NULL OR coalesce(r.sac_max_rank, 0) <= $max_sac_rank)
-  AND ($max_mtb_rank IS NULL OR coalesce(r.mtb_scale_rank, 0) <= $max_mtb_rank)
-  // "on trails, off the roads" as a floor. OSM relations carry no off-road
-  // share (it is a generation-time measure); null passes rather than hiding
-  // every named sentiero behind a number they do not have.
-  AND ($min_off_road IS NULL OR r.off_road_share IS NULL
-       OR r.off_road_share >= $min_off_road)
-  // Geography, arrival and town-share — the factory's parameter surface,
-  // answerable at selection too. regions is data the export always writes;
-  // urban_share is a generation-time measure, so mapped relations carry
-  // null and PASS a cap they cannot answer (the off-road rule's shape).
-  AND ($regions IS NULL OR any(region IN r.regions WHERE region IN $regions))
-  AND ($max_urban_share IS NULL OR r.urban_share IS NULL
-       OR r.urban_share <= $max_urban_share)
-OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
-WITH r, s
-WHERE ($near_lat IS NULL
-   OR (s IS NOT NULL
-       AND point.distance(s.location,
-                          point({latitude: $near_lat, longitude: $near_lon}))
-           <= $near_radius_m))
-  // The kind of arrival: any wanted class offered at the start. A route
-  // with no start cannot prove an arrival, so a stated filter excludes it.
-  AND ($start_classes IS NULL
-   OR (s IS NOT NULL
-       AND any(class IN s.start_classes WHERE class IN $start_classes)))
-
-// fragment: loop_poi_conjunction
-// Every requested feature must be present, not merely one of them: "past a
-// hut AND a lake" is a conjunction to a walker. The EXISTS form is identical
-// in meaning to "wanted IN collect(kinds)" but needs no CALL subquery, so a
-// count does not pay for a display list it will not use (house style shared
-// with search_trails). Opens its own WITH -- loop_candidates ended in a WHERE.
-WITH r, s
-WHERE size($poi_types) = 0
-   OR all(wanted IN $poi_types
-          WHERE EXISTS { MATCH (r)-[:PASSES]->(p:Place) WHERE p.kind = wanted })
 
 // fragment: route_card
 // The row a card is drawn from, shared by the search answer and the
@@ -524,57 +327,6 @@ RETURN r.route_id AS id,
        s.location.longitude AS start_lon,
        pois AS pois
 
-// name: search_loops
-// Stage 7, over the PIPELINE catalogue (2026-08-21): the chat layer SELECTS
-// from precomputed routes instead of computing one per request. The catalogue
-// is loaded by pipeline/export/neo4j_load.py from the route documents, which
-// stay canonical -- geometry and the profile are fetched by route_id, never
-// stored here.
-// include: loop_candidates
-// include: loop_poi_conjunction
-// include: route_card
-// OSM relations carry no score; 0.5 slots them between good and poor
-// generated routes rather than at the bottom, and climb breaks the tie.
-ORDER BY coalesce(r.score, 0.5) DESC, coalesce(r.ascent_m, 0) DESC
-LIMIT $limit
-
-// name: estimate_loops
-// The count-driven loop's estimate: how many routes THIS plan would return,
-// plus a bounded sample of facet rows for a Python-side narrowing question
-// (query-loop Phase 3, unwritten — its only caller passes facet_cap=0, so the
-// rows are not collected and the COUNT is what reaches the answer as
-// total_loops). Same two fragments as search_loops, so
-// the count is exactly the population search_loops would page through -- they
-// cannot drift. total is exact even though rows is capped: both aggregate the
-// same stream, and the cap slices only the collected list.
-//
-// Which is also the honest limit of the word 'bounded' here: the OUTPUT is
-// capped, the intermediate collect is not. Every matching route is held in
-// memory before the slice, so peak memory tracks the catalogue rather than
-// $facet_cap. That is fine at the catalogue's size (~1k routes, bounded by
-// the export; the one caller — chat/orchestrator.py _loops — runs it with
-// facet_cap=0, and only when search_loops filled its page) and is the price of
-// one pass over one stream -- an exact count and its sample cannot be taken
-// separately without two queries that can disagree. Revisit if the catalogue
-// grows by an order of magnitude.
-// include: loop_candidates
-// include: loop_poi_conjunction
-OPTIONAL MATCH (r)-[:PASSES]->(pl:Place)
-WITH r, s, collect(DISTINCT pl.kind) AS kinds
-WITH count(r) AS total,
-     collect({
-       distance_m: r.distance_m,
-       ascent_m: coalesce(r.ascent_m, 0.0),
-       activity: r.activity,
-       shape: r.shape,
-       mtb_rideable: coalesce(r.mtb_rideable, false),
-       sac_rank: coalesce(r.sac_max_rank, 0),
-       mtb_rank: coalesce(r.mtb_scale_rank, 0),
-       has_named_start: s IS NOT NULL,
-       kinds: kinds
-     })[0..$facet_cap] AS rows
-RETURN total, rows
-
 // name: route_exists
 // The geometry itself lives in the route DOCUMENT (docs/route-document.md),
 // served from the documents store by the API -- never copied into the graph,
@@ -582,7 +334,7 @@ RETURN total, rows
 // answers "is this a catalogue route", so the endpoint can 404 honestly
 // before touching the filesystem.
 //
-// warnings = 0 for the same reason loop_candidates carries it: a quarantined
+// warnings = 0 quarantines a bad route here too: a quarantined
 // row is qa's business, not an answer. Without it, POSTing any route_id makes
 // favorites the one surface where a 0.0 km OSM fragment wearing a famous name
 // reaches the screen as a full card, past the filter every search applies.
@@ -593,21 +345,6 @@ RETURN r.route_id AS id,
        // refuse a file from another build instead of serving it silently.
        // Null on a graph loaded before the field existed; the check skips.
        r.doc_run_id AS doc_run_id
-
-// name: catalogue_audit_index
-// The audit surface (scripts.audit_catalogue_documents): EVERY catalogue
-// row, quarantined ones included -- deliberately no `warnings = 0` here,
-// because the audit's job is to compare the graph against the document
-// store, and a desynced quarantined row is still a desync. This template
-// never answers a user; the four answer surfaces keep the quarantine (see
-// the guard test that enumerates them).
-MATCH (r:Route)
-RETURN r.route_id AS route_id,
-       r.run_id AS load_run_id,
-       r.doc_run_id AS doc_run_id,
-       r.schema_version AS schema_version,
-       r.warnings AS warnings
-ORDER BY r.route_id
 
 // name: healthcheck
 RETURN 1 AS ok
@@ -625,7 +362,7 @@ RETURN trails, segments, intersections, pois, connects_to,
        count(co) AS composed_of
 
 // name: routes_by_ids
-// Hydrate favorite routes into the same rows search_loops returns -- literally
+// Hydrate favorite routes through the shared card fragment -- literally
 // the same: both end in the route_card fragment, so a favorites card and a
 // search card cannot come to differ. No ORDER BY:
 // the caller re-sorts to the favorites' own saved order (Postgres created_at),
@@ -633,7 +370,7 @@ RETURN trails, segments, intersections, pois, connects_to,
 // yields no row — the API reports it as missing rather than dropping it
 // silently, because :Route nodes are replaced wholesale per export and only
 // the geometry-derived id persists.
-// A quarantined route yields no row here either (loop_candidates' rule), so a
+// A quarantined route yields no row here either, so a
 // favorite that grew warnings on a later export reads as missing rather than
 // rendering as a card search would never show.
 MATCH (r:Route)

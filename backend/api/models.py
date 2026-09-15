@@ -190,21 +190,6 @@ class RouteDetail(BaseModel):
     attribution: str
 
 
-class RouteRequest(BaseModel):
-    start: str = Field(description="POI name to start from")
-    end: str = Field(description="POI name to finish at")
-    max_distance_m: Annotated[float, Field(gt=0)] | None = None
-
-
-class RouteResponse(BaseModel):
-    total_distance_m: float
-    elevation_gain_m: float | None = None
-    start_poi: PoiRef
-    end_poi: PoiRef
-    geometry: dict[str, object]  # GeoJSON LineString
-    surfaces: list[str | None] = Field(default_factory=list)
-
-
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     database: Literal["up", "down"]
