@@ -9,16 +9,13 @@ What it must show is not the model's subqueries but **what was actually
 executed** — which is a different thing, and the interesting one, because the
 composer makes decisions of its own:
 
-  * a duration the user stated is DROPPED on the catalogue until DIN 33466 is
-    calibrated, and silently dropping it is exactly the failure mode the rule
-    was written against — so it is named here;
-  * a single stated distance is WIDENED into a band ("a 15 km loop" matches
-    nothing at exactly 15,000 m), and the band is what ran;
   * "family friendly" CAPS difficulty at 1 whatever else was said;
   * features are a CONJUNCTION — "a lake or a peak" runs as lake AND peak,
-    which a walker cannot otherwise tell from the answer;
-  * a trail ask may ALSO have been posed to the route catalogue, or refused
-    there because a constraint could not be honoured.
+    which a walker cannot otherwise tell from the answer.
+
+This describes the TRAIL side only. A drawn outing reads itself back through
+the planner's assumptions strip ("reading ~3 h as 12-18 km"), which is a
+statement about the numbers compile.py chose and belongs with them.
 
 Pure, so every one of those is pinned by a test. Presentation vocabulary lives
 here rather than in the frontend because these are statements about what the
@@ -29,8 +26,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from chat.composer import ComposedPlan, catalogue_view
-from chat.intents import LoopSearchIntent, TrailSearchIntent
+from chat.composer import ComposedPlan
+from chat.intents import TrailSearchIntent
 
 #: Our 1-4 scale in the words the intent prompt uses for it.
 DIFFICULTY_WORDS = {1: "easy", 2: "intermediate", 3: "difficult", 4: "hardest"}
@@ -96,44 +93,19 @@ def _features(poi_types: list[str]) -> str | None:
     return " and ".join([", ".join(named[:-1]), named[-1]])
 
 
-def _search_rows(
-    search: TrailSearchIntent,
-    rows: list[dict[str, str]],
-    *,
-    view: LoopSearchIntent | None = None,
-) -> None:
-    """The trail ask as it ran; `view` is the catalogue ask beside it, if any.
-
-    The two are not always the same query. A single stated distance stays
-    exact for the trails and is WIDENED into a band for the catalogue (real
-    routes are 15,328 m, so 15 km exactly matches nothing there), and showing
-    only one of them under one heading reports a filter half the answer did
-    not run.
-    """
-    catalogue = view is not None
+def _search_rows(search: TrailSearchIntent, rows: list[dict[str, str]]) -> None:
+    """The trail ask as it ran."""
     _row(rows, "activity", ACTIVITY_WORDS.get(search.activity or ""))
-    _row(rows, "distance", _distance_row(search, view))
+    _row(rows, "distance", _band(search.min_distance_m, search.max_distance_m))
     _row(
         rows,
         "climb",
         _climb_band(search.min_elevation_gain_m, search.max_elevation_gain_m),
     )
     if search.max_duration_min is not None:
-        # Trails ARE post-filtered by duration; the catalogue beside them is
-        # not (its durations wait on DIN 33466 calibration). When both kinds
-        # answer the same ask, a bare "under 2 h" asserts a filter over half
-        # the results it did not run — the silent drop this module exists to
-        # prevent, and the same caveat _loop_rows carries.
-        _row(
-            rows,
-            "time",
-            (
-                f"under {_hours(search.max_duration_min)} — named trails only; "
-                "our catalogue durations are not calibrated yet"
-                if catalogue
-                else f"under {_hours(search.max_duration_min)}"
-            ),
-        )
+        # Trails ARE post-filtered by duration, so this one is a filter that
+        # really ran and can be stated plainly.
+        _row(rows, "time", f"under {_hours(search.max_duration_min)}")
     if search.family_friendly:
         # The cap is applied in the orchestrator, so say the cap, not the flag.
         _row(rows, "difficulty", "easy only, for children")
@@ -157,22 +129,6 @@ def _search_rows(
     )
 
 
-def _distance_row(
-    search: TrailSearchIntent, view: LoopSearchIntent | None
-) -> str | None:
-    """The band the trails ran, plus the catalogue's where it differs."""
-    stated = _band(search.min_distance_m, search.max_distance_m)
-    if view is None or stated is None:
-        return stated
-    if (view.min_distance_m, view.max_distance_m) == (
-        search.min_distance_m,
-        search.max_distance_m,
-    ):
-        return stated
-    widened = _band(view.min_distance_m, view.max_distance_m)
-    return f"{stated} for trails, {widened} in our route catalogue"
-
-
 def _difficulty(low: int | None, high: int | None) -> str | None:
     if low is not None and high is not None and low == high:
         return DIFFICULTY_WORDS.get(high)
@@ -188,29 +144,6 @@ def _difficulty(low: int | None, high: int | None) -> str | None:
     return None
 
 
-def _loop_rows(loop: LoopSearchIntent, rows: list[dict[str, str]]) -> None:
-    _row(rows, "activity", ACTIVITY_WORDS.get(loop.activity or ""))
-    _row(rows, "distance", _band(loop.min_distance_m, loop.max_distance_m))
-    if loop.max_ascent_m is not None:
-        _row(rows, "climb", f"under {round(loop.max_ascent_m)} m")
-    _row(rows, "difficulty", _difficulty(None, loop.max_difficulty_level))
-    _row(rows, "passes", _features(list(loop.poi_types)))
-    _row(rows, "starting near", loop.near)
-    if loop.avoid_roads:
-        _row(rows, "surface", "on trails, off the roads")
-    if loop.max_duration_min is not None:
-        # The one thing the catalogue cannot honour. Naming it is the whole
-        # point: a dropped filter nobody mentions is a wrong answer wearing a
-        # right one's clothes (docs/route-document.md, duration is absent
-        # until DIN 33466 is calibrated).
-        _row(
-            rows,
-            "time",
-            f"you said under {_hours(loop.max_duration_min)} — not filtered, "
-            "our durations are not calibrated yet",
-        )
-
-
 def describe(plan: ComposedPlan) -> list[dict[str, str]]:
     """The plan as rows of (key, value). Empty when nothing was searched."""
     if plan.is_clarify:
@@ -218,29 +151,12 @@ def describe(plan: ComposedPlan) -> list[dict[str, str]]:
 
     rows: list[dict[str, str]] = []
 
-    if plan.loop is not None:
-        _loop_rows(plan.loop, rows)
-        _row(rows, "looked in", "our route catalogue")
-    elif plan.search is not None:
-        # The catalogue ask that ran beside the trails, if one did. It decides
-        # how honest two rows have to be: the duration the catalogue cannot
-        # filter, and the distance band it widened.
-        view = catalogue_view(plan.search) if plan.theme is None else None
-        also_catalogue = view is not None
-        _search_rows(plan.search, rows, view=view)
+    if plan.search is not None:
+        _search_rows(plan.search, rows)
         if plan.theme is not None:
-            # A theme cannot be matched against the catalogue (no embeddings
-            # there), which is why such a turn stays trails-only.
             _row(rows, "looked in", "named trails, matched by description")
-        elif also_catalogue:
-            _row(rows, "looked in", "named trails and our route catalogue")
         else:
-            _row(
-                rows,
-                "looked in",
-                "named trails only — the catalogue cannot check every "
-                "constraint you gave",
-            )
+            _row(rows, "looked in", "named trails")
     elif plan.theme is not None:
         _row(rows, "looked in", "named trails, matched by description")
 

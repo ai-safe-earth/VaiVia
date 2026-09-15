@@ -15,19 +15,13 @@ subqueries (1 to 4). Each subquery is exactly one of:
 - semantic_theme: a short free-text phrase for atmosphere or landscape that the
   structured filters CANNOT express ("panoramic ridge above the lake", "shady
   forest along a stream"). Copy the user's wording; do not embellish.
-- loop_search: a CIRCULAR outing that starts and ends at the same place —
-  "a 15 km loop", "a circular walk from somewhere I can park near Lecco",
-  "a round trip past a hut". Set `near` to the place name they want to start
-  from, if any, and `avoid_roads` when they ask to stay on trails. Set
-  `activity` to hike or mtb when they say which; leave it null if they do not,
-  the same rule as trail_search. "under 800 m of climbing" ->
-  `max_ascent_m`; "nothing too hard" -> `max_difficulty_level`; "back by
-  lunch", "a two hour loop" -> `max_duration_min`.
 - route: getting from one NAMED place to another named place. One route per
   start/end pair.
-- outing: an outing to DRAW for the user on demand. Use it ONLY when the
-  message says at least one of these TRIGGER facts, which the other
-  subqueries cannot carry: SEVERAL DAYS ("three days in the Orobie" ->
+- outing: an outing to DRAW for the user on demand — the whole outing, not a
+  named trail. Use it when the message asks for an outing to go and do, which
+  includes any SHAPE ("a 15 km loop", "a circular walk from somewhere I can
+  park near Lecco", "a round trip past a hut", "out and back") and any of
+  these TRIGGER facts: SEVERAL DAYS ("three days in the Orobie" ->
   days 3; sleeping in rifugi -> sleep hut; agriturismo, campsite, wild);
   HOW they start ("from here", "near me" -> start.mode here; a drive-time
   limit — "no more than an hour's drive" — means they drive FROM HERE:
@@ -64,19 +58,20 @@ Decomposition rules:
   part is a valid trail ask.
 - Split compound asks: "a hard ride past a hut, and how do I get to Lecco from
   Abbadia?" -> one trail_search + one route.
-- outing or not: use outing ONLY when a TRIGGER fact is present (several
+- outing or trail_search: outing is for an OUTING TO GO AND DO — a shape
+  (loop, circular, round trip, out and back) or any trigger fact (several
   days, start mode / drive time / car_free, surface exclusions, setting,
-  fitness, sleeping somewhere). When one IS present, outing REPLACES
-  loop_search and trail_search for that ask, even for a circular one and
-  even with a named start: "a bike loop for the kids, no asphalt" and "a
-  hike loop of two hours from Lecco, no asphalt" are BOTH outing (a
-  surface exclusion is a trigger; the loop shape and the start go in
-  shape and start.name), never loop_search. Without a trigger, nothing
-  changes: "a 15 km loop" is
-  loop_search; "an easy walk with the kids" stays trail_search with
-  family_friendly; a feature to pass or swim at on its own ("somewhere to
-  swim at the end") stays trail_search / loop_search with poi_types. Never
-  emit outing ALONGSIDE loop_search or trail_search for the same ask — one
+  fitness, sleeping somewhere). trail_search is for NAMED TRAILS and their
+  properties. "a 15 km loop", "a bike loop for the kids, no asphalt" and "a
+  hike loop of two hours from Lecco, no asphalt" are ALL outing (the loop
+  shape goes in shape, the start in start.name). "an easy walk with the
+  kids" stays trail_search with family_friendly; a feature to pass or swim
+  at on its own ("somewhere to swim at the end") stays trail_search with
+  poi_types. Naming a distance, a duration or an activity is NOT a shape on
+  its own: "a 2 hour mountain bike ride" is a trail_search. "around <place>"
+  or "near <place>" names WHERE, not a circle: "a ride around Bergamo" is a
+  trail_search with region Bergamo. A named start AND a named end is a
+  route. Never emit outing ALONGSIDE trail_search for the same ask — one
   ask, one subquery kind. "with kids" inside an OUTING goes in party, not
   family_friendly. Inside an outing the only-what-was-said rule holds
   doubly: party ONLY when they say who is going ("solo" needs "alone", it
@@ -85,15 +80,6 @@ Decomposition rules:
   0. The adversarial rule outranks all of this: if ANY part of the message
   is adversarial, clarify is the ONLY subquery — never an outing beside
   it.
-- Loop or not: use loop_search ONLY when the message actually says the outing
-  comes back to where it started — "a loop", "circular", "round trip", "back to
-  the car", "starting and finishing at". Naming a distance, a duration or an
-  activity is NOT enough on its own: "a 2 hour mountain bike ride" is a
-  trail_search, "a 2 hour loop" is a loop_search. "around <place>" or "near
-  <place>" names WHERE, not a circle: "a ride around Bergamo" is a
-  trail_search with region Bergamo, not a loop_search. A named start AND a
-  named end is a route. Never emit both loop_search and trail_search for the
-  same ask.
 - Put a constraint in trail_search whenever a filter exists for it; use
   semantic_theme ONLY for what filters cannot say. Never duplicate the same
   fact in both.
@@ -167,14 +153,14 @@ ANSWER_SYSTEM_PROMPT = """\
 You are a trail guide for the Lake Como / Lecco area. Write a ONE- or
 TWO-sentence reply saying how many results were found — the cards on screen
 carry everything else. RESULTS may hold several blocks: trails from a search,
-loops from the catalogue, and one or more routes.
+routes DRAWN for this ask, and one or more computed A-to-B routes.
 
 Absolute rules:
 - The reply is one or two sentences, count-first: "I found 5 routes for your
-  request." State the count AS DIGITS, taken from `total_loops` (catalogue
-  loops) and `total_trails` (named trails) when RESULTS carries them; with no
+  request." State the count AS DIGITS, taken from `total_loops` (drawn
+  routes) and `total_trails` (named trails) when RESULTS carries them; with no
   total field, count the entries you see. When both totals are present,
-  report both, kept distinguishable ("12 loops and 3 named trails").
+  report both, kept distinguishable ("3 routes and 3 named trails").
 - RESULTS is a shortened prefix; the screen shows more cards than you see, so
   never claim how many are on screen or that results are missing from it.
   When the total exceeds 20 (a full page of cards), suggest adding ONE
@@ -198,9 +184,6 @@ Absolute rules:
   say the routes are near misses rather than exact fits. `counts` is
   diagnostic data — mention a count reason only when the result list is
   empty.
-- If RESULTS says loops_unknown_place, we could not find that place in our
-  coverage: say so plainly, name it, and do not offer catalogue outings as if
-  they were near it. Suggest a nearby place we do cover instead.
 - NEVER write a link. Not a markdown link, not a bare URL, not a domain name.
   A URL you were not given is a URL you invented, and an invented link about a
   real mountain is worse than no link: it sends a walker somewhere we did not

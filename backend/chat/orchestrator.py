@@ -31,7 +31,6 @@ from chat.composer import (
     TrailSearchIntent,
     apply_delta,
     capped_difficulty,
-    catalogue_view,
     compose,
     standing_dump,
     standing_load,
@@ -217,19 +216,12 @@ class ChatOrchestrator:
                 plan = ComposedPlan(
                     clarify=ClarifyIntent(
                         question=(
-                            "There is no outing to refine yet — " "ask for one first."
+                            "There is no outing to refine yet — ask for one first."
                         )
                     )
                 )
             else:
-                from chat.composer import outing_view
-
-                delta = standing.outing.model_copy(update=chip)
-                plan = ComposedPlan(
-                    outing=delta,
-                    loop=outing_view(delta),
-                    loop_from_outing=True,
-                )
+                plan = ComposedPlan(outing=standing.outing.model_copy(update=chip))
                 refined = True
         else:
             plan_result = await self._llm.extract_plan(
@@ -355,12 +347,14 @@ class ChatOrchestrator:
     def _result_kind(plan: ComposedPlan) -> str:
         if plan.is_clarify:
             return "clarify"
-        if plan.routes and not (plan.search or plan.theme or plan.loop):
+        if plan.routes and not (plan.search or plan.theme or plan.outing):
             return "route"
-        # A loops-only turn is a loop_search, not a trail_search. The label is
-        # client-facing: mislabelling it makes the frontend render catalogue
-        # loops as if they were trails, which they are not.
-        if plan.loop is not None and not (plan.search or plan.theme):
+        # A drawn-outing turn is a loop_search, not a trail_search. The label is
+        # client-facing: mislabelling it makes the frontend render drawn routes
+        # as if they were named trails, which they are not. The wire value keeps
+        # its name now the catalogue is gone — the frontend contract is the
+        # shape of the cards, not where they came from.
+        if plan.outing is not None and not (plan.search or plan.theme):
             return "loop_search"
         return "trail_search"
 
@@ -382,8 +376,21 @@ class ChatOrchestrator:
         # searched. compile owns the numbers; the planner draws and counts;
         # a Python clarify (coverage, infeasibility) poisons the turn like a
         # model clarify would — no other block runs beside it.
-        outing_handled = False
-        if plan.outing is not None and self._planner is not None:
+        if plan.outing is not None and self._planner is None:
+            # No pack, no drawing — and with the catalogue retired (R7) there
+            # is nothing behind it to fall back to. Say so rather than
+            # streaming an empty result list, which reads as "nothing exists".
+            # Production cannot reach this: REQUIRE_PACK refuses to boot.
+            return {
+                "clarification": (
+                    "I cannot draw routes right now — the route data is not "
+                    "loaded. Ask about a named trail instead, or try again "
+                    "shortly."
+                ),
+                "suggestions": [],
+            }, {}
+
+        if plan.outing is not None:
             # Coverage speaks with the pack's own gazetteer (R5): the areas
             # this network actually holds, not a name list in code.
             compiled = compile_outing(
@@ -418,36 +425,18 @@ class ChatOrchestrator:
             if drawn.relaxed:
                 results["relaxed"] = drawn.relaxed
             refs["loop_ids"] = [card["id"] for card in cards]
-            outing_handled = True
-
-        # Which catalogue ask, if any, runs beside the trails. An implicit one
-        # is the trail ask posed to the catalogue as well (owner rule
-        # 2026-08-21): a walker compares a loop against a sentiero without
-        # asking twice. catalogue_view returns None when a stated constraint
-        # cannot be honoured there — and a theme cannot be, the catalogue has
-        # no embeddings, which is why a semantic turn stays trails-only.
-        loop_intent: Any = plan.loop
-        if outing_handled and plan.loop_from_outing:
-            # The derived stand-in exists for the no-pack posture; with the
-            # planner answering, running it too would answer twice.
-            loop_intent = None
-        implicit_loops = False
-        if loop_intent is None and plan.search is not None and plan.theme is None:
-            loop_intent = catalogue_view(plan.search)
-            implicit_loops = loop_intent is not None
 
         # The blocks are independent reads over the same driver, so they go out
-        # together. Sequentially, a both-kinds turn paid for the trail search,
-        # then the place lookup, then the catalogue, one after another — three
-        # round trips of latency for work that shares no state.
+        # together. Sequentially, a trails-and-routes turn paid for the trail
+        # search and then the routes one after another — two round trips of
+        # latency for work that shares no state.
         wants_trails = plan.search is not None or plan.theme is not None
-        trail_result, loop_result, route_result = await asyncio.gather(
+        trail_result, route_result = await asyncio.gather(
             (
                 self._search(plan.search or TrailSearchIntent(), plan.theme)
                 if wants_trails
                 else _nothing()
             ),
-            self._loops(loop_intent) if loop_intent is not None else _nothing(),
             self._routes(plan.routes) if plan.routes else _nothing(),
         )
 
@@ -460,30 +449,6 @@ class ChatOrchestrator:
             if semantic_unavailable:
                 results["semantic_unavailable"] = True
             refs["trail_ids"] = [r["id"] for r in trails]
-
-        if loop_result is not None:
-            loops, near_resolved, total_loops = loop_result
-            if not near_resolved:
-                # A region we cannot place is a constraint the catalogue cannot
-                # honour, which is exactly when catalogue_view declines to pose
-                # the ask — it just cannot know that until resolution has run.
-                # An implicit block stays silent about it; an explicit ask must
-                # not: silence would be the wrong answer, so name the place we
-                # could not find rather than presenting routes from anywhere as
-                # routes from there — the rule the routing path already applies
-                # with unknown_place.
-                if not implicit_loops:
-                    results["loops"] = []
-                    results["loops_unknown_place"] = loop_intent.near
-                    refs["loop_ids"] = []
-            elif (loops or not implicit_loops) and "loops" not in results:
-                # One publish site for both the implicit and the explicit turn.
-                # An implicit block that came back empty is omitted rather than
-                # making the answer apologise for a list nobody asked for.
-                results["loops"] = loops
-                refs["loop_ids"] = [r["id"] for r in loops]
-                if total_loops is not None:
-                    results["total_loops"] = total_loops
 
         if route_result is not None:
             routes, route_refs = route_result
@@ -534,114 +499,6 @@ class ChatOrchestrator:
             if rows:
                 return rows[0]["lat"], rows[0]["lon"]
         return plan.near
-
-    async def _loops(
-        self, intent: Any
-    ) -> tuple[list[dict[str, Any]], bool, int | None]:
-        """Select from the catalogue; returns (rows, near_resolved, total).
-
-        Everything costly ran offline in the pipeline's generator, so this is a
-        filter over (:Route) ordered by the score computed there.
-
-        near_resolved is False only when the user named a place and the
-        catalogue could not find it. It matters because the fallback is to run
-        with no geo filter at all: the caller must not present routes from the
-        whole region as if they were near a place we never located — the
-        readback would say "near: Bergamo" over a list from Lecco.
-        """
-        near_lat = near_lon = None
-        near_resolved = True
-        if intent.near:
-            near_resolved = False
-            # Same resolution path as point-to-point routing: escaped full-text
-            # first, CONTAINS as fallback. User text never reaches Cypher as
-            # anything but a parameter.
-            query = lucene_escape(intent.near).strip()
-            rows = (
-                await self._db.run_named("poi_by_name_fulltext", query=query, limit=1)
-                if query
-                else []
-            )
-            if not rows:
-                rows = await self._db.run_named(
-                    "poi_by_name", name=intent.near, limit=1
-                )
-            if rows:
-                near_lat, near_lon = rows[0]["lat"], rows[0]["lon"]
-                near_resolved = True
-
-        # Our 1-4 difficulty maps onto two different OSM scales. sac_scale runs
-        # T1-T6 and mtb:scale 0-6, so the same "moderate" is a different number
-        # on each; only the one matching the activity is applied, or a hiking
-        # ceiling would silently constrain a bike search.
-        hike_ceiling = mtb_ceiling = None
-        if intent.max_difficulty_level is not None:
-            hike_ceiling = HIKE_RATING_BY_LEVEL.get(intent.max_difficulty_level)
-            mtb_ceiling = MTB_RATING_BY_LEVEL.get(intent.max_difficulty_level)
-            if intent.activity == "mtb":
-                hike_ceiling = None
-            elif intent.activity == "hike":
-                mtb_ceiling = None
-
-        # The user's activity, in the catalogue's vocabulary. 'hike' covers the
-        # hiking and foot relation families; 'mtb' does not pre-filter on
-        # activity alone — a generated mtb loop AND a rideable OSM relation
-        # both answer a bike question, and mtb_rideable is the conjunction that
-        # decides (one forbidding segment forbids, metadata-rules.md).
-        activities = mtb_only = None
-        if intent.activity == "hike":
-            activities = ["hiking", "foot"]
-        elif intent.activity == "mtb":
-            mtb_only = True
-
-        # Duration is deliberately NOT filtered. The pipeline catalogue carries
-        # no duration until DIN 33466 is calibrated against local guidebook
-        # times (docs/route-document.md: the uncalibrated figure reads 10 h for
-        # a 6-8 h classic) — a wrong figure would exclude the wrong routes
-        # silently. The answer presents distance and climb, which are measured.
-
-        settings = get_settings()
-        params: dict[str, Any] = dict(
-            activities=activities,
-            mtb_only=mtb_only,
-            # Ceilings compare against sac_max — the EXIGENT grade, the hardest
-            # metre walked (owner rule 2026-08-20): a ceiling is a safety
-            # promise, and the character grade would let a T2 walk with a T4
-            # move through a T2 ceiling.
-            max_sac_rank=hike_ceiling,
-            max_mtb_rank=mtb_ceiling,
-            max_ascent_m=intent.max_ascent_m,
-            min_distance_m=intent.min_distance_m,
-            max_distance_m=intent.max_distance_m,
-            # "on trails, off the roads" as a floor rather than a hard filter:
-            # a high bar would exclude good routes for a few hundred metres of
-            # lane, and OSM relations carry no share at all (null passes).
-            min_off_road=0.7 if intent.avoid_roads else None,
-            poi_types=list(intent.poi_types),
-            near_lat=near_lat,
-            near_lon=near_lon,
-            near_radius_m=settings.loop_near_radius_m,
-            # The factory's parameter surface, present in the template and
-            # deliberately unstated here: no intent field maps to them yet
-            # (regions/arrival-class/urban land with the standing plan and
-            # the card work), and an unstated filter filters nothing.
-            regions=None,
-            start_classes=None,
-            max_urban_share=None,
-        )
-        rows = await self._db.run_named(
-            "search_loops", **params, limit=CARD_RESULT_LIMIT
-        )
-        # The true population behind the capped page, for "I found N routes".
-        # A short page IS its population — estimate_loops shares search_loops'
-        # filter fragments byte-for-byte (pinned in test_query_loader), so the
-        # extra round-trip only adds information when LIMIT may have
-        # truncated. facet_cap=0: only the count is wanted.
-        total: int | None = len(rows)
-        if len(rows) >= CARD_RESULT_LIMIT:
-            est = await self._db.run_named("estimate_loops", **params, facet_cap=0)
-            total = est[0].get("total") if est else None
-        return rows, near_resolved, total
 
     async def _search(
         self, intent: TrailSearchIntent, theme: str | None

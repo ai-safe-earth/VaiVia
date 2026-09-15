@@ -14,8 +14,13 @@
   "id": "g02",
   "question": "a technical mountain bike loop around the lake",
   "expect": {
-   "loop.activity": "mtb"
-  }
+   "outing.activity": "mtb",
+   "outing.shape": "loop"
+  },
+  "expect_facts": {
+   "shape": "loop"
+  },
+  "pack_run_id": "pack-parity"
  },
  {
   "id": "g03",
@@ -194,9 +199,9 @@
   "id": "g20",
   "question": "an easy mountain bike loop near Bergamo",
   "expect": {
-   "loop.activity": "mtb",
-   "loop.max_difficulty_level": 1,
-   "loop.near": "Bergamo"
+   "outing.activity": "mtb",
+   "outing.fitness": "easy",
+   "outing.area": "Bergamo"
   }
  },
  {
@@ -265,10 +270,10 @@
    "shorter"
   ],
   "expect": {
-   "loop.max_distance_m": {
-    "lt": 18000
+   "outing.max_distance_km": {
+    "lt": 18
    },
-   "loop.activity": "hike"
+   "outing.activity": "hike"
   }
  },
  {
@@ -278,7 +283,7 @@
    "actually make it longer, up to 20 km"
   ],
   "expect": {
-   "loop.max_distance_m": 20000
+   "outing.max_distance_km": 20
   }
  },
  {
@@ -288,11 +293,11 @@
    "one that passes a lake"
   ],
   "expect": {
-   "loop.poi_types": [
+   "outing.waypoint_kinds": [
     "lake"
    ],
-   "loop.max_distance_m": {
-    "lte": 15000
+   "outing.max_distance_km": {
+    "lte": 15
    }
   }
  },
@@ -303,18 +308,18 @@
    "easier please"
   ],
   "expect": {
-   "loop.activity": "mtb",
-   "loop.max_difficulty_level": {
-    "lte": 2
-   },
-   "loop.max_distance_m": {
+   "outing.activity": "mtb",
+   "outing.max_distance_km": {
+    "lte": 24
+   }
+  },
+  "expect_facts": {
+   "shape": "loop",
+   "distance_m": {
     "lte": 24000
    }
   },
-  "expect_loops": [
-   "vv2-7b730e9a4e6d1ed2-fwd",
-   "vv2-5543142f4082a201-fwd"
-  ]
+  "pack_run_id": "pack-parity"
  },
  {
   "id": "g31",
@@ -357,8 +362,8 @@
   ],
   "expect": {
    "routes": 0,
-   "loop.max_distance_m": {
-    "lte": 12000
+   "outing.max_distance_km": {
+    "lte": 12
    }
   }
  },
@@ -441,8 +446,8 @@
   "id": "g44",
   "question": "un anello in mountain bike vicino a Bergamo",
   "expect": {
-   "loop.activity": "mtb",
-   "loop.near": "Bergamo"
+   "outing.activity": "mtb",
+   "outing.area": "Bergamo"
   }
  },
  {
@@ -484,9 +489,9 @@
    "più corto"
   ],
   "expect": {
-   "loop.activity": "hike",
-   "loop.max_distance_m": {
-    "lt": 18000
+   "outing.activity": "hike",
+   "outing.max_distance_km": {
+    "lt": 18
    }
   }
  },

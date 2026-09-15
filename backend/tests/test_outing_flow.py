@@ -121,12 +121,18 @@ async def test_uncovered_area_clarifies_before_anything_runs(db, planner):
     assert "Tuscany" in "".join(tokens)
 
 
-async def test_without_a_pack_the_catalogue_still_answers(db):
-    db.when("search_loops", [])
+async def test_without_a_pack_the_turn_says_so_rather_than_answering_empty(db):
+    """R7 retired the catalogue, so a missing pack has nothing behind it.
+
+    An empty result list would read as "no such route exists", which is a lie
+    about the network; the turn refuses in words instead. Production never
+    reaches this — REQUIRE_PACK refuses to boot without a pack.
+    """
     orchestrator, _llm, _ = build(db, OUTING, planner=None)
     events = await collect(
         orchestrator, user_id="u1", message="a two hour loop from here", near=NEAR
     )
     results = results_of(events)
     assert "drawn" not in results
-    assert [c for c in db.calls if c[0] == "search_loops"]
+    assert "not loaded" in results["clarification"]
+    assert db.calls == []
