@@ -330,6 +330,12 @@ person will read it before flipping the flag.
 
 ## 16. A GDS Projection Built From The App's Configured Bbox Analyses A Third Of The Graph
 
+> **Closed by R7** for the routing path that hit it: `POST /routes` and its
+> per-request projection are deleted. The trap itself is live wherever a
+> projection is still built — `scripts.check_graph_connectivity` is the one
+> remaining GDS caller, and it reports over the whole ingested graph by
+> default for exactly this reason. Kept because the lesson outlives the code.
+
 **Risk:** every GDS algorithm runs over an **in-memory projection**, and a
 projection is built from a bbox. Take that bbox from `settings.default_bbox` and
 the algorithm answers correctly about a graph nobody asked about. Nothing errors:
@@ -428,3 +434,37 @@ runtime. A label scan under a warm cache on today's graph is fast enough to
 pass every test and die two regions later; the plan, unlike the timing, tells
 you which one you wrote. When the plan scans, bind the reference point to a
 variable first.
+
+---
+
+## 18. A Saved Route Outlives The Pack That Drew It, And Vertex Ids Do Not
+
+**Risk:** a favourited route writes `(:Start {vertex_id})` into Neo4j
+(`graph/save_route.cypher`, `save_route_start`). `vertex_id` is an index into
+the PACK's vertex array, and pack vertex ids are not stable across rebuilds —
+`CLAUDE.md` says so in as many words, which is why a route **id** is derived
+from geometry and never from a vertex. The `:Start` node is the one place a
+raw vertex id was allowed to persist.
+
+Nothing errors when the pack is rebuilt. The `:Start` node still exists, still
+carries a `location` point and a name, and `MERGE` on `vertex_id` will happily
+match it from the new pack — where that index now means a different junction,
+possibly in a different valley. The saved route then reports a start it does
+not have, and a second favourite drawn from the new pack merges INTO the stale
+node and inherits its names and season flags.
+
+**Why it has not bitten:** `location`, `names`, `car_free` and the season flags
+are written `ON CREATE` only, so today the first pack to save a given
+`vertex_id` wins and later packs silently agree with it. That is the bug, not
+the protection.
+
+**The rule:** the pack's `run_id` is part of a start's identity. A `:Start`
+merged from pack A must not match one merged from pack B — either key the node
+on `(run_id, vertex_id)`, or key it on the geometry the way routes already are.
+Until that lands, a pack rebuild means the `:Start` nodes are stale and should
+be dropped and re-derived from the saved documents, which carry the coordinates
+rather than the index.
+
+Related: the review bundle rule in `CLAUDE.md` exists for the same class of
+problem — an artefact that lags its source is worse than none, because it looks
+current.

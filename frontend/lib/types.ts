@@ -23,8 +23,9 @@ export interface Trail {
   pois: PoiRef[];
 }
 
-/** One circular route from the precomputed catalogue. Note the field names
- *  differ from Trail: a Route is generated, not curated. */
+/** One route DRAWN for this ask by the pack engine. Note the field names
+ *  differ from Trail: a Route is generated, not curated. The name is
+ *  historical — it carries every drawn shape now, not only loops. */
 export interface Loop {
   id: string;
   activity: string;
@@ -42,8 +43,8 @@ export interface Loop {
   destination_name: string | null;
   distance_m: number;
   ascent_m: number | null;
-  /** The expanded card's figures — already on the catalogue node, so they
-   *  travel with every row rather than needing a second fetch. */
+  /** The expanded card's figures — measured when the route was drawn, so
+   *  they travel with every row rather than needing a second fetch. */
   descent_m: number | null;
   lowest_m: number | null;
   highest_m: number | null;
@@ -160,11 +161,11 @@ export interface ChatResults {
    *  when nothing was searched (a clarify turn). */
   reading?: { key: string; value: string }[];
   trails?: Trail[];
-  /** Circular routes selected from the catalogue. Render on presence, not
-   *  on `kind`: a loops+theme turn is still labelled trail_search. */
+  /** Routes drawn for this ask. Render on presence, not on `kind`: a
+   *  routes+theme turn is still labelled trail_search. */
   loops?: Loop[];
-  /** True population behind the capped loops page ("I found N routes"),
-   *  from estimate_loops. Absent when the estimate returned nothing. */
+  /** How many routes were drawn ("I found N routes"). Absent when the
+   *  turn drew none. */
   total_loops?: number;
   /** Trails counterpart — today the page length, not an estimate (the trail
    *  graph is small); see orchestrator._execute. */
