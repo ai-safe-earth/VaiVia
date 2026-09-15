@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from vaivia_routes.destinations import (
     Destination,
     crow_band,

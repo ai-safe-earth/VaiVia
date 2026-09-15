@@ -7,6 +7,7 @@ crash, it reports a mountain loop as flat.
 from __future__ import annotations
 
 import pytest
+
 from vaivia_routes.assemble import (
     Assembled,
     WalkedEdge,

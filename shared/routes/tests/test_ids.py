@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from vaivia_routes.ids import (
     DIRECTED_SHAPES,
     canonical_piece,
