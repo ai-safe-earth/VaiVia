@@ -94,8 +94,8 @@ Audited 2026-08-17 against the working tree.
 
 `backend/ingestion/trailforks_ingest.py:207-211` is the only live path and
 raises `NotImplementedError`. There is no Trailforks HTTP client, no endpoint
-path, no query parameters. `trailforks_api_key` and `trailforks_base_url` exist
-in `backend/core/config.py:35-36` but are read by nothing. The cache directory
+path, no query parameters. `trailforks_api_key` and `trailforks_base_url` were
+settings read by nothing and were removed on 2026-08-26. The cache directory
 `backend/fixtures/trailforks_cache/` does not exist on disk; it is gitignored
 pre-emptively.
 
@@ -182,6 +182,32 @@ Now:
 
 Still open: nothing here covers Trailforks, which requires its own attribution
 the moment any of their data lands.
+
+**Closed 2026-08-21 — the one Trailforks link we were actually emitting.** The
+synthetic fixture carries an `alias` per trail, and ingestion turned it into
+`https://www.trailforks.com/trails/<alias>/`, which the trail card rendered as a
+live "View on Trailforks" anchor and the sources panel listed as a second
+source. Nothing had been taken from Trailforks — the URL was *constructed from a
+slug we invented* — so the link pointed at a real commercial domain for a trail
+that does not exist there, beside OSM-derived data, implying a provenance and a
+relationship that do not exist. It is the same failure the answer sanitizer
+exists to prevent (fragilities.md #14), except deterministic and ours rather
+than the model's. The synthesiser, the `trailforks_url` property, its four
+Cypher RETURNs, the API field, the card anchor and the sources row are all gone;
+a test pins that no ingested row may carry a url at all. `alias` stays in the
+fixture unused, because a synthetic record is allowed to look like the real
+shape — it just may not become a link.
+
+**Closed 2026-08-28 — third-party basemaps withdrawn the day they landed.**
+A Terrain basemap (tile.opentopomap.org) and a Satellite basemap (Esri
+World_Imagery via server.arcgisonline.com) were added earlier the same day
+without an entry here. Neither had reviewed terms: OpenTopoMap is a volunteer-run CC-BY-SA
+server whose policy discourages production load, and Esri routes production
+basemap use through an API key. The owner withdrew both on 2026-08-28 (they also
+made the near-black mtb route lines unreadable); the OSM raster basemap is again
+the only one wired. Reintroducing any third-party basemap requires its terms
+reviewed and recorded here first — the Trailforks precedent applies to tiles
+too.
 
 The good news on the OSM side: because ingestion never merges OSM and Trailforks
 nodes — they stay separate node types joined by `COMPOSED_OF` — the graph is

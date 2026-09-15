@@ -78,7 +78,7 @@ python -m ingestion.trailforks_ingest --mock
 python -m ingestion.trailforks_ingest --bbox 45.8,9.3,46.0,9.6
 ```
 
-`TRAILFORKS_API_KEY` and `TRAILFORKS_BASE_URL` exist in `core/config.py` and `.env.example` as placeholders for that future path; nothing reads them today.
+`TRAILFORKS_API_KEY` and `TRAILFORKS_BASE_URL` were placeholders for that future path and were removed on 2026-08-26: nothing read them, and a setting an operator can set with no effect is worse than an absent one. The path they were reserving needs written consent before it needs configuration.
 
 ### Mock fixture format
 

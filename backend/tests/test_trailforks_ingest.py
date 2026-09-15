@@ -95,3 +95,23 @@ def test_bergamo_trails_ship_in_the_fixture():
     assert by_id["tf_005"]["activity"] == "mtb"
     assert by_id["tf_004"]["hazards_winter"] == ["ice"]
     assert by_id["tf_004"]["hazards_summer"] == []
+
+
+def test_no_url_is_ever_synthesised_for_a_source_record():
+    """We do not link to Trailforks, and we certainly do not INVENT the link.
+
+    The synthetic fixture carries an `alias`, and until 2026-08-21 ingestion
+    turned it into https://www.trailforks.com/trails/<alias>/ — a live anchor,
+    on a real commercial domain, for a trail that does not exist there, beside
+    OSM-derived data. Same misattribution the answer sanitizer exists to stop
+    (fragilities.md #14), except deterministic and ours. No Trailforks data has
+    ever entered this system (docs/licensing.md) and none can, so a mapped
+    record carries no url at all.
+    """
+    from ingestion.trailforks_ingest import load_mock, trail_row
+
+    assert any(raw.get("alias") for raw in load_mock()), "fixture lost its aliases"
+    for raw in load_mock():
+        row = trail_row(raw)
+        assert not any("trailforks" in str(value).lower() for value in row.values())
+        assert not any(str(value).startswith("http") for value in row.values())

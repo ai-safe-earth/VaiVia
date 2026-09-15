@@ -20,7 +20,6 @@ export interface Trail {
   duration_mtb_min: number | null;
   best_seasons: string[];
   seasonal_hazards: string[];
-  trailforks_url?: string | null;
   pois: PoiRef[];
 }
 
@@ -29,25 +28,110 @@ export interface Trail {
 export interface Loop {
   id: string;
   activity: string;
-  /** The best feature it passes, or null when there is nothing worth naming it
-   *  after — the card shows its distance instead of inventing a name. */
+  /** 'osm_route' (a mapped relation) or 'generated'. */
+  kind: string;
+  /** 'loop' | 'destination' (constructed by the generator) or 'circular' |
+   *  'linear' (measured on a mapped route, schema 1.2). 'named' survives only
+   *  in pre-1.2 transcripts. */
+  shape: string;
+  /** A destination route is named after where it goes ("To Rifugio Elisa");
+   *  an OSM relation after itself; null when nothing earned a name — the card
+   *  shows its distance instead of inventing one. */
   name: string | null;
+  ref: string | null;
+  destination_name: string | null;
   distance_m: number;
   ascent_m: number | null;
-  duration_hike_min: number | null;
-  duration_mtb_min: number | null;
-  /** OSM sac_scale and mtb:scale as GraphHopper decoded them. */
-  hike_rating: number | null;
-  mtb_rating: number | null;
-  /** Computed from map tags, never a promise about the surface underfoot. */
-  off_road_share: number;
-  score: number;
-  named_pois: string[];
-  trailhead_id: string;
-  trailhead_name: string | null;
-  start_lat: number;
-  start_lon: number;
+  /** The expanded card's figures — already on the catalogue node, so they
+   *  travel with every row rather than needing a second fetch. */
+  descent_m: number | null;
+  lowest_m: number | null;
+  highest_m: number | null;
+  surface_dominant: string | null;
+  pieces: number | null;
+  continuous: boolean | null;
+  graded_share: number | null;
+  /** Two grades, both true (metadata-rules.md): sac_scale is the CHARACTER
+   *  (hardest grade covering ≥5% — the label it wears), sac_max the EXIGENT
+   *  grade (hardest metre walked — what you must be able to handle). */
+  sac_scale: string | null;
+  sac_max: string | null;
+  /** The access conjunction along the walked sequence: one forbidding segment
+   *  forbids. null = unknown, which is not yes. */
+  mtb_rideable: boolean | null;
+  mtb_scale: string | null;
+  /** WHY a "no" is a no, in metres: 6 m of steps and 1.6 km of private road
+   *  must not read identically. null on mapped relations (no conjunction
+   *  ran) and on rideable routes. */
+  bike_blocked_m: number | null;
+  /** Generation-time measure; OSM relations carry null, not 0. */
+  off_road_share: number | null;
+  score: number | null;
+  start_vertex_id: number | null;
+  start_names: string[] | null;
+  car_free: boolean | null;
+  start_lat: number | null;
+  start_lon: number | null;
   pois: PoiRef[];
+  /** DRAWN routes only (Phase 12): the ask's ordinal in this conversation,
+   *  the destination's kind, the surface distribution, and the line itself —
+   *  inline, because a drawn route is in no catalogue to fetch from. */
+  ordinal?: number;
+  destination_kind?: string | null;
+  surface?: Record<string, number>;
+  geometry?: GeoJSON.LineString;
+}
+
+/** The altitude profile as the route document carries it: two parallel
+ *  arrays, cumulative metres and heights. */
+export interface RouteProfile {
+  distance_m: number[];
+  elevation_m: number[];
+}
+
+/** The expandable card's payload from GET /routes/{id}/detail — what the
+ *  route document knows beyond the map shape. */
+export interface RouteDetail {
+  route_id: string;
+  kind: string | null;
+  shape: string | null;
+  profile: RouteProfile | null;
+  /** 'ok' = a true along-route measure; 'approximate' = stitched across the
+   *  gaps of a multi-piece route (drawn with a caveat, never as clean truth);
+   *  null = no profile at all. */
+  profile_quality: 'ok' | 'approximate' | null;
+  measures: {
+    distance_m: number;
+    ascent_m: number | null;
+    descent_m: number | null;
+    lowest_m: number | null;
+    highest_m: number | null;
+  };
+  continuity: { pieces: number; continuous: boolean };
+  surface: { distribution: Record<string, number>; dominant: string | null };
+  /** The document's difficulty block whole — both grades, the distribution,
+   *  and the RULE that produced the number, which ships with it. */
+  difficulty: {
+    sac_scale: string | null;
+    sac_max: string | null;
+    graded_share: number | null;
+    distribution?: Record<string, number>;
+    rule?: string;
+  } | null;
+  /** Carried, never filtered on. */
+  quality: {
+    warnings: string[];
+    matched_fraction: number | null;
+    edges_without_profile: number;
+  } | null;
+  places: {
+    id: string;
+    kind: string;
+    name: string | null;
+    offset_m: number;
+    distance_along_m: number | null;
+  }[];
+  attribution: string;
 }
 
 export interface RouteResult {
@@ -68,10 +152,23 @@ export interface RouteBlock {
 
 export interface ChatResults {
   kind: 'trail_search' | 'loop_search' | 'route' | 'clarify';
+  /** Where the card list folds: the prose narrates the first N results, the
+   *  rest sit behind "show more". Absent on older stored turns. */
+  answered_count?: number;
+  /** What the composed plan actually did, in the walker's own words — the
+   *  backend's account of the EXECUTED plan, never re-derived here. Absent
+   *  when nothing was searched (a clarify turn). */
+  reading?: { key: string; value: string }[];
   trails?: Trail[];
   /** Circular routes selected from the catalogue. Render on presence, not
    *  on `kind`: a loops+theme turn is still labelled trail_search. */
   loops?: Loop[];
+  /** True population behind the capped loops page ("I found N routes"),
+   *  from estimate_loops. Absent when the estimate returned nothing. */
+  total_loops?: number;
+  /** Trails counterpart — today the page length, not an estimate (the trail
+   *  graph is small); see orchestrator._execute. */
+  total_trails?: number;
   /** Every route in the plan; `route`/`geometry` mirror the first resolved one. */
   routes?: RouteBlock[];
   route?: RouteResult | null;
@@ -82,12 +179,31 @@ export interface ChatResults {
   clarification?: string;
   suggestions?: string[];
   semantic_unavailable?: boolean;
+  /** Phase 12: these routes were DRAWN for this ask, not found. */
+  drawn?: boolean;
+  /** The judgements the compiler made, in the walker's language — the
+   *  assumptions strip ("we read ~3 h as 12–18 km"). */
+  assumptions?: string[];
+  /** Rejections per stated reason — what the counts-built clarify reads. */
+  counts?: Record<string, number>;
+  /** Present when nothing fit exactly and the one relaxation rung ran. */
+  relaxed?: string;
 }
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** The stored assistant row's id — the handle feedback attaches to. */
+  messageId?: string;
   results?: ChatResults;
   streaming?: boolean;
   error?: string;
+}
+
+/** The stored turn a route card came from — both halves, because a vote is
+ *  addressed to (conversation, message, route) and the map layer holds a card
+ *  that has left the panel that knew them. */
+export interface FeedbackTurn {
+  messageId: string;
+  conversationId: string;
 }

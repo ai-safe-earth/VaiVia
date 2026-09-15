@@ -33,6 +33,34 @@ PoiType = Literal[
 ]
 Season = Literal["spring", "summer", "autumn", "winter"]
 
+# What an OUTING waypoint may be (docs/route-design.md). A superset of
+# PoiType: the pack planner draws past cultural and lodging places the
+# trail-search templates never filter on. Kept separate so trail_search's
+# vocabulary — and the graph indexes behind it — do not silently widen.
+PoiKind = Literal[
+    "lake",
+    "hut",
+    "campsite",
+    "station",
+    "bathing_water",
+    "viewpoint",
+    "peak",
+    "saddle",
+    "beach",
+    "spring",
+    "cave",
+    "waterfall",
+    "chapel",
+    "castle",
+    "ruins",
+    "picnic_site",
+    "church",
+    "museum",
+    "monument",
+    "agriturismo",
+    "river_access",
+]
+
 
 class PoiRef(BaseModel):
     name: str | None = None
@@ -54,7 +82,6 @@ class TrailSummary(BaseModel):
     duration_mtb_min: int | None = None
     best_seasons: list[str] = Field(default_factory=list)
     seasonal_hazards: list[str] = Field(default_factory=list)
-    trailforks_url: str | None = None
     pois: list[PoiRef] = Field(default_factory=list)
 
 
@@ -128,6 +155,41 @@ class RouteGeoJson(BaseModel):
     properties: dict[str, object]
 
 
+class RouteProfile(BaseModel):
+    """The altitude profile: two parallel arrays, cumulative metres and
+    heights, exactly as the route document carries them."""
+
+    distance_m: list[float]
+    elevation_m: list[float]
+
+
+class RouteDetail(BaseModel):
+    """The expandable card's payload — what the route document knows beyond
+    the map shape. profile_quality is 'ok' when the profile is a true
+    along-route measure, 'approximate' when it is a concatenation across the
+    gaps of a multi-piece route, and absent when there is no profile at all.
+    """
+
+    route_id: str
+    kind: str | None
+    shape: str | None
+    profile: RouteProfile | None
+    profile_quality: Literal["ok", "approximate"] | None
+    measures: dict[str, float | None]
+    continuity: dict[str, object]
+    surface: dict[str, object]
+    #: The document's difficulty block WHOLE — grade, exigent grade, the
+    #: distribution, and the rule that produced the number, because the rule
+    #: ships with the figure so nobody has to guess how it was derived.
+    difficulty: dict[str, object] | None
+    #: Carried, never filtered on: warnings, matched_fraction, unprofiled
+    #: edges. A quarantined route never reaches a card, but an emitted
+    #: warning belongs on the card that shows the route.
+    quality: dict[str, object] | None
+    places: list[dict[str, object]]
+    attribution: str
+
+
 class RouteRequest(BaseModel):
     start: str = Field(description="POI name to start from")
     end: str = Field(description="POI name to finish at")
@@ -146,3 +208,6 @@ class RouteResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     database: Literal["up", "down"]
+    #: The loaded pack's run_id — the network outings are drawn over.
+    #: None when no pack is mounted (catalogue-only, dev).
+    pack: str | None = None

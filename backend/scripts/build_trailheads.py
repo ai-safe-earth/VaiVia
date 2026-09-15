@@ -41,7 +41,7 @@ from uuid import uuid4
 
 from neo4j.exceptions import Neo4jError
 
-from core.config import get_settings
+from graph.extent import BBOX_HELP, describe, projection_bbox
 from graph.neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
@@ -65,14 +65,26 @@ ORDER BY size DESC LIMIT 1
 
 # One statement rather than a query per POI: the point index makes the inner
 # nearest-neighbour cheap, and 1,500 round trips would not be.
+#
+# `WITH p, p.location AS anchor` is the load-bearing line. The point index
+# cannot serve a distance between two PROPERTY accesses — the planner's own
+# hint error says "the comparison cannot be performed between two property
+# values" — so point.distance(p.location, i.location) label-scanned all 84k
+# intersections per anchor (167k dbHits each). That is what previously forced
+# snapping in batches of 25 against the server's 10 s transaction timeout,
+# and the batches still died once the graph grew. Bound to a variable, the
+# same predicate seeks the index (~30 dbHits per anchor): every anchor in the
+# two-region graph snaps in one transaction in under a second (measured
+# 2026-08-27, 1,547 anchors in 0.77 s), so the batching is gone.
 SNAP_ANCHORS = """
 MATCH (p:POI)
 WHERE p.type IN $anchor_types
-CALL (p) {
+WITH p, p.location AS anchor
+CALL (p, anchor) {
   MATCH (i:Intersection)
-  WHERE point.distance(p.location, i.location) <= $snap_m
+  WHERE point.distance(anchor, i.location) <= $snap_m
     AND i.component_id = $component_id
-  RETURN i AS i, point.distance(p.location, i.location) AS d
+  RETURN i AS i, point.distance(anchor, i.location) AS d
   ORDER BY d ASC LIMIT 1
 }
 RETURN p.osm_id AS poi_id, p.name AS poi_name, p.type AS poi_type,
@@ -80,8 +92,26 @@ RETURN p.osm_id AS poi_id, p.name AS poi_name, p.type AS poi_type,
        i.location.latitude AS lat, i.location.longitude AS lon, d AS snap_m
 """
 
+# Anchors that snapped nowhere (no reachable intersection within --snap-m)
+# are dropped by the CALL subquery; count the population separately so the
+# report can still say "snapped X of Y".
+COUNT_ANCHORS = """
+MATCH (p:POI)
+WHERE p.type IN $anchor_types
+RETURN count(*) AS n
+"""
+
 # Off-road share of the network around each candidate: what tells a mountain
 # trailhead from a supermarket car park.
+#
+# Batched against the server's 10 s transaction timeout: one transaction over
+# every cluster ran ~1.5 s warm on the two-region graph (measured 2026-08-27,
+# ~5 ms/cluster amortised at batch 50, and the plan does seek the point index
+# here) — but a cold page cache costs several times warm and the cost is
+# linear in clusters. 100 per transaction keeps a cold batch far from the
+# ceiling.
+SCORE_BATCH = 100
+
 SCORE_ACCESS = """
 UNWIND $rows AS row
 MATCH (i:Intersection {osm_node_id: row.node_id})
@@ -193,14 +223,28 @@ async def main() -> None:
     parser.add_argument("--snap-m", type=float, default=200.0)
     parser.add_argument("--cluster-m", type=float, default=400.0)
     parser.add_argument("--access-radius-m", type=float, default=750.0)
-    parser.add_argument("--dry-run", action="store_true", help="report, write nothing")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report the derivation without writing trailheads. NOTE: the "
+        "component pass still writes component_id — gds.wcc.write is how the "
+        "components are computed at all, and every caller's 'can a route "
+        "exist from here' check reads it",
+    )
+    parser.add_argument("--bbox", help=BBOX_HELP)
     args = parser.parse_args()
 
-    settings = get_settings()
     graph_name = f"trailheads_{uuid4().hex[:12]}"
 
     async with Neo4jClient() as db:
-        min_lat, min_lon, max_lat, max_lon = settings.bbox
+        # The whole ingested graph, not settings.bbox. That box wrote
+        # component_id to 30,125 of the graph's 84,137 intersections and left
+        # Bergamo with none, so every caller reading the component guard as "can
+        # a route exist from here" -- loop seeding included -- was limited to it
+        # (docs/fragilities.md #16).
+        bbox = await projection_bbox(db, args.bbox)
+        min_lat, min_lon, max_lat, max_lon = bbox
+        print(describe(bbox, args.bbox))
         try:
             projected = await db.run_named(
                 "graph_project_routing",
@@ -226,23 +270,31 @@ async def main() -> None:
         component_id = largest[0]["component_id"]
         print(f"largest component: {largest[0]['size']} intersections\n")
 
-        anchors = await db.run(
+        total = (await db.run_read(COUNT_ANCHORS, anchor_types=ANCHOR_TYPES))[0]["n"]
+        anchors = await db.run_read(
             SNAP_ANCHORS,
             anchor_types=ANCHOR_TYPES,
             snap_m=args.snap_m,
             component_id=component_id,
         )
-        print(f"anchors snapped to the network: {len(anchors)}")
+        print(f"snapped {len(anchors)} of {total} anchors to the network")
 
         clusters = cluster(anchors, args.cluster_m)
         print(f"clustered into {len(clusters)} distinct trailheads\n")
 
-        scores = await db.run(
-            SCORE_ACCESS,
-            rows=[{"node_id": c["node_id"]} for c in clusters],
-            radius_m=args.access_radius_m,
-            off_road=OFF_ROAD,
-        )
+        scores: list[dict[str, Any]] = []
+        for start in range(0, len(clusters), SCORE_BATCH):
+            scores.extend(
+                await db.run_read(
+                    SCORE_ACCESS,
+                    rows=[
+                        {"node_id": c["node_id"]}
+                        for c in clusters[start : start + SCORE_BATCH]
+                    ],
+                    radius_m=args.access_radius_m,
+                    off_road=OFF_ROAD,
+                )
+            )
         by_node = {s["node_id"]: s for s in scores}
         for c in clusters:
             s = by_node.get(c["node_id"], {})

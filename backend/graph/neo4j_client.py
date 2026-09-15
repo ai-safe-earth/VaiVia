@@ -11,7 +11,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
 
-from neo4j import AsyncDriver, AsyncGraphDatabase
+from neo4j import AsyncDriver, AsyncGraphDatabase, Query, RoutingControl
 
 from core.config import get_settings
 
@@ -37,7 +37,18 @@ class Neo4jClient:
         await self._driver.close()
 
     async def __aenter__(self) -> Self:
-        await self.connect()
+        """Connect, and close the driver again if connecting fails.
+
+        The pool is built in __init__, not here, and __aexit__ does NOT run when
+        __aenter__ raises -- so without this a Neo4j that is simply down leaves
+        an unclosed connection pool behind at every `async with` in the repo,
+        which is most of scripts/ and both ingestion entry points.
+        """
+        try:
+            await self.connect()
+        except BaseException:
+            await self.close()
+            raise
         return self
 
     async def __aexit__(
@@ -48,20 +59,65 @@ class Neo4jClient:
     ) -> None:
         await self.close()
 
-    async def run_named(self, name: str, /, **params: Any) -> list[dict[str, Any]]:
+    async def run_named(
+        self, name: str, /, timeout_s: float | None = None, **params: Any
+    ) -> list[dict[str, Any]]:
         """Run a template from graph/queries.cypher by name (parameters only).
+
+        READ access mode, always. Every named template is non-mutating -- the
+        guard suite fails the build if one grows a CREATE/MERGE/DELETE/SET --
+        so the routing mode can enforce what the guard only asserts.
+
+        This is the point of the read-only path, and until 2026-08-21 nothing
+        reached it: run_named delegated to run(), which is WRITE-routed, so the
+        API, the chat orchestrator and the catalogue all ran under write mode
+        while the docs described a read-only query service. Writers (ingestion,
+        the schema and catalogue builders) call run() directly and are
+        unaffected.
+
+        Measured before switching, because the two GDS catalogue templates are
+        procedure calls rather than plain reads: gds.graph.project and
+        gds.graph.drop both succeed under READ routing on this server.
 
         `name` is positional-only so a Cypher parameter may also be called
         $name (poi_by_name uses one).
         """
         from graph.query_loader import get_query
 
-        return await self.run(get_query(name), **params)
+        return await self.run_read(get_query(name), timeout_s=timeout_s, **params)
 
     async def run(self, query: str, /, **params: Any) -> list[dict[str, Any]]:
-        """Execute one parameterized query, return records as dicts."""
+        """Execute one parameterized query, return records as dicts.
+
+        WRITE routing: this is the ingestion and build path. Everything that
+        only reads goes through run_named or run_read, which are read-only by
+        driver access mode.
+        """
         result = await self._driver.execute_query(
             query, params, database_=self._database
+        )
+        return [record.data() for record in result.records]
+
+    async def run_read(
+        self, query: str, /, timeout_s: float | None = None, **params: Any
+    ) -> list[dict[str, Any]]:
+        """Execute a query under READ access mode — the query-service path.
+
+        Read routing is a real control on this server (Community, no RBAC):
+        verified 2026-08-21 that a write, including the apoc.cypher.doIt string
+        bypass, is rejected with Neo.ClientError.Statement.AccessMode
+        (docs/fragilities.md #15). timeout_s is defence in depth; the hard cap
+        is the server's db.transaction.timeout.
+
+        The timeout has to travel inside a Query: execute_query merges its
+        **kwargs into the Cypher parameters, so a bare timeout= would arrive as
+        an unused $timeout and cap nothing.
+        """
+        result = await self._driver.execute_query(
+            query if timeout_s is None else Query(query, timeout=timeout_s),
+            params,
+            database_=self._database,
+            routing_=RoutingControl.READ,
         )
         return [record.data() for record in result.records]
 

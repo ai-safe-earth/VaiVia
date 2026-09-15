@@ -1,0 +1,56 @@
+'use client';
+
+import { Children, useState, type ReactNode } from 'react';
+
+interface Props {
+  /** How many show before the fold — the same number the answer prose
+   *  narrates (results.answered_count), so text and cards agree. */
+  fold: number;
+  /** Fired with the [from, to) range a click just revealed, so the parent can
+   *  fetch what those cards need (geometry) only once they are visible. */
+  onReveal?: (from: number, to: number) => void;
+  children: ReactNode;
+}
+
+/** How many more cards each click reveals. */
+const STEP = 5;
+
+/**
+ * The fold under a result list: the first `fold` cards render, the rest wait
+ * behind a "show more" control. The search returns more than the answer
+ * narrates (CARD_RESULT_LIMIT vs ANSWER_RESULT_LIMIT in the backend), and
+ * this is the seam between the two.
+ */
+export function FoldedCards({ fold, onReveal, children }: Props) {
+  // The total is the children, not a prop beside them: a `count` that could
+  // disagree with what is rendered is a "show 3 more of 20" over 12 cards.
+  const items = Children.toArray(children);
+  const count = items.length;
+  const [visible, setVisible] = useState(Math.min(Math.max(fold, 1), count));
+  const hidden = count - visible;
+
+  return (
+    <>
+      {items.slice(0, visible)}
+      {hidden > 0 && (
+        <button
+          type="button"
+          className="show-more"
+          onClick={() => {
+            const next = Math.min(visible + STEP, count);
+            onReveal?.(visible, next);
+            setVisible(next);
+          }}
+        >
+          <span>
+            Show {Math.min(STEP, hidden)} more route
+            {Math.min(STEP, hidden) === 1 ? '' : 's'}
+          </span>
+          <span className="sign" aria-hidden="true">
+            +
+          </span>
+        </button>
+      )}
+    </>
+  );
+}

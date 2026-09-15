@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.2",
     "openai>=3.1.0",
     "asyncpg>=0.31.0",
+    "vaivia-routes",
 ]
 
 [dependency-groups]
@@ -21,7 +22,13 @@ dev = [
     "pytest-asyncio>=0.23",
     "black>=24.0",
     "ruff>=0.4",
+    "jsonschema>=4",
 ]
+
+[tool.uv.sources]
+# The same code draws a route in the pipeline and at ask time
+# (docs/route-design.md, decision 5).
+vaivia-routes = { path = "../shared/routes", editable = true }
 
 [tool.ruff]
 line-length = 88

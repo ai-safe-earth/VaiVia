@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 jobs:
@@ -20,6 +20,26 @@ jobs:
       - name: Tests (offline, --mock fixtures only)
         run: |
           if [ -d tests ]; then uv run pytest tests/ -v; else echo "no tests yet"; fi
+
+  pipeline:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run black --check .
+      # Pure-function tests only: CI has no PostGIS, and the tests are written
+      # to need none (the same offline rule the backend suite follows).
+      - run: uv run pytest tests/ -v
+      # shared/routes has no environment of its own; the pipeline's carries
+      # it as an editable path dependency (pyproject [tool.uv.sources]).
+      - run: uv run ruff check ../shared/routes
+      - run: uv run black --check ../shared/routes
+      - run: uv run pytest ../shared/routes/tests -v
 
   gateway:
     runs-on: ubuntu-latest

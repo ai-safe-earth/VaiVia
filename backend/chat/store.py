@@ -19,6 +19,9 @@ MAX_HISTORY_TURNS = 10
 class StoredMessage:
     role: str
     content: str
+    #: The assistant turn's persisted plan ({"subqueries": ..., "standing": ...}).
+    #: History windows drop it (the model gets prose); last_standing reads it.
+    intent: dict[str, Any] | None = None
 
 
 class ConversationStore(Protocol):
@@ -47,6 +50,8 @@ class ConversationStore(Protocol):
     ) -> None: ...
 
     async def tokens_used_today(self, user_id: str) -> int: ...
+
+    async def last_standing(self, conversation_id: str) -> dict[str, Any] | None: ...
 
 
 @dataclass
@@ -81,7 +86,7 @@ class InMemoryStore:
         result_refs: dict[str, Any] | None = None,
     ) -> str:
         self.messages.setdefault(conversation_id, []).append(
-            StoredMessage(role=role, content=content)
+            StoredMessage(role=role, content=content, intent=intent)
         )
         return str(uuid4())
 
@@ -98,6 +103,12 @@ class InMemoryStore:
 
     async def tokens_used_today(self, user_id: str) -> int:
         return self.usage.get((user_id, date.today()), 0)
+
+    async def last_standing(self, conversation_id: str) -> dict[str, Any] | None:
+        for message in reversed(self.messages.get(conversation_id, [])):
+            if message.role == "assistant" and message.intent is not None:
+                return message.intent
+        return None
 
 
 class PostgresStore:
@@ -194,6 +205,29 @@ class PostgresStore:
                 user_id,
                 input_tokens + output_tokens,
             )
+
+    async def last_standing(self, conversation_id: str) -> dict[str, Any] | None:
+        """The most recent assistant turn's persisted plan, or None.
+
+        Reads the same jsonb add_message writes; the standing plan inside it
+        is what apply_delta merges a refinement onto. A conversation whose
+        turns predate the standing-plan build simply returns intents without
+        a "standing" key, which downstream treats as no plan.
+        """
+        import json
+
+        value = await self._pool.fetchval(
+            """
+            SELECT intent FROM messages
+            WHERE conversation_id = $1::uuid
+              AND role = 'assistant'
+              AND intent IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            conversation_id,
+        )
+        return json.loads(value) if value else None
 
     async def tokens_used_today(self, user_id: str) -> int:
         value = await self._pool.fetchval(

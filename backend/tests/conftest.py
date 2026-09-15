@@ -54,6 +54,17 @@ class FakeDb:
     def params_for(self, name: str) -> dict[str, Any]:
         return next(params for called, params in self.calls if called == name)
 
+    async def run(self, query: str, /, **params: Any) -> list[dict[str, Any]]:
+        """The WRITE path (ingestion, favourite-save). Recorded, never routed."""
+        self.writes.append((query, params))
+        return []
+
+    @property
+    def writes(self) -> list:
+        if not hasattr(self, "_writes"):
+            self._writes = []
+        return self._writes
+
 
 class FakeEmbedder:
     """Deterministic embedder: unit vector per call, records inputs."""
@@ -75,7 +86,9 @@ class UnusableLLM:
     that reaches this one is a wiring bug, so it fails loudly.
     """
 
-    async def extract_plan(self, message: Any, history: Any) -> Any:
+    async def extract_plan(
+        self, message: Any, history: Any, standing: Any = None
+    ) -> Any:
         raise AssertionError("test reached the real LLM seam; inject a stub")
 
     async def stream_answer(self, message: Any, results_json: Any, history: Any) -> Any:
@@ -106,9 +119,18 @@ def client(db: FakeDb, embedder: FakeEmbedder) -> TestClient:
     app.state.db = db
     app.state.embedder = embedder
     app.state.llm = UnusableLLM()
+    # In-memory ALWAYS in tests: a developer's .env points DATABASE_URL at the
+    # live local stack, and a test suite must never write real favorites.
+    from api.routes.favorites import InMemoryFavorites
+    from api.routes.feedback import InMemoryFeedback
+
+    app.state.favorites = InMemoryFavorites()
+    app.state.feedback = InMemoryFeedback()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    app.state.favorites = None
+    app.state.feedback = None
 
 
 TRAIL_ROW = {
@@ -126,6 +148,5 @@ TRAIL_ROW = {
     "duration_mtb_min": 88,
     "best_seasons": ["spring", "summer", "autumn"],
     "seasonal_hazards": ["mud_after_rain"],
-    "trailforks_url": "https://www.trailforks.com/trails/lago-loop/",
     "pois": [{"name": "Lago di Como", "type": "lake"}],
 }

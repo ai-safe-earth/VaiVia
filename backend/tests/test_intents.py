@@ -9,6 +9,7 @@ from chat.intents import (
     PlanEnvelope,
     RouteIntent,
     SemanticThemeIntent,
+    StartSpec,
     TrailSearchIntent,
     to_strict_schema,
 )
@@ -26,6 +27,38 @@ def test_plan_envelope_discriminates_each_subquery():
     )
     kinds = [type(s) for s in envelope.subqueries]
     assert kinds == [TrailSearchIntent, SemanticThemeIntent, RouteIntent]
+
+
+def test_outing_discriminates_and_cannot_smuggle_geometry():
+    """The Phase 12 boundary rule: no field carries a query, template, id,
+    coordinate or weight — injected ones must not survive validation."""
+    from chat.intents import OutingIntent
+
+    envelope = PlanEnvelope.model_validate(
+        {
+            "subqueries": [
+                {
+                    "kind": "outing",
+                    "activity": "bike",
+                    "party": "kids",
+                    "waypoints": [{"kind": "lake", "name": None, "role": "bathe"}],
+                    "start": {"mode": "here", "max_drive_min": 60},
+                    "lat": 45.85,
+                    "lon": 9.39,
+                    "edge_id": 4711,
+                    "cost_weight": 0.5,
+                    "template": "route_gds_dijkstra",
+                }
+            ]
+        }
+    )
+    o = envelope.subqueries[0]
+    assert isinstance(o, OutingIntent)
+    for name in ("lat", "lon", "edge_id", "cost_weight", "template"):
+        assert not hasattr(o, name)
+    field_names = set(OutingIntent.model_fields) | set(StartSpec.model_fields)
+    banned = {"lat", "lon", "coordinate", "template", "query", "id", "weight"}
+    assert not (field_names & banned)
 
 
 def test_plan_rejects_unknown_subquery_kind():

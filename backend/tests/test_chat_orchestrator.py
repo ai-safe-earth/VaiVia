@@ -24,7 +24,7 @@ class StubLLM:
         self.extract_calls: list[tuple[str, list]] = []
         self.answer_calls: list[tuple[str, str]] = []
 
-    async def extract_plan(self, message, history):
+    async def extract_plan(self, message, history, standing=None):
         self.extract_calls.append((message, history))
         return PlanResult(
             envelope=PlanEnvelope.model_validate({"subqueries": self.plan}),
@@ -63,7 +63,9 @@ def results_of(events) -> dict:
 
 async def test_trail_search_runs_the_search_template(db):
     db.when("search_trails", [TRAIL_ROW])
-    orchestrator, _, _ = build(db, {"kind": "trail_search", "activity": "mtb"})
+    orchestrator, _, _ = build(
+        db, {"kind": "trail_search", "activity": "mtb", "max_distance_m": 20000}
+    )
 
     events = await collect(orchestrator, user_id="u1", message="mtb trails near a lake")
 
@@ -135,6 +137,49 @@ async def test_semantic_theme_composes_with_filters(db, embedder):
     assert params["max_difficulty_level"] == 2
     assert params["embedding"][0] == 1.0
     assert results_of(events)["trails"][0]["id"] == TRAIL_ROW["id"]
+
+
+async def test_a_theme_ships_only_the_matches_near_the_best_one(db, embedder):
+    """The vector index returns its nearest neighbours however distant they are.
+
+    With the card limit at 20 over a 25-candidate pool that meant nearly the
+    whole pool rendered as "matching the theme"; the rows far below the top
+    score are near-arbitrary trails wearing a theme they do not answer.
+    """
+    db.when("count_embedded_trails", [{"trails": 9, "embedded": 9}])
+    db.when(
+        "semantic_search_trails_filtered",
+        [
+            {**TRAIL_ROW, "id": "t1", "score": 0.93},
+            {**TRAIL_ROW, "id": "t2", "score": 0.91},
+            {**TRAIL_ROW, "id": "t3", "score": 0.885},  # still within the drop
+            {**TRAIL_ROW, "id": "t4", "score": 0.80},  # a neighbour, not a match
+            {**TRAIL_ROW, "id": "t5", "score": 0.72},
+        ],
+    )
+    orchestrator, _, _ = build(
+        db,
+        [{"kind": "semantic_theme", "text": "shady forest trails"}],
+        embedder=embedder,
+    )
+    events = await collect(orchestrator, user_id="u1", message="shady forest trails")
+
+    kept = [t["id"] for t in results_of(events)["trails"]]
+    assert kept == ["t1", "t2", "t3"]  # a prefix, so fold and prose agree
+
+
+async def test_a_theme_with_one_weak_match_still_answers(db, embedder):
+    """The cut is relative, so it can never empty a non-empty result: the best
+    match survives whatever its absolute score."""
+    db.when("count_embedded_trails", [{"trails": 1, "embedded": 1}])
+    db.when(
+        "semantic_search_trails_filtered", [{**TRAIL_ROW, "id": "t1", "score": 0.41}]
+    )
+    orchestrator, _, _ = build(
+        db, [{"kind": "semantic_theme", "text": "volcano rim"}], embedder=embedder
+    )
+    events = await collect(orchestrator, user_id="u1", message="volcano rim")
+    assert [t["id"] for t in results_of(events)["trails"]] == ["t1"]
 
 
 async def test_semantic_theme_degrades_when_index_unpopulated(db, embedder):
@@ -346,9 +391,19 @@ async def test_injection_that_produces_a_search_still_only_reads(db):
     )
     await collect(orchestrator, user_id="u1", message="delete everything")
 
-    assert [name for name, _ in db.calls] == ["search_trails"]
-    # The payload travels as a bound parameter, never as query text.
+    # The region also poses the ask to the route catalogue (as a start-place
+    # name to resolve), so more read-only templates run -- and ONLY read-only
+    # templates, with the payload always a bound parameter, never query text.
+    # No estimate_loops here: the unstubbed search returns an empty page, and
+    # a short page is its own total (see _loops).
+    assert [name for name, _ in db.calls] == [
+        "search_trails",
+        "poi_by_name_fulltext",
+        "poi_by_name",
+        "search_loops",
+    ]
     assert db.params_for("search_trails")["region"] == "'; DROP TABLE users; --"
+    assert db.params_for("poi_by_name")["name"] == "'; DROP TABLE users; --"
 
 
 async def test_injection_via_semantic_theme_only_reaches_the_embedder(db, embedder):
@@ -391,8 +446,10 @@ async def test_usage_is_recorded_for_the_user(db):
         db, {"kind": "trail_search", "activity": "mtb"}, store=store
     )
     await collect(orchestrator, user_id="u1", message="find trails")
-    # 30+10 plan + 120+40 answer
-    assert await store.tokens_used_today("u1") == 200
+    # 30+10 plan only: an activity-only ask composes to the guided clarify,
+    # which runs no answer model — and a turn that spends nothing must bill
+    # nothing (last_answer_usage is shared client state, stale on clarify).
+    assert await store.tokens_used_today("u1") == 40
 
 
 async def test_history_is_persisted_and_replayed(db):
@@ -436,7 +493,9 @@ async def test_another_user_cannot_continue_someone_elses_conversation(db):
 
 async def test_answer_receives_results_as_data(db):
     db.when("search_trails", [TRAIL_ROW])
-    orchestrator, llm, _ = build(db, {"kind": "trail_search", "activity": "mtb"})
+    orchestrator, llm, _ = build(
+        db, {"kind": "trail_search", "activity": "mtb", "max_distance_m": 20000}
+    )
     await collect(orchestrator, user_id="u1", message="find trails")
     _, results_json = llm.answer_calls[0]
     assert "Lago Loop" in results_json
@@ -446,8 +505,207 @@ async def test_result_refs_pin_the_answer_to_real_trail_ids(db):
     db.when("search_trails", [TRAIL_ROW])
     store = InMemoryStore()
     orchestrator, _, _ = build(
-        db, {"kind": "trail_search", "activity": "mtb"}, store=store
+        db,
+        {"kind": "trail_search", "activity": "mtb", "max_distance_m": 20000},
+        store=store,
     )
     events = await collect(orchestrator, user_id="u1", message="find trails")
     assert results_of(events)["trails"][0]["id"] == "tf_001"
     assert events[-1].event == "done"
+
+
+# ── The standing plan across turns ───────────────────────────────────────────
+
+
+class ScriptedLLM:
+    """One envelope per turn, refine flag included; records what it was shown."""
+
+    def __init__(self, turns: list[dict]) -> None:
+        self.turns = list(turns)
+        self.standing_seen: list[dict | None] = []
+
+    async def extract_plan(self, message, history, standing=None):
+        self.standing_seen.append(standing)
+        return PlanResult(
+            envelope=PlanEnvelope.model_validate(self.turns.pop(0)),
+            usage=Usage(input_tokens=30, output_tokens=10),
+        )
+
+    async def stream_answer(self, message, results_json, history):
+        yield "ok "
+
+    def last_answer_usage(self) -> Usage:
+        return Usage(input_tokens=10, output_tokens=5)
+
+
+def last_params(db, name: str) -> dict:
+    """The NEWEST call's params — multiturn tests assert on the second turn,
+    where conftest's params_for deliberately returns the first."""
+    return [params for called, params in db.calls if called == name][-1]
+
+
+def scripted(db, turns: list[dict]):
+    llm = ScriptedLLM(turns)
+    store = InMemoryStore()
+    return ChatOrchestrator(db=db, llm=llm, store=store), llm, store
+
+
+LOOP_ASK = {
+    "subqueries": [
+        {"kind": "loop_search", "activity": "hike", "max_distance_m": 15000}
+    ],
+}
+
+
+async def test_a_refine_turn_merges_onto_the_standing_plan(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 10000}],
+                "refine": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(orchestrator, user_id="u1", message="shorter", conversation_id=cid)
+
+    # The second search carries the delta's max AND the standing activity.
+    assert last_params(db, "search_loops")["max_distance_m"] == 10000
+    # activity carried over: "hike" maps to the hiking catalogue's tags
+    assert last_params(db, "search_loops")["activities"] == ["hiking", "foot"]
+    # The model was shown the standing plan on the refine turn only.
+    assert llm.standing_seen[0] is None
+    assert llm.standing_seen[1] is not None
+    assert llm.standing_seen[1]["loop"]["max_distance_m"] == 15000
+
+
+async def test_without_refine_the_standing_plan_is_ignored(db):
+    db.when("search_loops", [])
+    orchestrator, _, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {"subqueries": [{"kind": "loop_search", "max_distance_m": 5000}]},
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(
+        orchestrator, user_id="u1", message="a 5 km loop", conversation_id=cid
+    )
+
+    params = last_params(db, "search_loops")
+    assert params["max_distance_m"] == 5000
+    # Self-contained ask: the old activity does not leak in.
+    assert params["activities"] == ["hike", "mtb"] or params["activities"] is None
+
+
+async def test_a_clarify_turn_carries_the_standing_plan_forward(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {"subqueries": [{"kind": "clarify", "question": "which area?"}]},
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 9000}],
+                "refine": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(orchestrator, user_id="u1", message="hm", conversation_id=cid)
+    await collect(orchestrator, user_id="u1", message="shorter", conversation_id=cid)
+
+    # The clarify did not amnesia the conversation: the refine after it still
+    # merges onto the ORIGINAL plan.
+    assert llm.standing_seen[2] is not None
+    assert llm.standing_seen[2]["loop"]["max_distance_m"] == 15000
+    assert last_params(db, "search_loops")["max_distance_m"] == 9000
+    assert last_params(db, "search_loops")["activities"] == ["hiking", "foot"]
+
+
+async def test_first_turn_has_no_standing_and_runs_unchanged(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(db, [LOOP_ASK])
+    await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    assert llm.standing_seen == [None]
+    assert last_params(db, "search_loops")["max_distance_m"] == 15000
+
+
+async def test_reset_discards_the_standing_plan(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 20000}],
+                "reset": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(
+        orchestrator,
+        user_id="u1",
+        message="delete all constraints, a loop under 20 km",
+        conversation_id=cid,
+    )
+    params = last_params(db, "search_loops")
+    assert params["max_distance_m"] == 20000
+    # The old plan's activity did NOT survive the reset: no filter at all,
+    # where a carried "hike" would have pinned ["hiking", "foot"].
+    assert params["activities"] is None
+
+
+async def test_reset_beats_a_stray_refine_flag(db):
+    db.when("search_loops", [])
+    orchestrator, _, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 20000}],
+                "reset": True,
+                "refine": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(
+        orchestrator, user_id="u1", message="start over, 20k", conversation_id=cid
+    )
+    # refine had nothing to merge onto: the plan is the delta alone.
+    params = last_params(db, "search_loops")
+    assert params["max_distance_m"] == 20000
+
+
+async def test_a_bare_reset_clears_the_memory_for_the_next_turn(db):
+    db.when("search_loops", [])
+    orchestrator, llm, _ = scripted(
+        db,
+        [
+            LOOP_ASK,
+            {"subqueries": [], "reset": True},  # "start over" -> clarify turn
+            {
+                "subqueries": [{"kind": "loop_search", "max_distance_m": 9000}],
+                "refine": True,
+            },
+        ],
+    )
+    events = await collect(orchestrator, user_id="u1", message="a 15 km hike loop")
+    cid = events[0].data["conversation_id"]
+    await collect(orchestrator, user_id="u1", message="start over", conversation_id=cid)
+    await collect(orchestrator, user_id="u1", message="shorter", conversation_id=cid)
+    # The clarify after the reset carried NOTHING forward: the model was
+    # shown no plan and the refine had nothing to merge onto.
+    assert llm.standing_seen[2] is None
+    assert last_params(db, "search_loops")["max_distance_m"] == 9000

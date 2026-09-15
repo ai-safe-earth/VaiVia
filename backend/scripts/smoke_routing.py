@@ -25,16 +25,39 @@ import sys
 import uuid
 from collections import deque
 
-from core.config import get_settings
+from core.geo import bounds_of, expand_bounds_m
 from graph.neo4j_client import Neo4jClient
 
 TARGET_WALK_M = 1_500.0
 
+#: A seed to sample around. Any intersection will do -- pick_pair walks out
+#: from whatever it is handed and rejects the tiny islands.
+SEED = """
+MATCH (i:Intersection)
+RETURN i.osm_node_id AS id,
+       i.location.latitude AS lat,
+       i.location.longitude AS lon
+LIMIT 1
+"""
+
+#: The edges to BFS over: the seed's neighbourhood, not the whole graph.
+#:
+#: This used to be an unbounded scan of every CONNECTS_TO. At 84k
+#: intersections that now dies on the server's db.transaction.timeout (10s,
+#: added by the Phase 1 hardening) -- and a client timeout cannot raise a
+#: server ceiling, only lower it. A bounded sample is also closer to what the
+#: endpoint does, which projects around its own query.
 EDGES = """
 MATCH (a:Intersection)-[c:CONNECTS_TO]->(b:Intersection)
+WHERE a.location.latitude >= $min_lat AND a.location.latitude <= $max_lat
+  AND a.location.longitude >= $min_lon AND a.location.longitude <= $max_lon
 RETURN a.osm_node_id AS from_node, b.osm_node_id AS to_node,
        c.distance_m AS distance_m
 """
+
+#: How far around the seed to sample. Wide enough that a 1.5 km walk exists
+#: inside it, narrow enough to pull in well under the transaction timeout.
+SAMPLE_RADIUS_M = 6_000.0
 
 
 def pick_pair(rows: list[dict], target_m: float) -> tuple[str, str, float]:
@@ -77,14 +100,30 @@ def check(label: str, condition: bool, detail: str = "") -> bool:
     return condition
 
 
+#: How far around the chosen pair to project. The route between them is a
+#: couple of km, so 10 km of margin covers any detour the network forces.
+PROJECTION_MARGIN_M = 10_000.0
+
+
 async def main() -> int:
     logging.getLogger("neo4j.notifications").setLevel(logging.WARNING)
-    settings = get_settings()
-    min_lat, min_lon, max_lat, max_lon = settings.bbox
     ok = True
 
     async with Neo4jClient() as db:
-        start, end, walked = pick_pair(await db.run(EDGES), TARGET_WALK_M)
+        seed = (await db.run_read(SEED))[0]
+        sample = expand_bounds_m(
+            (seed["lat"], seed["lon"], seed["lat"], seed["lon"]), SAMPLE_RADIUS_M
+        )
+        sample_min_lat, sample_min_lon, sample_max_lat, sample_max_lon = sample
+        edges = await db.run_read(
+            EDGES,
+            min_lat=sample_min_lat,
+            min_lon=sample_min_lon,
+            max_lat=sample_max_lat,
+            max_lon=sample_max_lon,
+        )
+        print(f"sampled {len(edges)} edges around {seed['id']}")
+        start, end, walked = pick_pair(edges, TARGET_WALK_M)
         print(f"route {start} -> {end} (BFS walk {walked:.0f} m)\n")
 
         baseline_rows = await db.run_named(
@@ -101,6 +140,19 @@ async def main() -> int:
                 f"{len(baseline_rows[0]['osm_way_ids'])} edges"
             )
 
+        # Project around the pair, the way the endpoint now does. Projecting
+        # settings.default_bbox instead is what made this smoke fail against a
+        # working GDS: the BFS picks a pair from the WHOLE graph, and once
+        # Bergamo was ingested most of the graph sat outside that one box, so
+        # Dijkstra was handed endpoints its in-memory graph had never heard of.
+        located = await db.run_named(
+            "intersection_locations", osm_node_ids=[start, end]
+        )
+        found = {row["osm_node_id"]: (row["lat"], row["lon"]) for row in located}
+        min_lat, min_lon, max_lat, max_lon = expand_bounds_m(
+            bounds_of([found[start], found[end]]), PROJECTION_MARGIN_M
+        )
+
         graph_name = f"routing_smoke_{uuid.uuid4().hex[:8]}"
         try:
             projected = await db.run_named(
@@ -113,7 +165,7 @@ async def main() -> int:
             )
             row = projected[0]
             ok &= check(
-                "projection covers the bbox graph",
+                "projection covers the pair's neighbourhood",
                 row["nodes"] > 0 and row["rels"] > 0,
                 f"{row['nodes']} nodes, {row['rels']} rels",
             )

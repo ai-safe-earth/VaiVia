@@ -5,6 +5,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 
+import { focusedRouteId, noteOf } from '@/lib/mapTurn';
+
 const LECCO: [number, number] = [9.39, 45.86];
 
 /**
@@ -20,6 +22,22 @@ const LECCO: [number, number] = [9.39, 45.86];
 const OSM_ATTRIBUTION =
   'Map data and trails © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors, under <a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noreferrer">ODbL</a>';
 
+/** Brand colours live in tokens.css; MapLibre paint properties cannot read a
+ *  CSS variable, so this is the one place a component resolves one. The
+ *  fallback is the token's own value, for the server pass where there is no
+ *  computed style to read. */
+function token(name: string, fallback: string): string {
+  if (typeof window === 'undefined') return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name);
+  return value.trim() || fallback;
+}
+
+/**
+ * The raster basemap is a light OSM style and the app is dark, so the tiles are
+ * desaturated and darkened onto --vv-map at the layer level rather than with a
+ * CSS filter over the canvas — a filter would take the route line down with it.
+ * A real dark vector style is the proper fix when the beta needs one.
+ */
 const STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
@@ -30,7 +48,18 @@ const STYLE: maplibregl.StyleSpecification = {
       attribution: OSM_ATTRIBUTION,
     },
   },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+  layers: [
+    {
+      id: 'osm',
+      type: 'raster',
+      source: 'osm',
+      paint: {
+        'raster-saturation': -0.8,
+        'raster-brightness-max': 0.5,
+        'raster-contrast': 0.15,
+      },
+    },
+  ],
 };
 
 interface Props {
@@ -40,7 +69,6 @@ interface Props {
 export function MapView({ geometry }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
-
   useEffect(() => {
     if (!container.current || map.current) return;
     map.current = new maplibregl.Map({
@@ -89,40 +117,57 @@ export function MapView({ geometry }: Props) {
           ['get', 'selected'],
           false,
         ];
-        // Casing under the line keeps it legible over both forest and water.
-        instance.addLayer({
-          id: 'selection-casing',
-          type: 'line',
-          source: 'selection',
-          paint: {
-            'line-color': '#0b3a24',
-            'line-width': ['case', selected, 7, 4],
-            'line-opacity': ['case', selected, 0.8, 0.35],
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-        });
+        // Every route line is lime (BRAND-SPEC amendment 2026-08-28). The
+        // picked route is wider and full-opacity; its siblings dim. Colour
+        // never encodes difficulty or activity: selection is the only thing
+        // the line says, and it says it with width and opacity. No casing
+        // (owner decision 2026-08-27). The layer is created once and
+        // restyles through setData — the expressions are all data-driven.
         instance.addLayer({
           id: 'selection-line',
           type: 'line',
           source: 'selection',
           paint: {
-            'line-color': '#6fcf97',
-            'line-width': ['case', selected, 3.5, 2],
-            'line-opacity': ['case', selected, 1, 0.55],
+            'line-color': token('--vv-lime', '#CCFF3B'),
+            'line-width': ['case', selected, 4, 2],
+            'line-opacity': ['case', selected, 1, 0.4],
           },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
       }
 
       const bounds = boundsOf(data);
+      // The route panel mounts in the same commit as the geometry it belongs
+      // to, which shortens the canvas: fit against the box as it IS, or the
+      // route is framed for a canvas that no longer exists. Every other
+      // resize is maplibre's own trackResize.
+      instance.resize();
       if (bounds) instance.fitBounds(bounds, { padding: 64, maxZoom: 15, duration: 600 });
     };
 
     if (instance.isStyleLoaded()) draw();
-    else instance.once('load', draw);
+    // 'idle', not 'load': load fires exactly once per map, so an update
+    // arriving while the style is transiently busy after the initial load
+    // registered on an event that would never fire again — and was silently
+    // dropped, forever. idle fires after every render settles.
+    else instance.once('idle', draw);
   }, [geometry]);
 
-  return <div ref={container} style={{ position: 'absolute', inset: 0 }} />;
+  // The drawn line's caveat (a multi-piece route served as its longest piece
+  // says so in properties.note) is shown ON the map: the card can say
+  // "mapped in pieces", but the line is what a walker plans around. The
+  // focused route id rides along as a data attribute so a browser test can
+  // assert the drawn line IS the clicked card's.
+  const note = noteOf(geometry);
+  return (
+    <div
+      style={{ position: 'absolute', inset: 0 }}
+      data-selected-route={focusedRouteId(geometry) ?? undefined}
+    >
+      <div ref={container} style={{ position: 'absolute', inset: 0 }} />
+      {note && <div className="map-note vv-body-sm">{note}</div>}
+    </div>
+  );
 }
 
 /** Bounds over every coordinate in the line features of a Feature or collection. */

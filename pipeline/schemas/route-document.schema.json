@@ -1,0 +1,648 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vaivia.ai-safe-earth.org/schemas/route-document-2.1.json",
+  "title": "VaiVia route document",
+  "description": "The product: one route, as every reader consumes it. PostGIS holds the value; this is what is delivered. See docs/route-document.md for the reasoning behind each block. Readers outlive producers, so this is versioned and additive: a new field is a minor version, a removed or re-meaning field is a major one.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "kind",
+    "shape",
+    "identity",
+    "geometry",
+    "bbox",
+    "measures",
+    "surface",
+    "difficulty",
+    "continuity",
+    "direction",
+    "reverse_of",
+    "recommended",
+    "terminals",
+    "categories",
+    "divergence",
+    "places",
+    "quality",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Contract version. Readers must tolerate an unknown minor."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^vv2-[0-9a-f]{16}(-(fwd|rev))?$",
+      "description": "Stable across rebuilds: a 16-hex digest of the canonical ground (coordinates rounded to ~1.1 m, pieces individually direction-normalised and ordered), minted only by pipeline/ids.py. Shapes where direction is the walker's choice (loop, circular, linear) carry -fwd or -rev — one document per direction, sharing the digest; an out-and-back carries no suffix. Comments and photos key to this, so the digest survives any rebuild and the -fwd sense is fixed by geometry alone (the lexicographic-minimum orientation), never by edge or vertex ids, which rebuilds reassign. osm-relation-<n> retired to identity.osm_relation_id as provenance."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "osm_route",
+        "generated"
+      ],
+      "description": "osm_route is a route somebody mapped; generated is one this pipeline drew. Same document either way."
+    },
+    "shape": {
+      "type": "string",
+      "enum": [
+        "loop",
+        "out_and_back",
+        "destination",
+        "circular",
+        "linear"
+      ],
+      "description": "What shape of outing this is, and how that is known. loop, out_and_back and destination are CONSTRUCTED (the generator drew them that way — out_and_back returns on exactly the outbound edges, destination returns by an alternative line where the ground allows); circular/linear are MEASURED on a mapped route (endpoint gap against the calibrated ratio, or the mapper's roundtrip tag). The pairs stay distinct so a classifier bug can never impersonate generation intent."
+    },
+    "identity": {
+      "type": "object",
+      "description": "How a walker recognises this route. ref and the painted waymark matter more than the name here: most CAI sentieri have a number and no name.",
+      "required": [
+        "regions"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "CAI sentiero number"
+        },
+        "activity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "hiking",
+            "foot",
+            "bicycle",
+            "mtb",
+            null
+          ]
+        },
+        "network": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "OSM scope: lwn/rwn/nwn/iwn walking, lcn/rcn/ncn cycling"
+        },
+        "waymark": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "osmc:symbol, the paint on the rock"
+        },
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operator": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "osm_relation_id": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "description": "The map. WGS84 (EPSG:4326). A MultiLineString is not an error: it is a route this network holds in pieces, and continuity says so.",
+      "required": [
+        "type",
+        "coordinates"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "LineString",
+            "MultiLineString"
+          ]
+        },
+        "coordinates": {
+          "type": "array"
+        }
+      }
+    },
+    "bbox": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "[minx, miny, maxx, maxy], so a reader can index and cull without parsing the geometry"
+    },
+    "measures": {
+      "type": "object",
+      "description": "duration is deliberately absent: DIN 33466 rates the classic Grigna ascent at 10 h against a guidebook 6-8, so the figure this codebase can compute is one a user would not trust. An absent field invites the calibration; a wrong one ships.",
+      "required": [
+        "distance_m",
+        "ascent_m",
+        "descent_m"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "distance_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "ascent_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "null when any edge lacks a profile. Absent is not zero: a partial sum would read as a flat route."
+        },
+        "descent_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "lowest_m": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "highest_m": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "profile": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "The altitude profile, as two parallel arrays of equal length. Null rather than partial when any sample is missing.",
+      "required": [
+        "distance_m",
+        "elevation_m"
+      ],
+      "properties": {
+        "distance_m": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "elevation_m": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "surface": {
+      "type": "object",
+      "description": "A distribution kept whole, plus a dominant value. '62% unpaved' is a fact about a route; 'unpaved' alone is a claim. Untagged length is reported as 'unknown' rather than renormalised away.",
+      "required": [
+        "distribution",
+        "dominant"
+      ],
+      "properties": {
+        "distribution": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "dominant": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "difficulty": {
+      "type": "object",
+      "description": "Two grades, both true: sac_scale is the CHARACTER (hardest grade covering >=5% of the length - a label), sac_max the EXIGENT grade (hardest graded metre, any length - what you must be able to handle; owner rule 2026-08-20). graded_share says how much of the route carries any grade, so sparse grading reads as a mapping fact rather than a failed join. The rule ships with the numbers.",
+      "required": [
+        "sac_scale",
+        "sac_max",
+        "graded_share",
+        "distribution",
+        "rule"
+      ],
+      "properties": {
+        "sac_scale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "hiking",
+            "mountain_hiking",
+            "demanding_mountain_hiking",
+            "alpine_hiking",
+            "demanding_alpine_hiking",
+            "difficult_alpine_hiking",
+            null
+          ],
+          "description": "The hardest grade covering at least 5% of the length, never the max: 30 m of scramble must not label a 20 km valley walk alpine."
+        },
+        "distribution": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "rule": {
+          "type": "string"
+        },
+        "sac_max": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "hiking",
+            "mountain_hiking",
+            "demanding_mountain_hiking",
+            "alpine_hiking",
+            "demanding_alpine_hiking",
+            "difficult_alpine_hiking",
+            null
+          ],
+          "description": "The hardest graded metre walked, however short."
+        },
+        "graded_share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Share of the length carrying any recognised sac_scale."
+        }
+      }
+    },
+    "continuity": {
+      "type": "object",
+      "required": [
+        "pieces",
+        "continuous",
+        "reason"
+      ],
+      "properties": {
+        "pieces": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "continuous": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "coverage_edge",
+            "network_gap",
+            "unknown",
+            null
+          ],
+          "description": "Why a route is in pieces: the break sits at our ingestion bbox (coverage_edge — a fact about our bounds, not the route) or inside coverage (network_gap — a real hole along a named route). unknown when nothing has judged the break yet; null when continuous. Carried, never filtered on: requiring continuity would delete 131 of 752 mapped routes for a clipping artefact."
+        }
+      }
+    },
+    "terminals": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "vertex_id",
+          "point",
+          "names",
+          "start_classes",
+          "car_free",
+          "nearest_start_m",
+          "reachable",
+          "seasons"
+        ],
+        "properties": {
+          "vertex_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "point": {
+            "type": "object"
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "start_classes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Kinds of arrival at or near this terminal (anchors.start_class)."
+          },
+          "car_free": {
+            "type": "boolean"
+          },
+          "nearest_start_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "NETWORK metres over foot-legal edges to the nearest start vertex — never straight line, which crosses rivers and cliffs. null when nothing lies within the measured 1 km bound (the knee of the endpoint-to-start histogram)."
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "seasons": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "spring",
+              "summer",
+              "autumn",
+              "winter",
+              "unverified"
+            ],
+            "properties": {
+              "spring": {
+                "type": "boolean"
+              },
+              "summer": {
+                "type": "boolean"
+              },
+              "autumn": {
+                "type": "boolean"
+              },
+              "winter": {
+                "type": "boolean"
+              },
+              "unverified": {
+                "type": "boolean"
+              }
+            },
+            "description": "When the terminal is reachable. The default INVERTS the hazard rule: an unscoped way in is reachable in every season, because absence of a gate tag is evidence of no gate. A transit-only terminal takes its seasons from the feed's measured service span; unverified=true marks a span that ends at the feed's publication horizon rather than with the service (a GTFS feed ending in December is a horizon, not a closure)."
+          }
+        }
+      },
+      "description": "Where a walker joins or leaves this route from the outside world — 1 for a loop/circular/out-and-back/destination, 2 for a linear traverse, each tested for reachability INDEPENDENTLY (the far end of a traverse ending at a roadless col is where our data stopped, not a terminal). Evaluated on the outermost endpoints of the merged geometry: a route in nine pieces has two terminals, not eighteen. Interest stays a property of a TURNAROUND (provenance.generation.destination), a different test on a different object."
+    },
+    "places": {
+      "type": "array",
+      "description": "What the route passes, ordered along it. Bounded at 100 m, which is where qa.distance_band puts 'near'; offset_m travels so a reader wanting 30 m filters on it. distance_along_m is null on a route held in more than one piece, because there is no single measure along it.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "offset_m",
+          "lon",
+          "lat"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ele_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The OSM ele tag, never the DEM: a 30 m cell reads a summit ~23 m low by design."
+          },
+          "offset_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "distance_along_m": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "is_start": {
+            "type": "boolean"
+          },
+          "lon": {
+            "type": "number",
+            "description": "Marker longitude (ST_PointOnSurface)."
+          },
+          "lat": {
+            "type": "number",
+            "description": "Marker latitude."
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "description": "Carried, never filtered on. A route this network holds in three pieces is still a real route, and the reader deciding whether to show it needs to know which one it is.",
+      "required": [
+        "warnings"
+      ],
+      "properties": {
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "matched_fraction": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "osm_route only: the share of the relation's ways this network holds. Null for a generated route - absent is not zero."
+        },
+        "edges_without_profile": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Attribution travels INSIDE the document. The document is the Produced Work under ODbL, so a consumer that renders the geometry elsewhere cannot strip the obligation by accident.",
+      "required": [
+        "run_id",
+        "sources"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "licence",
+              "attribution"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "licence": {
+                "type": "string"
+              },
+              "attribution": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "provides": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "generation": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "How a generated route was drawn — activity, shape, destination, target, seed, score, the MTB verdict with its blocked metres, and the generation-time shares (off_road_share, retrace_share, urban_share). History of the drawing, not the reader contract: selection copies what it needs (the Neo4j loader lifts the shares onto :Route), and a mapped route carries no generation at all. Deliberately open — the generator records what it knew, and a new knob must not need a schema release to be remembered."
+        }
+      }
+    },
+    "direction": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "fwd",
+        "rev",
+        null
+      ],
+      "description": "Which direction of travel this document describes, for shapes where that is the walker's choice; null for an out-and-back or destination route, whose single outing contains both directions. Difficulty differs by direction and directional tags invert, so a loop's two directions are two documents (start/end contract §5)."
+    },
+    "reverse_of": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The sibling direction's id, carried from day one so the :rev documents land as pure additions; null for undirected shapes."
+    },
+    "recommended": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Of a direction pair, whether THIS direction is the one to suggest: the steep side climbed, the gentle side descended (owner rule 2026-08-27, decided by the profile's mean climbing gradient in each direction). Null when the route is undirected, has no emitted sibling, or has no profile to judge from. Schema 2.1."
+    },
+    "categories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "distance_class",
+        "climb_class",
+        "difficulty_class",
+        "surface_class"
+      ],
+      "properties": {
+        "distance_class": {
+          "type": "string"
+        },
+        "climb_class": {
+          "type": "string"
+        },
+        "difficulty_class": {
+          "type": "string"
+        },
+        "surface_class": {
+          "type": "string"
+        }
+      },
+      "description": "The class twins every styled field needs (leading digit so legends sort), carried IN the document so the map legend and the chat cannot describe the same route differently. Boundaries from the corpus's measured distributions (2026-08-25: distance quintiles 1.6/3.3/5.6/9.9 km -> cuts 3/6/10/15; ascent quintiles 88/200/375/709 m -> cuts 100/250/500/1000)."
+    },
+    "divergence": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "vertex_id",
+        "approach_m"
+      ],
+      "properties": {
+        "vertex_id": {
+          "type": "integer"
+        },
+        "approach_m": {
+          "type": "number"
+        }
+      },
+      "description": "Where this route leaves the corridor shared with its siblings from the same terminal, and how long that shared approach is. Measured as the normal case, not the edge case: median shared prefix 286 m, 493 pairs sharing a kilometre or more. A fact about the route, computed once at assembly against the sibling set; diversity ON it belongs to the query service. null when the route has no siblings or none share its first edge."
+    }
+  }
+}

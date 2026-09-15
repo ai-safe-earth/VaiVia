@@ -55,7 +55,8 @@ WALKABLE_HIGHWAYS = (
 # sits 5.1 km out on the water, so no shoreline path is ever within matching
 # distance of it, and "a route around the lake" can never be answered from a
 # point. The boundary is kept alongside the centroid and the map-back measures
-# to whichever is right (graph/route_context.py).
+# to whichever is right (retired with the backend generator; the pipeline's
+# spatial join in export/route_documents.py is the living version).
 #
 # The POI set covers both roles the route pipeline needs: ANCHORS to start from
 # (parking, station) and DESTINATIONS worth reaching (peak, saddle, lake, beach,

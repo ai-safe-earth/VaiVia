@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where the plan stands — VaiVia</title>
+<style>
+  /* --p0/--p1 are per-unit accent pairs; add --p2 (and .b2/.d2) the same way
+     for a third unit. A one-unit doc uses --p0 only and drops the legend. */
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --fg:#1c1c22; --muted:#6b6b76; --rule:#e3e1dc;
+    --code-bg:#f2f0ec; --code-fg:#2a2a30; --comment:#8b8b95;
+    --p0:#0e7490; --p0-bg:#e3f3f7; --p0-line:#0e7490;
+    --p1:#bd2a80; --p1-bg:#fbe6f2; --p1-line:#bd2a80;
+    --infra:#8f8c96; --good:#177245; --warn:#9a6a06;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#101014; --panel:#17171c; --fg:#e8e6e3; --muted:#9a97a0; --rule:#2b2b33;
+      --code-bg:#1c1c23; --code-fg:#d8d6d3; --comment:#7e7e8a;
+      --p0:#53c9dd; --p0-bg:#0d3540; --p0-line:#53c9dd;
+      --p1:#ff5cb8; --p1-bg:#3e1130; --p1-line:#ff5cb8;
+      --infra:#77747e; --good:#5fce8d; --warn:#e3b341;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.65 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  main{max-width:980px; margin:0 auto; padding:0 28px 90px}
+  header.doc{max-width:980px; margin:0 auto; padding:56px 28px 8px}
+  h1{font-size:30px; line-height:1.2; margin:0 0 6px}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 4px}
+  h2{font-size:22px; margin:60px 0 12px; padding-top:18px; border-top:1px solid var(--rule)}
+  h3{font-size:16.5px; margin:30px 0 8px}
+  p{margin:10px 0}
+  a{color:var(--p0); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{
+    font:12.8px/1.55 ui-monospace,"Cascadia Code",Consolas,Menlo,monospace;
+    background:var(--code-bg); padding:1px 5px; border-radius:4px;
+  }
+  pre{
+    background:var(--code-bg); color:var(--code-fg); border:1px solid var(--rule);
+    border-radius:0 0 8px 8px; padding:14px 16px; overflow-x:auto; margin:0 0 18px;
+  }
+  pre code{background:none; padding:0; font-size:12.8px}
+  .file{
+    display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+    background:var(--panel); border:1px solid var(--rule); border-bottom:none;
+    border-radius:8px 8px 0 0; padding:7px 16px; margin-top:16px;
+    font:12px ui-monospace,Consolas,monospace; color:var(--muted);
+  }
+  .file b{color:var(--fg); font-weight:600}
+  .cm{color:var(--comment)}
+  .badge{
+    display:inline-block; font:700 10.5px/1 ui-monospace,Consolas,monospace;
+    padding:4px 7px; border-radius:99px; vertical-align:2px; letter-spacing:.05em;
+  }
+  .b0{background:var(--p0-bg); color:var(--p0)}
+  .b1{background:var(--p1-bg); color:var(--p1)}
+  .fig{
+    background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+    padding:18px 14px 8px; margin:20px 0 8px; overflow-x:auto;
+  }
+  .fig svg{display:block; margin:0 auto; min-width:720px}
+  .figcap{color:var(--muted); font-size:13px; margin:6px 4px 22px; text-align:center}
+  table{border-collapse:collapse; width:100%; margin:14px 0 20px; font-size:13.5px}
+  th,td{border:1px solid var(--rule); padding:7px 10px; text-align:left; vertical-align:top}
+  th{background:var(--code-bg); font-weight:600}
+  td code{font-size:12px}
+  ul,ol{padding-left:24px; margin:10px 0}
+  li{margin:5px 0}
+  .take{
+    background:var(--panel); border:1px solid var(--rule); border-left:4px solid var(--p0);
+    border-radius:8px; padding:12px 18px; margin:22px 0;
+  }
+  .take.t1{border-left-color:var(--p1)}
+  .take h4{margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+  .take ul{margin:6px 0 2px}
+  .dec b.num{
+    display:inline-block; min-width:20px; text-align:center; border-radius:99px;
+    font:700 11px/20px ui-monospace,Consolas,monospace; margin-right:6px;
+  }
+  .dec.d0 b.num{background:var(--p0-bg); color:var(--p0)}
+  .dec.d1 b.num{background:var(--p1-bg); color:var(--p1)}
+  nav.toc{
+    background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+    padding:14px 22px; margin:22px 0 0; font-size:14px;
+  }
+  nav.toc ol{margin:6px 0; columns:2; column-gap:40px}
+  .warntag{color:var(--warn); font-weight:600}
+  .goodtag{color:var(--good); font-weight:600}
+  .svgt{font:12px -apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--fg)}
+  .svgs{font:10.5px -apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--muted)}
+  .svgm{font:11px ui-monospace,Consolas,monospace; fill:var(--fg)}
+  .svgmd{font:10.5px ui-monospace,Consolas,monospace; fill:var(--muted)}
+</style>
+</head>
+<body>
+<header class="doc">
+  <h1>Where the plan stands — the built system against docs/plan.md</h1>
+  <p class="sub">VaiVia · branch <code>feat/eval-hardening</code> · written 2026-08-27 · companion: <a href="eval-pipeline.html">the eval pipeline</a></p>
+  <p class="sub">Single-unit doc: one accent, no legend. Grey = every tier is pre-existing here; this doc locates, it does not introduce.</p>
+  <nav class="toc">
+    <b>Contents</b>
+    <ol>
+      <li><a href="#context">Why this exists</a></li>
+      <li><a href="#system">The system as actually built</a></li>
+      <li><a href="#invariants">The three load-bearing invariants</a></li>
+      <li><a href="#status">Phase status</a></li>
+      <li><a href="#next">What comes next + recommendations</a></li>
+    </ol>
+  </nav>
+</header>
+<main>
+
+<h2 id="context">1 · Why this exists</h2>
+<p><code>docs/plan.md</code> is additive: seven phases of checkboxes, each entry written when its work
+landed, correct sentence by sentence but never giving today's picture in one look. Two of its own
+framings are already history — the two-source data story (Trailforks is legally unavailable; the data is
+OSM throughout, plan.md "Context" still describes the old core) and Supabase as live auth (parked
+2026-08-18, dev runs <code>GATEWAY_DEV_NO_AUTH=true</code>). This doc is the one-look version: what is
+actually running, which invariants carry it, and what genuinely remains. For per-phase details, the plan
+itself is the source — this doc cites, it does not restate.</p>
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>Phases 0–6 are built and verified; Phase 7 (the Bergamo refactor) is 5 of 8 items done.</li>
+    <li>Two plan framings are stale on purpose (additive doc): the Trailforks data story and live Supabase auth.</li>
+    <li>The one launch blocker that is not engineering: three credentials shared in plaintext during development must rotate before deploy.</li>
+  </ul>
+</div>
+
+<h2 id="system">2 · The system as actually built</h2>
+<div class="fig">
+<svg viewBox="0 0 960 560" role="img" aria-label="Four public-path tiers plus the offline pipeline that manufactures the catalogue">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--infra)"/></marker>
+    <marker id="ar0" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p0-line)"/></marker>
+  </defs>
+
+  <!-- public path -->
+  <rect x="20" y="20" width="200" height="66" rx="10" fill="var(--panel)" stroke="var(--fg)"/>
+  <text x="36" y="46" class="svgt" font-weight="600">Next.js frontend</text>
+  <text x="36" y="63" class="svgs">chat + MapLibre · 33 tests + 4 e2e</text>
+
+  <rect x="20" y="130" width="200" height="82" rx="10" fill="var(--panel)" stroke="var(--fg)"/>
+  <text x="36" y="156" class="svgt" font-weight="600">Fastify gateway</text>
+  <text x="36" y="173" class="svgs">the ONLY public service</text>
+  <text x="36" y="189" class="svgs">JWT · rate limits · CORS · quota</text>
+  <text x="36" y="205" class="svgs">SSE proxy · no business logic</text>
+
+  <rect x="20" y="260" width="200" height="82" rx="10" fill="var(--panel)" stroke="var(--fg)"/>
+  <text x="36" y="286" class="svgt" font-weight="600">FastAPI backend</text>
+  <text x="36" y="303" class="svgs">chat orchestration + queries</text>
+  <text x="36" y="319" class="svgs">370 tests · trusts gateway only</text>
+
+  <path d="M120 86 L120 128" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="130" y="112" class="svgs">HTTPS + Supabase JWT (parked: dev-no-auth)</text>
+  <path d="M120 212 L120 258" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="130" y="240" class="svgs">X-Gateway-Secret · x-user-id · SSE back ①</text>
+
+  <!-- backend fan-out -->
+  <rect x="330" y="240" width="230" height="122" rx="10" fill="var(--panel)" stroke="var(--fg)"/>
+  <text x="346" y="266" class="svgt" font-weight="600">Neo4j (internal)</text>
+  <text x="346" y="286" class="svgm">5 :Trail (fixture stub)</text>
+  <text x="346" y="304" class="svgm">627 :Route (catalogue)</text>
+  <text x="346" y="322" class="svgm">50k+ :Intersection routing</text>
+  <text x="346" y="340" class="svgs">GDS Dijkstra · vector index</text>
+
+  <rect x="330" y="400" width="230" height="70" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="346" y="426" class="svgt" font-weight="600">Supabase Postgres</text>
+  <text x="346" y="443" class="svgs">history · ledger · quotas · RLS</text>
+  <text x="346" y="459" class="svgs">auth parked 2026-08-18</text>
+
+  <rect x="620" y="240" width="180" height="70" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="636" y="266" class="svgt" font-weight="600">OpenAI</text>
+  <text x="636" y="283" class="svgs">structured outputs · answers</text>
+  <text x="636" y="299" class="svgs">embeddings · cost-capped ②</text>
+
+  <path d="M220 290 L328 290" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="228" y="282" class="svgs">named templates only ③</text>
+  <path d="M160 342 L328 424" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="180" y="392" class="svgs">history + usage</text>
+  <path d="M220 268 L618 268" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="380" y="260" class="svgs">intents in, prose out — never Cypher ③</text>
+
+  <!-- pipeline (the manufacturer) -->
+  <rect x="620" y="30" width="310" height="150" rx="10" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="636" y="56" class="svgt" font-weight="600">pipeline/ — offline manufacturer</text>
+  <text x="636" y="76" class="svgs">own uv project · PostGIS working store</text>
+  <text x="636" y="94" class="svgm">source_map → catalogue → qa → provenance</text>
+  <text x="636" y="112" class="svgs">parametric factory: loop · destination · out_and_back</text>
+  <text x="636" y="130" class="svgs">1,371 routes in catalogue (751 mapped + 620 gen.)</text>
+  <text x="636" y="148" class="svgs">emits one versioned route document per route ④</text>
+
+  <path d="M700 180 L480 238" stroke="var(--p0-line)" stroke-width="2" fill="none" marker-end="url(#ar0)"/>
+  <text x="530" y="205" class="svgs">neo4j_load: documents → :Route ④ (currently 627 — see R1)</text>
+
+  <!-- osm -->
+  <rect x="620" y="400" width="180" height="60" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="636" y="426" class="svgt" font-weight="600">OSM / Overpass</text>
+  <text x="636" y="443" class="svgs">the only trail-data source</text>
+  <path d="M700 400 L700 312" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="708" y="366" class="svgs">ingestion per region (Lecco, Bergamo)</text>
+</svg>
+</div>
+<p class="figcap">Fig. 1 — The public path (left column) and the two producers feeding Neo4j. Caddy/TLS and
+the deploy story are designed but not yet stood up, and are omitted; Trailforks appears nowhere because it
+was never ingested (licensing, <code>docs/licensing.md</code>).</p>
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>One ingress (gateway), one graph reader (backend), one manufacturer (pipeline) — every arrow crosses a declared boundary.</li>
+    <li>The graph's trail identity layer is still the 5-trail fixture stub; the catalogue is where real coverage lives.</li>
+    <li>Supabase runs for history/quotas; its auth role is parked, not deleted — the gateway refuses <code>DEV_NO_AUTH</code> in production.</li>
+  </ul>
+</div>
+
+<h2 id="invariants">3 · The three load-bearing invariants</h2>
+<p>Everything else in the plan can move; these three are the shape of the product. Each is enforced in
+code, not in prose.</p>
+
+<h3>3.1 · ① The gateway is the only public service</h3>
+<p>Auth, rate limits, origin control, quota pre-check, SSE proxy — and no business logic. The backend
+trusts only the gateway's shared-secret header and never parses a JWT; identity arrives as
+<code>x-user-id</code>. Verified by 40 gateway tests including real RSA-signed JWTs and
+claim-pinning negatives (<code>docs/plan.md</code>, Phase 3 and Phase 6).</p>
+
+<h3>3.2 · ②③ The LLM never sees or writes Cypher, and pays before it speaks</h3>
+<p>The model produces validated pydantic intents; Python composes them; named templates run with
+parameters only. Guard tests fail the build if a template mutates, traverses semantic edges in a path, or
+leaves a traversal unbounded — the boundary is a test, not a convention. Per-user daily cost caps are
+checked before every OpenAI call, in the backend authoritatively and at the gateway as a pre-check.</p>
+<div class="file"><span><b>backend/chat/intents.py</b>:22–116 — the whole vocabulary the model may speak</span></div>
+<pre><code>class TrailSearchIntent(BaseModel): ...   <span class="cm"># constraints, never queries</span>
+class LoopSearchIntent(BaseModel): ...    <span class="cm"># no field carries a template name or identifier</span>
+class RouteIntent(BaseModel): ...
+class ClarifyIntent(BaseModel): ...       <span class="cm"># adversarial input lands here; runs no query</span>
+class PlanEnvelope(BaseModel): ...        <span class="cm"># + refine: marks a delta onto the standing plan</span></code></pre>
+<div class="file"><span><b>backend/tests/test_query_loader.py</b>:81 — the boundary as a failing build</span></div>
+<pre><code>def test_no_template_writes_to_the_graph():   <span class="cm"># plus: bounded traversals, no semantic</span>
+    ...                                       <span class="cm"># edges in path expressions</span></code></pre>
+
+<h3>3.3 · ④ The route document is the product; every tier is a reader</h3>
+<p>Curated geometry and metadata live in PostGIS; <code>pipeline/export/route_documents.py:199</code>
+emits one schema-validated JSON + GeoJSON per route
+(<code>pipeline/schemas/route-document.schema.json</code>, pinned by contract fixtures in <em>both</em>
+suites); Neo4j, the API and the frontend read it and none may redefine a route. Route ids are geometry
+digests (<code>vv2-&lt;16hex&gt;</code>) so photos and favorites survive rebuilds — the social layer's
+foundation, paid for in advance.</p>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>Each invariant has an enforcement point you can run: gateway tests, query-loader guards, schema-contract fixtures.</li>
+    <li>The intent vocabulary is the entire attack surface the model gets; everything else is Python's.</li>
+    <li>The document contract is why the catalogue could be regenerated (P4: 1,371 routes) without breaking a reader.</li>
+  </ul>
+</div>
+
+<h2 id="status">4 · Phase status</h2>
+<table>
+  <tr><th>Phase (docs/plan.md numbering)</th><th>Status</th><th>One-line state</th></tr>
+  <tr><td>0 · Restructure &amp; foundations</td><td><span class="goodtag">done</span></td><td>Monorepo, CI (offline), Supabase migrations applied.</td></tr>
+  <tr><td>1 · Graph core &amp; ingestion</td><td><span class="goodtag">done</span></td><td>Idempotent OSM ingestion, two regions live (Lecco + Bergamo); Trailforks a deliberate stub.</td></tr>
+  <tr><td>2 · Backend query service</td><td><span class="goodtag">done</span></td><td>Named templates + guard tests; GDS Dijkstra live-verified.</td></tr>
+  <tr><td>3 · Gateway</td><td><span class="goodtag">done</span></td><td>JWT/JWKS, claim pinning, limits, quota pre-check, SSE proxy.</td></tr>
+  <tr><td>4 · Chat orchestration</td><td><span class="goodtag">done</span></td><td>Decompose→compose→execute→answer; eval now covers all three stages (<a href="eval-pipeline.html">companion doc</a>).</td></tr>
+  <tr><td>5 · Frontend</td><td><span class="goodtag">done</span></td><td>Chat-first UI, map, auth pages, Playwright e2e 4/4.</td></tr>
+  <tr><td>6 · Beta hardening</td><td><span class="goodtag">done*</span></td><td>Embeddings + semantic search live; *deploy plumbing and credential rotation remain the amber items.</td></tr>
+  <tr><td>7 · Bergamo refactor — P0 card/map races</td><td><span class="goodtag">done</span></td><td>PR #34.</td></tr>
+  <tr><td>7 · P1 document-contract checks</td><td><span class="goodtag">done</span></td><td>980/980 audit clean (PR #35).</td></tr>
+  <tr><td>7 · P2 pipeline v2 schema</td><td><span class="warntag">open</span></td><td>Rename to source_map/catalogue/provenance; partially delivered by later items, checkbox not closed.</td></tr>
+  <tr><td>7 · P3 route-id v2 cutover</td><td><span class="goodtag">done</span></td><td><code>vv2-</code> ids, schema 2.0 documents, favorites reset.</td></tr>
+  <tr><td>7 · P4 out-and-back factory</td><td><span class="goodtag">done</span></td><td>1,371-route catalogue over both provinces, audit clean.</td></tr>
+  <tr><td>7 · P5 compact card</td><td><span class="warntag">open</span></td><td>Two-line card, exigent warning, expandable provenance.</td></tr>
+  <tr><td>7 · P6 chat standing plan</td><td><span class="goodtag">done</span></td><td>Persisted standing plan, delta merges, resume with cards (2026-08-26).</td></tr>
+  <tr><td>7 · P7 custom route jobs</td><td><span class="warntag">open</span></td><td>Supabase 0004, worker, atomic publication.</td></tr>
+  <tr><td>7 · P8 direction documents</td><td><span class="warntag">open</span></td><td><code>-rev</code> siblings; additions only, ids already support it.</td></tr>
+</table>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>The core loop (ask → grounded answer → drawn route) is done and e2e-pinned; what remains is presentation (P5), user creation (P7/P8), and ops.</li>
+    <li>Phase 6's asterisk is the honest one: everything unverified is deploy plumbing, not product.</li>
+  </ul>
+</div>
+
+<h2 id="next">5 · What comes next + recommendations</h2>
+<ol>
+  <li><span class="warntag">Rotate the three plaintext credentials before anything deploys.</span> The
+  handoff has carried this amber flag since the incident; no engineering item outranks it. Actionable
+  today: new Neo4j/Postgres/OpenAI secrets, old ones revoked.</li>
+  <li><span class="warntag">Reload Neo4j from the P4 catalogue.</span> Live Neo4j holds 627 routes, all
+  generated; the catalogue holds 1,371 including 751 mapped ones users currently cannot be offered.
+  One <code>neo4j_load</code> run, then a count assertion in the audit script so the lag cannot recur
+  silently. (Found while writing the <a href="eval-pipeline.html">eval doc</a>.)</li>
+  <li><span class="warntag">Update plan.md's stale framings.</span> The "Context" section still motivates
+  the two-source Trailforks graph and the LLM-boundary section cites <code>backend/app/intents/schema.py</code>,
+  a path that has been <code>backend/chat/intents.py</code> since Phase 4 landed. Two small edits keep the
+  plan trustworthy as the ratified reference.</li>
+  <li><span class="warntag">Decide the routing-geometry migration.</span> <code>docs/routing-engine.md</code>
+  decided for GraphHopper and nothing has moved; the comfort-weighted GDS path still serves. Either
+  schedule the migration into Phase 7's tail or mark the decision superseded — a ratified-but-unacted
+  decision is the most expensive kind of doc debt.</li>
+  <li>The 5-trail fixture stub as the entire <code>(:Trail)</code> layer — <b>accepted, because</b> the
+  catalogue is the coverage story and a real trail source (OSM route relations already flow into the
+  catalogue as mapped routes) is Phase 8 material, blocked on nothing technical.</li>
+  <li>Supabase auth parked while the stack runs <code>GATEWAY_DEV_NO_AUTH</code> — <b>accepted,
+  because</b> the gateway refuses that flag in production and the auth path stays tested; re-activation is
+  configuration, not code.</li>
+</ol>
+
+<p class="sub" style="margin-top:48px">Sources: <code>docs/plan.md</code> (phases :67–207, architecture :33),
+<code>handoff.md</code> (status table, amber flag), <code>backend/chat/intents.py</code>,
+<code>backend/tests/test_query_loader.py</code>, <code>pipeline/export/route_documents.py</code>,
+<code>pipeline/schemas/route-document.schema.json</code>, live Neo4j counts 2026-08-27.
+Line numbers as of <code>feat/eval-hardening</code> @ <code>b9902bb</code>; all quoted files committed.</p>
+
+</main>
+</body>
+</html>

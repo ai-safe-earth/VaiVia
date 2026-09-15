@@ -137,9 +137,12 @@ async def test_a_hiking_ask_does_not_apply_an_mtb_ceiling(db):
         LoopSearchIntent(activity="hike", max_difficulty_level=2)
     )
     _, params = next(c for c in db.calls if c[0] == "search_loops")
-    assert params["activity"] == "hike"
-    assert params["max_hike_rating"] is not None
-    assert params["max_mtb_rating"] is None
+    # 'hike' resolves to the catalogue's activity vocabulary, and the ceiling
+    # rides the SAC rank parameter (against sac_max, the exigent grade).
+    assert params["activities"] == ["hiking", "foot"]
+    assert params["mtb_only"] is None
+    assert params["max_sac_rank"] is not None
+    assert params["max_mtb_rank"] is None
 
 
 @pytest.mark.asyncio
@@ -152,7 +155,8 @@ async def test_an_unstated_activity_searches_every_catalogue(db):
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
     await orchestrator._loops(LoopSearchIntent(max_distance_m=10000))  # noqa: SLF001
     _, params = next(c for c in db.calls if c[0] == "search_loops")
-    assert params["activity"] is None
+    assert params["activities"] is None
+    assert params["mtb_only"] is None
 
 
 def test_a_single_stated_distance_becomes_a_band_not_an_equality():
@@ -189,10 +193,12 @@ async def test_loops_execute_against_the_catalogue(db):
         [{"id": "th1:15000:0", "distance_m": 15300.0, "score": 0.9}],
     )
     orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
-    rows = await orchestrator._loops(  # noqa: SLF001 — exercising the real path
+    rows, near_resolved, _total = await orchestrator._loops(  # noqa: SLF001 — real path
         LoopSearchIntent(max_distance_m=16000, poi_types=["peak"])
     )
     assert [r["id"] for r in rows] == ["th1:15000:0"]
+    # Nothing was asked to be near anything, so there was nothing to fail.
+    assert near_resolved is True
     name, params = next(c for c in db.calls if c[0] == "search_loops")
     assert params["max_distance_m"] == 16000
     assert params["poi_types"] == ["peak"]
@@ -232,9 +238,26 @@ def test_a_mixed_turn_still_reads_as_a_trail_search():
 
 
 @pytest.mark.asyncio
-async def test_duration_is_filterable_now_that_routes_have_one(db):
-    """ "back by lunch" is the natural way to ask, and durations exist on every
-    route, so the filter should reach the query."""
+async def test_an_mtb_ask_filters_on_the_rideability_conjunction(db):
+    """A bike question must only see bike-legal routes — and that is
+    mtb_rideable (one forbidding segment forbids), not the activity label: a
+    rideable OSM hiking relation answers a bike question too."""
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("search_loops", [])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    await orchestrator._loops(LoopSearchIntent(activity="mtb"))  # noqa: SLF001
+    _, params = next(c for c in db.calls if c[0] == "search_loops")
+    assert params["mtb_only"] is True
+    assert params["activities"] is None
+
+
+@pytest.mark.asyncio
+async def test_duration_is_deliberately_not_sent_to_the_query(db):
+    """The pipeline catalogue carries no duration until DIN 33466 is calibrated
+    (docs/route-document.md: the uncalibrated figure reads 10 h for a 6-8 h
+    classic). Filtering on a wrong number would exclude the wrong routes
+    silently, so the parameter must not reach the template at all."""
     from chat.orchestrator import ChatOrchestrator
 
     db.when("search_loops", [])
@@ -243,8 +266,7 @@ async def test_duration_is_filterable_now_that_routes_have_one(db):
         LoopSearchIntent(max_duration_min=180, activity="mtb")
     )
     _, params = next(c for c in db.calls if c[0] == "search_loops")
-    assert params["max_duration_min"] == 180
-    assert params["activity"] == "mtb"
+    assert "max_duration_min" not in params
 
 
 def test_a_zero_duration_is_dropped_as_vacuous():
@@ -252,3 +274,296 @@ def test_a_zero_duration_is_dropped_as_vacuous():
     'nothing matches' to the query."""
     merged = merge_loops([LoopSearchIntent(max_duration_min=0)])
     assert merged.max_duration_min is None
+
+
+# ── A trail ask answers with both kinds (owner rule 2026-08-21) ─────────────
+
+
+LOOP_ROW = {"id": "cat_001", "name": "To Corno dell'Arco", "distance_m": 11000}
+
+
+@pytest.mark.asyncio
+async def test_a_trail_ask_also_selects_from_the_catalogue(db):
+    """Named trails AND catalogue outings, one ask: both blocks come back,
+    each under its own key so the screen can keep them distinguishable."""
+    from tests.conftest import TRAIL_ROW
+    from tests.test_chat_orchestrator import build, collect, results_of
+
+    db.when("search_trails", [TRAIL_ROW])
+    db.when("search_loops", [LOOP_ROW])
+    orchestrator, _, store = build(
+        db, {"kind": "trail_search", "activity": "hike", "max_distance_m": 16000}
+    )
+    events = await collect(orchestrator, user_id="u1", message="a hike under 16 km")
+
+    results = results_of(events)
+    assert results["trails"][0]["id"] == TRAIL_ROW["id"]
+    assert results["loops"][0]["id"] == "cat_001"
+    # The derived ask carries the same constraints into the catalogue.
+    params = db.params_for("search_loops")
+    assert params["activities"] == ["hiking", "foot"]
+    assert params["max_distance_m"] == 16000
+
+
+@pytest.mark.asyncio
+async def test_a_constraint_the_catalogue_cannot_honour_keeps_it_out(db):
+    """A season (or hazard, or surface) cannot be checked on the catalogue,
+    so the catalogue must not answer at all -- returning routes that ignore
+    a stated constraint would be worse than returning none."""
+    from tests.test_chat_orchestrator import build, collect
+
+    db.when("search_trails", [])
+    orchestrator, _, _ = build(
+        db, {"kind": "trail_search", "activity": "hike", "season": "winter"}
+    )
+    await collect(orchestrator, user_id="u1", message="a winter hike")
+
+    assert "search_loops" not in [name for name, _ in db.calls]
+
+
+@pytest.mark.asyncio
+async def test_a_theme_turn_stays_trails_only(db):
+    """The catalogue has no embeddings, so a semantic theme is a constraint
+    it cannot honour -- same rule as the season."""
+    from tests.conftest import FakeEmbedder
+    from tests.test_chat_orchestrator import build, collect
+
+    db.when("count_embedded_trails", [{"trails": 3, "embedded": 3}])
+    db.when("semantic_search_trails_filtered", [])
+    orchestrator, _, _ = build(
+        db,
+        [
+            {"kind": "trail_search", "activity": "hike", "max_distance_m": 16000},
+            {"kind": "semantic_theme", "text": "shady forest"},
+        ],
+        embedder=FakeEmbedder(),
+    )
+    await collect(orchestrator, user_id="u1", message="a shady forest hike")
+
+    assert "search_loops" not in [name for name, _ in db.calls]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_implicit_catalogue_block_is_omitted(db):
+    """Nobody asked the catalogue by name: when it has nothing, the results
+    carry no loops key at all, so the answer does not apologise for a list
+    the user never requested."""
+    from tests.conftest import TRAIL_ROW
+    from tests.test_chat_orchestrator import build, collect, results_of
+
+    db.when("search_trails", [TRAIL_ROW])
+    db.when("search_loops", [])
+    orchestrator, _, _ = build(
+        db, {"kind": "trail_search", "activity": "hike", "max_distance_m": 16000}
+    )
+    events = await collect(orchestrator, user_id="u1", message="a hike under 16 km")
+
+    assert "loops" not in results_of(events)
+
+
+# ── The cards can show more than the prose narrates ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_answer_sees_a_prefix_while_the_cards_get_the_rest(db):
+    """CARD_RESULT_LIMIT rows travel in the results event (folded behind
+    "show more" client-side); the answer model is handed only the first
+    ANSWER_RESULT_LIMIT, or its prompt to cover every route would produce
+    twenty sentences. A prefix, never a re-sort: the prose and the cards
+    above the fold must be the same routes in the same order."""
+    import json
+
+    from chat.orchestrator import ANSWER_RESULT_LIMIT, CARD_RESULT_LIMIT
+    from tests.test_chat_orchestrator import build, collect, results_of
+
+    rows = [
+        {"id": f"cat_{i:03}", "name": f"Route {i}", "distance_m": 1000.0 * i}
+        for i in range(CARD_RESULT_LIMIT)
+    ]
+    db.when("search_loops", rows)
+    orchestrator, llm, _ = build(db, {"kind": "loop_search", "max_distance_m": 25000})
+    events = await collect(orchestrator, user_id="u1", message="a loop")
+
+    results = results_of(events)
+    assert len(results["loops"]) == CARD_RESULT_LIMIT
+    assert results["answered_count"] == ANSWER_RESULT_LIMIT
+
+    _, results_json = llm.answer_calls[0]
+    answered = json.loads(results_json)["loops"]
+    assert len(answered) == ANSWER_RESULT_LIMIT
+    assert [r["id"] for r in answered] == [r["id"] for r in rows[:ANSWER_RESULT_LIMIT]]
+
+
+def test_a_stated_distance_widens_on_the_implicit_catalogue_path_too():
+    """'a 15 km hike' must reach the catalogue the same way 'a 15 km loop' does.
+
+    catalogue_view copied min/max verbatim, so the implicit block ran
+    distance >= 15000 AND <= 15000 over routes that are 15,328 m long, matched
+    nothing, and vanished — while the same ask phrased as a loop got a band
+    and results.
+    """
+    from chat.composer import catalogue_view
+
+    view = catalogue_view(TrailSearchIntent(min_distance_m=15000, max_distance_m=15000))
+    assert view is not None
+    assert view.min_distance_m == pytest.approx(12000)
+    assert view.max_distance_m == pytest.approx(18000)
+
+
+def test_a_genuine_range_reaches_the_catalogue_untouched():
+    from chat.composer import catalogue_view
+
+    view = catalogue_view(TrailSearchIntent(min_distance_m=10000, max_distance_m=20000))
+    assert view is not None
+    assert (view.min_distance_m, view.max_distance_m) == (10000, 20000)
+
+
+@pytest.mark.asyncio
+async def test_an_unresolvable_place_is_reported_not_ignored(db):
+    """A place we cannot find must not become 'no geo filter at all'.
+
+    The catalogue would then answer with routes from anywhere while the
+    readback says 'starting near: Atlantis' — a stated constraint silently
+    dropped, which is the failure the routing path already guards with
+    unknown_place.
+    """
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("poi_by_name_fulltext", [])
+    db.when("poi_by_name", [])
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+
+    rows, near_resolved, _total = await orchestrator._loops(  # noqa: SLF001
+        LoopSearchIntent(near="Atlantis")
+    )
+    assert near_resolved is False
+    assert db.params_for("search_loops")["near_lat"] is None
+
+    plan = compose([LoopSearchIntent(near="Atlantis")])
+    results, refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["loops"] == []
+    assert results["loops_unknown_place"] == "Atlantis"
+    assert refs["loop_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_resolvable_place_still_answers(db):
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("poi_by_name_fulltext", [{"lat": 45.85, "lon": 9.39}])
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+
+    plan = compose([LoopSearchIntent(near="Lecco")])
+    results, _ = await orchestrator._execute(plan)  # noqa: SLF001
+    assert [r["id"] for r in results["loops"]] == ["th1:15000:0"]
+    assert "loops_unknown_place" not in results
+    assert db.params_for("search_loops")["near_lat"] == 45.85
+
+
+@pytest.mark.asyncio
+async def test_the_implicit_block_is_dropped_when_the_region_does_not_resolve(db):
+    """catalogue_view refuses any constraint the catalogue cannot honour; a
+    region that fails resolution is one, it just cannot be known until the
+    lookup has run."""
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("poi_by_name_fulltext", [])
+    db.when("poi_by_name", [])
+    db.when("search_trails", [{"id": "t1"}])
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+
+    plan = compose([TrailSearchIntent(activity="hike", region="Atlantis")])
+    results, _ = await orchestrator._execute(plan)  # noqa: SLF001
+    assert "loops" not in results  # the trails answer alone, and honestly
+    assert results["trails"] == [{"id": "t1"}]
+
+
+@pytest.mark.asyncio
+async def test_the_independent_blocks_of_a_turn_go_out_together(db):
+    """Trails and the catalogue share no state, so they must not queue.
+
+    A both-kinds turn used to pay for the trail search, then the place
+    lookup, then the catalogue, one round trip after another. This fake makes
+    the trail search WAIT for the catalogue one to start: if they are
+    dispatched together it passes at once, and if they were serialised again
+    it fails on the timeout rather than hanging the suite.
+    """
+    import asyncio
+
+    from chat.orchestrator import ChatOrchestrator
+
+    class Rendezvous(type(db)):
+        def __init__(self) -> None:
+            super().__init__()
+            self.loops_started = asyncio.Event()
+
+        async def run_named(self, name, /, **params):
+            if name == "search_loops":
+                self.loops_started.set()
+            if name == "search_trails":
+                await asyncio.wait_for(self.loops_started.wait(), timeout=2)
+            return await super().run_named(name, **params)
+
+    rendezvous = Rendezvous()
+    rendezvous.when("search_trails", [{"id": "t1"}])
+    rendezvous.when("search_loops", [{"id": "th1:15000:0"}])
+    orchestrator = ChatOrchestrator(db=rendezvous, llm=None, store=None, embedder=None)
+
+    plan = compose([TrailSearchIntent(activity="hike", max_distance_m=10000)])
+    results, _ = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["trails"] == [{"id": "t1"}]
+    assert [r["id"] for r in results["loops"]] == ["th1:15000:0"]
+
+
+@pytest.mark.asyncio
+async def test_the_factory_params_are_supplied_and_deliberately_unmapped(db):
+    """The template carries $regions/$start_classes/$max_urban_share (the
+    factory's parameter surface, answerable at selection too); the driver
+    requires every parameter present, so the orchestrator must SUPPLY them —
+    and no intent field maps onto them yet, so they must be null: an
+    unstated filter filters nothing. When the standing plan or the cards
+    grow a mapping, this test is the one that changes on purpose.
+    """
+    from chat.orchestrator import ChatOrchestrator
+
+    db.when("search_loops", [])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    await orchestrator._loops(LoopSearchIntent())  # noqa: SLF001 — real path
+    _, params = next(c for c in db.calls if c[0] == "search_loops")
+    assert params["regions"] is None
+    assert params["start_classes"] is None
+    assert params["max_urban_share"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_true_total_rides_the_results_event(db) -> None:
+    """estimate_loops's count reaches results as total_loops — the number the
+    answer states. The estimate runs only when the page filled (a short page
+    is its own population), and an empty estimate leaves total_loops unset."""
+    from chat.composer import ComposedPlan
+    from chat.intents import LoopSearchIntent
+    from chat.orchestrator import CARD_RESULT_LIMIT, ChatOrchestrator
+
+    full_page = [
+        {"id": f"th1:{i}:0", "distance_m": 15300.0} for i in range(CARD_RESULT_LIMIT)
+    ]
+    db.when("search_loops", full_page)
+    db.when("estimate_loops", [{"total": 37, "rows": []}])
+    orchestrator = ChatOrchestrator(db=db, llm=None, store=None, embedder=None)
+    plan = ComposedPlan(loop=LoopSearchIntent(max_distance_m=16000))
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["total_loops"] == 37
+
+    db.when("estimate_loops", [])
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert "total_loops" not in results
+
+    # A short page needs no estimate: the total is the page itself.
+    db.when("search_loops", [{"id": "th1:15000:0", "distance_m": 15300.0}])
+    results, _refs = await orchestrator._execute(plan)  # noqa: SLF001
+    assert results["total_loops"] == 1
+    estimate_calls = [name for name, _ in db.calls if name == "estimate_loops"]
+    assert len(estimate_calls) == 2  # the two full-page turns above, only

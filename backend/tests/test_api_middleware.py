@@ -61,10 +61,10 @@ def test_healthz_is_public_even_with_secret_configured(client, db, with_gateway_
 
 def test_healthz_reports_up(client, db):
     body = client.get("/healthz").json()
-    assert body == {"status": "ok", "database": "up"}
+    assert body == {"status": "ok", "database": "up", "pack": None}
 
 
 def test_healthz_reports_degraded_when_database_is_down(client, db):
     db.fail_with = RuntimeError("connection refused")
     body = client.get("/healthz").json()
-    assert body == {"status": "degraded", "database": "down"}
+    assert body == {"status": "degraded", "database": "down", "pack": None}

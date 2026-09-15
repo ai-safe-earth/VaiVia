@@ -8,22 +8,60 @@ frontend renders tokens as they arrive.
 import json
 import logging
 from collections.abc import AsyncIterator
+from typing import Literal
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from api.deps import DbDep
+from api.deps import DbDep, UserDep
 from chat.orchestrator import ChatEvent, ChatOrchestrator, QuotaExceeded
+from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
 
 
+class NearPoint(BaseModel):
+    """The user's location for "from here" asks — TYPED, validated to the
+    coverage regions, attached to the plan AFTER intent extraction. The LLM
+    never sees a coordinate (docs/route-design.md); a test pins that the
+    extraction call carries none."""
+
+    lat: float
+    lon: float
+
+    @model_validator(mode="after")
+    def _inside_coverage(self) -> "NearPoint":
+        for _name, (lat_min, lon_min, lat_max, lon_max) in get_settings().region_list:
+            if lat_min <= self.lat <= lat_max and lon_min <= self.lon <= lon_max:
+                return self
+        raise ValueError("near is outside the covered regions")
+
+
+class OutingChip(BaseModel):
+    """A refinement tap: a typed delta onto the conversation's standing
+    outing, merged in Python with NO model call. Only these fields exist —
+    a chip cannot carry a query, an id, a coordinate or a weight any more
+    than the intent it refines can."""
+
+    max_hours: float | None = Field(default=None, ge=0, le=24)
+    max_distance_km: float | None = Field(default=None, ge=0, le=200)
+    max_ascent_m: int | None = Field(default=None, ge=0, le=5000)
+    surface_exclusions: list[Literal["asphalt", "paved", "gravel"]] | None = None
+    setting: Literal["nature", "mixed", "town"] | None = None
+
+    def delta(self) -> dict:
+        """Only the fields the tap actually set."""
+        return self.model_dump(exclude_none=True)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str | None = None
+    near: NearPoint | None = None
+    chip: OutingChip | None = None
 
 
 def _sse(event: ChatEvent) -> str:
@@ -63,27 +101,28 @@ async def chat(
     request: ChatRequest,
     http_request: Request,
     db: DbDep,
-    x_user_id: str = Header(default=""),
+    user_id: UserDep,
 ) -> StreamingResponse:
-    if not x_user_id:
-        raise HTTPException(
-            status_code=401, detail="missing user identity from gateway"
-        )
-
     state = http_request.app.state
+    if getattr(state, "outing_docs", None) is None:
+        state.outing_docs = {}
     orchestrator = ChatOrchestrator(
         db=db,
         llm=state.llm,
         store=state.store,
         embedder=getattr(state, "embedder", None),
+        planner=getattr(state, "planner", None),
+        outing_docs=state.outing_docs,
     )
 
     return StreamingResponse(
         _stream(
             orchestrator.run(
-                user_id=x_user_id,
+                user_id=user_id,
                 message=request.message,
                 conversation_id=request.conversation_id,
+                near=((request.near.lat, request.near.lon) if request.near else None),
+                chip=(request.chip.delta() if request.chip else None),
             )
         ),
         media_type="text/event-stream",
