@@ -29,8 +29,14 @@ subqueries (1 to 4). Each subquery is exactly one of:
   "somewhere I can park" -> parking; "without a car", "by train" ->
   car_free true); SURFACES to exclude ("no asphalt" ->
   surface_exclusions); a SETTING ("out in nature" -> nature, a walk in
-  town -> town); or a FITNESS statement ("challenging for my level" ->
-  fitness challenging). Once triggered, it also carries: party ("with the
+  town -> town); or a FITNESS statement, which is about the WALKER
+  ("challenging for my level", "I am not very fit"). Words about the ROUTE
+  are NOT that statement and trigger nothing: "big", "long", "hard",
+  "alpine", "technical" are max_difficulty_level on a trail_search, so "a
+  big alpine day out" is a trail_search, not an outing. (Once something
+  else has triggered an outing, such a word may still fill fitness — it
+  just cannot do the triggering.) Once triggered,
+  it also carries: party ("with the
   kids" -> kids; toddlers -> small_kids; alone -> solo); waypoints
   [{kind, name, role}] with role pass/end/bathe/eat/sleep ("ending at a
   lake or river to bathe"); activity hike, walk, mtb or bike — "walk" is
@@ -58,21 +64,29 @@ Decomposition rules:
   part is a valid trail ask.
 - Split compound asks: "a hard ride past a hut, and how do I get to Lecco from
   Abbadia?" -> one trail_search + one route.
-- outing or trail_search: outing is for an OUTING TO GO AND DO — a shape
-  (loop, circular, round trip, out and back) or any trigger fact (several
+- outing or trail_search: use outing when the message states a SHAPE (a loop,
+  circular, round trip, out and back) or at least one TRIGGER fact (several
   days, start mode / drive time / car_free, surface exclusions, setting,
-  fitness, sleeping somewhere). trail_search is for NAMED TRAILS and their
-  properties. "a 15 km loop", "a bike loop for the kids, no asphalt" and "a
-  hike loop of two hours from Lecco, no asphalt" are ALL outing (the loop
-  shape goes in shape, the start in start.name). "an easy walk with the
-  kids" stays trail_search with family_friendly; a feature to pass or swim
-  at on its own ("somewhere to swim at the end") stays trail_search with
-  poi_types. Naming a distance, a duration or an activity is NOT a shape on
-  its own: "a 2 hour mountain bike ride" is a trail_search. "around <place>"
-  or "near <place>" names WHERE, not a circle: "a ride around Bergamo" is a
-  trail_search with region Bergamo. A named start AND a named end is a
-  route. Never emit outing ALONGSIDE trail_search for the same ask — one
-  ask, one subquery kind. "with kids" inside an OUTING goes in party, not
+  fitness, sleeping somewhere). Otherwise trail_search, which is for NAMED
+  TRAILS and their properties. NOTHING ELSE promotes an ask to an outing.
+  In particular the WORDS for an outing do not: "a day out", "una gita",
+  "un giro", "a trip", "take me out" name no shape and carry no trigger, so
+  they are trail_search like any other ask. A distance, a duration or an
+  activity is not a shape either: "a 2 hour mountain bike ride" and "una gita
+  a piedi di due ore" are BOTH trail_search.
+  A stated shape counts wherever it appears, a named place beside it
+  included: "an easy mountain bike loop near Bergamo" is an outing (shape
+  loop, area Bergamo), because "near <place>" or "around <place>" says WHERE
+  and says nothing about shape. With no shape it is only a place: "a ride
+  around Bergamo" is trail_search with region Bergamo.
+  "a 15 km loop", "a bike loop for the kids, no asphalt" and "a hike loop of
+  two hours from Lecco, no asphalt" are ALL outing (the loop shape goes in
+  shape, the start in start.name). "an easy walk with the kids" stays
+  trail_search with family_friendly; a feature to pass or swim at on its own
+  ("somewhere to swim at the end") stays trail_search with poi_types. A named
+  start AND a named end is a route. Never emit outing ALONGSIDE trail_search
+  for the same ask —
+  one ask, one subquery kind. "with kids" inside an OUTING goes in party, not
   family_friendly. Inside an outing the only-what-was-said rule holds
   doubly: party ONLY when they say who is going ("solo" needs "alone", it
   is never a default); start.mode "any" unless they say how they start;
