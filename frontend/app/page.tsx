@@ -91,6 +91,10 @@ export default function Home() {
   const userRef = useRef(user);
   userRef.current = user;
 
+  // Which saved-list refresh is the current one. Two quick toggles race, and
+  // the earlier one's answer must not land on top of the later one's.
+  const saves = useRef(0);
+
   useEffect(() => onSession(setUser), []);
 
   // The open map is a history entry, so the browser's Back — and Android's
@@ -202,13 +206,44 @@ export default function Home() {
   }
 
   /** Optimistic: the bookmark flips at once, and flips back if the save
-   *  fails — a favorite that silently did not stick is worse than a flicker. */
+   *  fails — a favorite that silently did not stick is worse than a flicker.
+   *
+   *  The bookmark can be optimistic because the id is the whole of what it
+   *  needs. The saved LIST cannot: the row comes from the server, and a drawn
+   *  route does not exist there until this write persists its document —
+   *  seconds, not milliseconds. Opening Saved routes inside that window
+   *  fetched a list the save had not reached yet, and that view fetches once
+   *  on open, so it stayed empty for good. So the list is refreshed when the
+   *  write lands, whoever is looking at it.
+   *
+   *  Only on save. An unsave deliberately leaves the row where it is until
+   *  something else reloads the list, so an accidental tap is undoable
+   *  without hunting for the route again. */
   function toggleFavorite(loop: Loop, on: boolean) {
     setFavoriteIds((current) => applyToggle(current, loop.id, on));
-    void setFavorite(loop.id, on).catch(() => {
-      // The exact inverse flip, so a failed save leaves the set as it was.
-      setFavoriteIds((current) => applyToggle(current, loop.id, !on));
-    });
+    // The list this refresh will belong to, captured before it is in flight —
+    // a response that outlived its sign-in is not this account's to render.
+    const forUser = user?.id;
+    const seq = (saves.current += 1);
+    void setFavorite(loop.id, on).then(
+      () => {
+        if (!on) return;
+        void fetchFavorites()
+          .then((list) => {
+            if (seq !== saves.current) return;
+            if (forUser && belongsToCurrentUser(forUser, userRef.current?.id)) {
+              receiveFavorites(list);
+            }
+          })
+          // A refresh that fails leaves the optimistic set alone: the save
+          // itself succeeded, and reverting the bookmark would lie about it.
+          .catch(() => {});
+      },
+      () => {
+        // The exact inverse flip, so a failed save leaves the set as it was.
+        setFavoriteIds((current) => applyToggle(current, loop.id, !on));
+      },
+    );
   }
 
   const authRequired = isAuthConfigured();

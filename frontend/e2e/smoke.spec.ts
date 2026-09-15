@@ -244,6 +244,12 @@ test.describe('VaiVia smoke', () => {
 
     // Favorites round-trip: save the first card, find it in the saved view,
     // unsave it there — leaving the account as we found it.
+    //
+    // The view is opened WITHOUT waiting for the save, on purpose. Persisting
+    // a drawn route writes a route document, so the write outlasts the tap
+    // that follows it, and the saved view fetches once on open — it used to
+    // fetch a list the save had not reached and show nothing, for good. The
+    // page refreshes the list when the write lands; this is what pins it.
     await card.getByLabel('Save this route').click();
     await page.getByRole('button', { name: 'Saved routes', exact: true }).click();
     const savedCard = page.locator('.favorites-view .route-card').first();
