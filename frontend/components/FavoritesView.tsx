@@ -56,6 +56,15 @@ export function FavoritesView({
   const geometries = useRef<Map<string, LineEntry>>(new Map());
   const [lineStatus, setLineStatus] = useState<Record<string, LineStatus>>({});
 
+  // Follow the page's list when it changes under us. `initial` was read once,
+  // at mount, so a list the page refreshed after this view was already open
+  // could not reach it — and that is exactly the case that matters: a save
+  // still in flight when the view opened, whose row only exists once the
+  // write lands.
+  useEffect(() => {
+    if (initial) setList(initial);
+  }, [initial]);
+
   useEffect(() => {
     let cancelled = false;
     // Still revalidated on open — the saved list can have changed elsewhere —

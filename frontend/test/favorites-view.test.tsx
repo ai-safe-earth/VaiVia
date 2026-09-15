@@ -139,3 +139,54 @@ describe('a saved card draws its own verified line, or says it cannot', () => {
     await waitFor(() => expect(card.textContent).toContain('Map line unavailable'));
   });
 });
+
+describe('a save still in flight when the view opened', () => {
+  const EMPTY = { routes: [], missing: [] };
+
+  function open(initial: typeof SAVED | typeof EMPTY) {
+    return (
+      <FavoritesView
+        initial={initial}
+        onGeometry={vi.fn()}
+        favorites={new Set(['f1'])}
+        onToggleFavorite={() => undefined}
+      />
+    );
+  }
+
+  /** The race this view lost in the live smoke: persisting a DRAWN route is a
+   *  route document, not a row, so the save was still out when the view
+   *  opened and fetched. Both answers predate it. The view read `initial`
+   *  once, at mount, so the page's post-save refresh could not reach it and
+   *  the list stayed empty for as long as the view stayed open. */
+  it('appears when the page refreshes the list under an open view', async () => {
+    api.fetchFavorites.mockResolvedValue(EMPTY);
+    const view = render(open(EMPTY));
+    await waitFor(() => expect(api.fetchFavorites).toHaveBeenCalled());
+    expect(view.container.querySelector('[data-route-id="f1"]')).toBeNull();
+
+    view.rerender(open(SAVED));
+    await waitFor(() =>
+      expect(view.container.querySelector('[data-route-id="f1"]')).not.toBeNull(),
+    );
+  });
+
+  /** ...but a list the page has not loaded yet is not an empty list: it must
+   *  not wipe the rows already on screen. */
+  it('keeps its rows when the page list goes back to undefined', async () => {
+    const view = render(open(SAVED));
+    await waitFor(() =>
+      expect(view.container.querySelector('[data-route-id="f1"]')).not.toBeNull(),
+    );
+
+    view.rerender(
+      <FavoritesView
+        initial={undefined}
+        onGeometry={vi.fn()}
+        favorites={new Set(['f1'])}
+        onToggleFavorite={() => undefined}
+      />,
+    );
+    expect(view.container.querySelector('[data-route-id="f1"]')).not.toBeNull();
+  });
+});

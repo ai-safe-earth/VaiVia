@@ -110,13 +110,6 @@ loses unpersisted drawn routes by design (favourite persists them).
       "plan": "redesign"
     },
     {
-      "title": "R6 feat/multi-day: day-leg chaining over sleep-kind places, fitness -> per-day band, trek.json envelope, day cards, demo D; E stays a coverage Clarify",
-      "est": 2,
-      "owner": "oscar",
-      "phase": "Phase 12 - On-demand routes",
-      "plan": "redesign"
-    },
-    {
       "title": "R7 chore/retire-catalogue: drop the catalogue templates/loads/LoopSearchIntent, GDS off, publish-pack.sh, docs trimmed; the 627 ids stay as the parity fixture",
       "est": 1,
       "owner": "oscar",
