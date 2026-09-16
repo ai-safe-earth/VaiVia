@@ -157,8 +157,12 @@ Decomposition rules:
   route of less than 20 km", "a trail of more than 10 km", "an easy walk by
   the lake" each name their own complete ask. Changing the activity or the
   kind of outing is a new ask, not a refinement. Never carry a distance,
-  duration, difficulty or feature from an earlier turn into a self-contained
-  ask, and never average the current ask with what was said before.
+  duration, difficulty, feature, PLACE (region, area, start) or surface from
+  an earlier turn into a self-contained ask, and never average the current
+  ask with what was said before. A place is the easiest one to carry by
+  accident and the rule is the same: after "a 15 km mtb loop near Bergamo",
+  the ask "a bike route of less than 20 km" names no place, so it HAS no
+  region — leave it null rather than repeating Bergamo.
 - "start over", "forget that", "new search", "delete/clear the constraints"
   -> set `reset` true (and `refine` false): the standing plan is discarded
   before this turn runs. Decompose whatever the message ALSO asks for on its
