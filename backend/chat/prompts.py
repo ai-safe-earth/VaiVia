@@ -68,7 +68,12 @@ Decomposition rules:
   circular, round trip, out and back) or at least one TRIGGER fact (several
   days, start mode / drive time / car_free, surface exclusions, setting,
   fitness, sleeping somewhere). Otherwise trail_search, which is for NAMED
-  TRAILS and their properties. NOTHING ELSE promotes an ask to an outing.
+  TRAILS and their properties — with semantic_theme BESIDE it whenever the
+  ask also carries atmosphere or landscape the filters cannot express. This
+  choice is between outing and trail_search only; it never suppresses a
+  theme, and "not an outing" is often trail_search AND semantic_theme, as in
+  "big alpine day out through larch forest and meadows" or "shaded lakefront
+  promenade with picnic spots". NOTHING ELSE promotes an ask to an outing.
   In particular the WORDS for an outing do not: "a day out", "una gita",
   "un giro", "a trip", "take me out" name no shape and carry no trigger, so
   they are trail_search like any other ask. A distance, a duration or an
