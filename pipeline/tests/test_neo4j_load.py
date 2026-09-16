@@ -1,17 +1,20 @@
-"""The document → graph-row mapping, and the template parser. No database.
+"""The document → graph-row mapping. No database.
 
 Neo4j is a reader of the route documents; these tests pin what the reading
-carries and what it deliberately leaves behind.
+carries and what it deliberately leaves behind. The mapping is shared: the
+backend's favourite write path uses the same one, which is why it outlived
+the bulk catalogue loader R7 deleted.
 """
 
 from __future__ import annotations
 
 import json
 
+from vaivia_routes.neo4j_rows import document_rows
+
 from export import document as document_rules
-from export import neo4j_load, route_documents
+from export import route_documents
 from export.document import SCHEMA_VERSION, Span, build_document, published
-from export.neo4j_load import document_rows, templates
 
 
 def _base_kwargs(**overrides):
@@ -234,29 +237,6 @@ def test_a_legacy_document_without_shape_falls_back():
     assert document_rows(osm)["route"]["props"]["shape"] == "named"
 
 
-def test_every_template_the_loader_runs_exists_and_is_parameterised():
-    cypher = templates()
-    needed = {
-        "constraints_route",
-        "constraints_place",
-        "constraints_start",
-        "count_owned",
-        "wipe_owned_batch",
-        "load_routes",
-        "load_places",
-        "load_starts",
-        "link_passes",
-        "link_starts",
-        "verify_counts",
-        "sample_selection",
-    }
-
-    assert needed <= set(cypher)
-    # Parameters only, never interpolation: the backend/graph discipline.
-    for name in ("load_routes", "load_places", "link_passes"):
-        assert "$rows" in cypher[name]
-
-
 def test_a_mapped_relation_is_not_a_kind_the_catalogue_publishes():
     """The decision of 2026-08-26, in the one place both publishers read it.
 
@@ -269,14 +249,13 @@ def test_a_mapped_relation_is_not_a_kind_the_catalogue_publishes():
     assert not published("osm_route")
 
 
-def test_the_emitter_and_the_loader_read_ONE_publication_rule():
+def test_the_emitter_reads_ONE_publication_rule():
     """Not equal — the SAME object.
 
-    Two copies of "which kinds do we serve" is how the store and the graph
+    Two copies of "which kinds do we serve" is how the store and its readers
     start disagreeing about the same document, and the disagreement is silent
     until a user clicks a route that is only half withdrawn.
     """
-    assert neo4j_load.PUBLISHED_KINDS is document_rules.PUBLISHED_KINDS
     assert route_documents.published is document_rules.published
     # And this is WHY the mapped emitter's default is to withdraw: its own
     # kind is not one the catalogue publishes.

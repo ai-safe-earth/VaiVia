@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ids import (
+from vaivia_routes.ids import (
     DIRECTED_SHAPES,
     canonical_piece,
     digest,

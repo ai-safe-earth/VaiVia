@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from chat.intents import (
     ClarifyIntent,
     Intent,
-    LoopSearchIntent,
     OutingIntent,
     RouteIntent,
     SemanticThemeIntent,
@@ -25,8 +24,6 @@ MAX_ROUTES = 2
 
 # A stated loop distance narrower than this fraction of itself is treated as a
 # point estimate rather than a real interval, and widened.
-NARROW_BAND_RATIO = 0.15
-DISTANCE_TOLERANCE = 0.20
 
 # Offered when the user gives us nothing actionable — each one is a complete
 # question they can answer in a word or two, chosen to map onto an indexed
@@ -113,13 +110,8 @@ class ComposedPlan:
     search: TrailSearchIntent | None = None
     theme: str | None = None
     routes: list[RouteIntent] = field(default_factory=list)
-    loop: LoopSearchIntent | None = None
-    #: The on-demand ask, verbatim. The planner consumes it when a pack is
-    #: mounted; `outing_view` degrades it to a catalogue ask otherwise.
+    #: The on-demand ask, verbatim, drawn by the planner over the pack.
     outing: OutingIntent | None = None
-    #: True when `loop` is the derived stand-in for `outing`, not an ask of
-    #: its own — the planner suppresses it rather than answering twice.
-    loop_from_outing: bool = False
     #: The typed, coverage-validated "from here" point, attached by the
     #: orchestrator AFTER extraction. Never dumped, never shown to a model.
     near: tuple[float, float] | None = None
@@ -169,114 +161,6 @@ def capped_difficulty(max_level: int | None, family_friendly: bool) -> int | Non
     return min(max_level or 1, 1)
 
 
-def catalogue_view(search: TrailSearchIntent) -> LoopSearchIntent | None:
-    """The same ask, posed to the route catalogue — or None when it cannot be.
-
-    Owner rule (2026-08-21): a trail ask answers with BOTH kinds — named
-    trails and complete outings from the catalogue — so a walker compares a
-    loop against a sentiero without asking twice. The two stay distinguishable
-    all the way to the screen; this only widens where the one ask is posed.
-
-    The view exists only when every stated constraint can be honoured there.
-    A constraint the catalogue cannot express — a season, a hazard, a surface,
-    a difficulty floor or a climb floor (the template carries ceilings only) —
-    must not silently return routes that ignore it: that is a lie shaped like
-    a result. Those asks answer from the trail graph alone.
-
-    Duration is the ratified exception (2026-08-21): the catalogue carries
-    none until DIN 33466 is calibrated, and the explicit loop path already
-    DROPS the duration filter rather than refusing to answer. The view does
-    the same, so "a two hour hike" still sees the catalogue — described by
-    its measured distance and climb, never by a figure nobody trusts.
-    """
-    if search.season is not None:
-        return None
-    if search.exclude_hazards or search.surface_exclusions:
-        return None
-    if search.min_difficulty_level is not None:
-        return None
-    if search.min_elevation_gain_m is not None:
-        return None
-
-    view = LoopSearchIntent(
-        # sanitize() has already turned "mixed" into None; the guard is for
-        # any caller that has not been through it.
-        activity=search.activity if search.activity in ("hike", "mtb") else None,
-        min_distance_m=search.min_distance_m,
-        max_distance_m=search.max_distance_m,
-        # A cap on climbing is a cap on ascent; the catalogue's word for it.
-        max_ascent_m=search.max_elevation_gain_m,
-        max_difficulty_level=search.max_difficulty_level,
-        poi_types=list(search.poi_types),
-        # A region name resolves the same way a start place does; a failed
-        # resolution degrades to no geo filter rather than to zero results.
-        near=search.region,
-    )
-    view.max_difficulty_level = capped_difficulty(
-        view.max_difficulty_level, search.family_friendly
-    )
-    # The same widening merge_loops applies. "a 15 km hike" arrives as
-    # min = max = 15000, which is an exact-equality filter over a catalogue
-    # whose routes are 15,328 m long: without this the implicit block matches
-    # nothing and silently vanishes, while "a 15 km loop" gets a band and
-    # results. One ask, two phrasings, must reach the catalogue the same way.
-    return widen_narrow_band(view)
-
-
-#: OutingIntent waypoint kinds that trail search's PoiType also knows —
-#: what the interim catalogue view can carry over.
-_CATALOGUE_POI_KINDS = frozenset(
-    {
-        "lake",
-        "hut",
-        "campsite",
-        "station",
-        "bathing_water",
-        "viewpoint",
-        "peak",
-        "saddle",
-        "beach",
-        "spring",
-        "cave",
-        "waterfall",
-        "chapel",
-        "castle",
-        "ruins",
-        "picnic_site",
-    }
-)
-
-
-def outing_view(outing: OutingIntent) -> LoopSearchIntent | None:
-    """The outing posed to the catalogue — the interim until R4's planner.
-
-    Until the pack planner is wired into /chat, an outing must still answer
-    with something honest: the closest catalogue ask, described by measured
-    facts like every catalogue result. A multi-day ask has no one-day stand-in,
-    so it degrades to None and the turn says nothing matched rather than
-    offering day loops as a trek.
-    """
-    if outing.days > 1:
-        return None
-    view = LoopSearchIntent(
-        activity="mtb" if outing.activity in ("mtb", "bike") else "hike",
-        max_distance_m=(
-            outing.max_distance_km * 1000
-            if outing.max_distance_km is not None
-            else None
-        ),
-        max_duration_min=(
-            round(outing.max_hours * 60) if outing.max_hours is not None else None
-        ),
-        max_ascent_m=float(outing.max_ascent_m) if outing.max_ascent_m else None,
-        poi_types=[k for k in outing.waypoint_kinds if k in _CATALOGUE_POI_KINDS],
-        near=outing.start.name or outing.area,
-    )
-    if outing.party in ("kids", "small_kids"):
-        view.max_difficulty_level = 1
-    return widen_narrow_band(view)
-
-
 def merge_searches(intents: list[TrailSearchIntent]) -> TrailSearchIntent:
     """Tightest-wins merge: every atomic constraint must hold in the result."""
     merged = TrailSearchIntent()
@@ -305,65 +189,6 @@ def merge_searches(intents: list[TrailSearchIntent]) -> TrailSearchIntent:
                 setattr(merged, name, getattr(intent, name))
         merged.family_friendly = merged.family_friendly or intent.family_friendly
     return merged
-
-
-def merge_loops(loops: list[LoopSearchIntent]) -> LoopSearchIntent:
-    """Tightest-wins merge, mirroring merge_searches."""
-    merged = LoopSearchIntent()
-    for loop in loops:
-        for name in (
-            "max_distance_m",
-            "max_ascent_m",
-            "max_difficulty_level",
-            "max_duration_min",
-        ):
-            values = [
-                v for v in (getattr(merged, name), getattr(loop, name)) if v is not None
-            ]
-            setattr(merged, name, min(values) if values else None)
-        for name in ("min_distance_m",):
-            values = [
-                v for v in (getattr(merged, name), getattr(loop, name)) if v is not None
-            ]
-            setattr(merged, name, max(values) if values else None)
-        for poi_type in loop.poi_types:
-            if poi_type not in merged.poi_types:
-                merged.poi_types.append(poi_type)
-        merged.near = merged.near or loop.near
-        merged.activity = merged.activity or loop.activity
-        merged.avoid_roads = merged.avoid_roads or loop.avoid_roads
-    # Same trap as the searches: a 0-metre max silently matches nothing.
-    if merged.max_distance_m is not None and merged.max_distance_m <= 0:
-        merged.max_distance_m = None
-    if merged.min_distance_m is not None and merged.min_distance_m <= 0:
-        merged.min_distance_m = None
-    if merged.max_ascent_m is not None and merged.max_ascent_m <= 0:
-        merged.max_ascent_m = None
-    if merged.max_duration_min is not None and merged.max_duration_min <= 0:
-        merged.max_duration_min = None
-    return widen_narrow_band(merged)
-
-
-def widen_narrow_band(loop: LoopSearchIntent) -> LoopSearchIntent:
-    """A single stated distance is an approximation, so treat it as one.
-
-    "a 15 km loop" comes back from the model as min=max=15000, which is an
-    exact-equality filter. Real routes are 15,328 m, so that matches nothing
-    and the user is told no such loop exists when 500 of them do. The model
-    is not wrong about the number; it is the interval that needs saying, and
-    saying it here keeps it deterministic rather than another prompt rule the
-    model may or may not follow.
-    """
-    low, high = loop.min_distance_m, loop.max_distance_m
-    if low is None or high is None or high < low:
-        return loop
-    midpoint = (low + high) / 2
-    if midpoint <= 0:
-        return loop
-    if (high - low) / midpoint < NARROW_BAND_RATIO:
-        loop.min_distance_m = midpoint * (1 - DISTANCE_TOLERANCE)
-        loop.max_distance_m = midpoint * (1 + DISTANCE_TOLERANCE)
-    return loop
 
 
 def compose(subqueries: list[Intent]) -> ComposedPlan:
@@ -400,19 +225,11 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     themes = [s.text.strip() for s in subqueries if isinstance(s, SemanticThemeIntent)]
     themes = [t for t in themes if t]
     routes = [s for s in subqueries if isinstance(s, RouteIntent)][:MAX_ROUTES]
-    loops = [s for s in subqueries if isinstance(s, LoopSearchIntent)]
-    # Tightest-wins like the searches: two loop asks in one message are one
-    # outing with both constraints, not two outings.
-    loop = merge_loops(loops) if loops else None
     # One outing per turn: a message describes one outing, and two outing
     # subqueries are the model splitting what it should not — the first
     # speaks. (compile.py owns everything downstream of this.)
     outings = [s for s in subqueries if isinstance(s, OutingIntent)]
     outing = outings[0] if outings else None
-    loop_from_outing = False
-    if outing is not None and loop is None:
-        loop = outing_view(outing)
-        loop_from_outing = True
 
     search = merge_searches(searches) if searches else None
     theme = "; ".join(themes) if themes else None
@@ -420,7 +237,6 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     actionable = (
         bool(theme)
         or bool(routes)
-        or loop is not None
         or outing is not None
         or (search is not None and has_constraints(search))
     )
@@ -446,7 +262,6 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
         and only_activity(search)
         and theme is None
         and not routes
-        and loop is None
         and outing is None
     ):
         return ComposedPlan(
@@ -467,9 +282,7 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
         search=search,
         theme=theme,
         routes=routes,
-        loop=loop,
         outing=outing,
-        loop_from_outing=loop_from_outing,
     )
 
 
@@ -481,20 +294,8 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
 # only says WHICH constraints changed (PlanEnvelope.refine + the delta
 # subqueries); what they change is decided here.
 
-#: Field names shared by TrailSearchIntent and LoopSearchIntent that a
-#: cross-kind delta may carry over. `activity` is excluded: the two intents
-#: spell it in different vocabularies, and a wrong guess there flips which
-#: catalogue is searched.
-_CROSS_FIELDS = (
-    "min_distance_m",
-    "max_distance_m",
-    "max_duration_min",
-    "max_difficulty_level",
-    "poi_types",
-)
 
-
-def _is_set(intent: TrailSearchIntent | LoopSearchIntent, name: str) -> bool:
+def _is_set(intent: TrailSearchIntent | OutingIntent, name: str) -> bool:
     """Did the model actually emit this field? Strict outputs force every
     field to appear, so "set" means "differs from the default" — the same
     reading has_constraints uses. The known ceiling: a delta cannot RESET a
@@ -515,17 +316,6 @@ def _overlay(base, delta):
     return merged
 
 
-def _cross_overlay(base, delta):
-    """Cross-kind merge: "shorter" against a standing loop often arrives as a
-    trail_search (or vice versa). The shared constraint names carry over; the
-    base keeps its kind, so the same catalogue answers."""
-    merged = base.model_copy()
-    for name in _CROSS_FIELDS:
-        if name in type(delta).model_fields and _is_set(delta, name):
-            setattr(merged, name, getattr(delta, name))
-    return merged
-
-
 def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
     """Merge a refinement turn's delta onto the conversation's standing plan.
 
@@ -540,13 +330,12 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
     """
     if standing.is_clarify:
         return delta
-    if delta.routes and not (delta.search or delta.loop or delta.theme):
+    if delta.routes and not (delta.search or delta.outing or delta.theme):
         return delta
 
     merged = ComposedPlan(
         search=standing.search,
         theme=standing.theme,
-        loop=standing.loop,
         outing=standing.outing,
     )
     if delta.outing is not None:
@@ -555,25 +344,12 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
             if merged.outing is not None
             else delta.outing
         )
-        # The interim catalogue view tracks the outing it was derived from;
-        # an explicit loop delta below still wins.
-        if delta.loop is None:
-            merged.loop = outing_view(merged.outing)
-            merged.loop_from_outing = True
     if delta.search is not None:
-        if merged.search is not None:
-            merged.search = _overlay(merged.search, delta.search)
-        elif merged.loop is not None and delta.loop is None:
-            merged.loop = _cross_overlay(merged.loop, delta.search)
-        else:
-            merged.search = delta.search
-    if delta.loop is not None:
-        if merged.loop is not None:
-            merged.loop = _overlay(merged.loop, delta.loop)
-        elif merged.search is not None and delta.search is None:
-            merged.search = _cross_overlay(merged.search, delta.loop)
-        else:
-            merged.loop = delta.loop
+        merged.search = (
+            _overlay(merged.search, delta.search)
+            if merged.search is not None
+            else delta.search
+        )
     if delta.theme:
         merged.theme = delta.theme
     if delta.routes:
@@ -588,7 +364,6 @@ def standing_dump(plan: ComposedPlan) -> dict | None:
         return None
     return {
         "search": plan.search.model_dump() if plan.search else None,
-        "loop": plan.loop.model_dump() if plan.loop else None,
         "outing": plan.outing.model_dump() if plan.outing else None,
         "theme": plan.theme,
         "routes": [r.model_dump() for r in plan.routes],
@@ -607,11 +382,6 @@ def standing_load(data: dict | None) -> ComposedPlan | None:
                 if data.get("search")
                 else None
             ),
-            loop=(
-                LoopSearchIntent.model_validate(data["loop"])
-                if data.get("loop")
-                else None
-            ),
             outing=(
                 OutingIntent.model_validate(data["outing"])
                 if data.get("outing")
@@ -622,6 +392,6 @@ def standing_load(data: dict | None) -> ComposedPlan | None:
         )
     except Exception:  # noqa: BLE001 — malformed history is "no standing plan"
         return None
-    if not (plan.search or plan.loop or plan.theme or plan.routes or plan.outing):
+    if not (plan.search or plan.theme or plan.routes or plan.outing):
         return None
     return plan

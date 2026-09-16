@@ -6,16 +6,19 @@ same geometry-derived route id the pgRouting factory minted. This is what
 lets on-demand routes ship without a human review: same asks, same routes,
 checked, not hoped (docs/route-design.md, decision 1).
 
-Needs artefacts CI does not have: a full pack and the asks dump, produced
-against the same store —
+The asks are a COMMITTED fixture (fixtures/parity_asks.json, 627 entries).
+R7 retired the catalogue as a product, so catalogue.route may no longer be
+there to dump from; the oracle it minted has to survive without it. Regenerate
+it only from a store that still holds the catalogue:
 
-    cd pipeline
-    uv run python -m export.pack --name pack-parity
-    uv run python -m export.parity
+    cd pipeline && uv run python -m export.parity
 
-then run with VAIVIA_PACK_DIR / VAIVIA_PARITY_ASKS pointing at them
-(defaults: pipeline/packs/pack-parity, pipeline/packs/parity_asks.json).
-Skipped when either is missing.
+The full pack is the artefact CI does not have (39.5 MB), so this is skipped
+there and run on the workstation:
+
+    cd pipeline && uv run python -m export.pack --name pack-parity
+
+VAIVIA_PACK_DIR / VAIVIA_PARITY_ASKS override either path.
 """
 
 from __future__ import annotations
@@ -33,8 +36,9 @@ from vaivia_routes.network import Network
 from vaivia_routes.pack import load
 
 PIPELINE_PACKS = Path(__file__).resolve().parents[3] / "pipeline" / "packs"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 PACK_DIR = Path(os.environ.get("VAIVIA_PACK_DIR", PIPELINE_PACKS / "pack-parity"))
-ASKS = Path(os.environ.get("VAIVIA_PARITY_ASKS", PIPELINE_PACKS / "parity_asks.json"))
+ASKS = Path(os.environ.get("VAIVIA_PARITY_ASKS", FIXTURES / "parity_asks.json"))
 
 pytestmark = pytest.mark.skipif(
     not (PACK_DIR.is_dir() and ASKS.is_file()),

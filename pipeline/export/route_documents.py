@@ -35,6 +35,8 @@ import json
 import uuid
 from pathlib import Path
 
+from vaivia_routes.ids import DIRECTED_SHAPES, forward_is_stored, route_id
+
 from core import connect
 from export.document import Span, build_document, published
 from export.orientation import (
@@ -49,7 +51,6 @@ from export.orientation import (
 )
 from export.shape import classify_osm_shape
 from export.terminals import endpoints_of, terminal_for_point
-from ids import DIRECTED_SHAPES, forward_is_stored, route_id
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

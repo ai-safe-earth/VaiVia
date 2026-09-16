@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from draw.destinations import (
+from vaivia_routes.destinations import (
     Destination,
     crow_band,
     interest,

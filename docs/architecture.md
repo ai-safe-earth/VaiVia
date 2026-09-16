@@ -182,7 +182,7 @@ users actually filter on (trails, POIs) — not a 4-hop traversal.
   │  :Trail  │ ───────────────────▶ │  :Segment    │ ───────────▶ │   :POI   │
   └──────────┘                      └──────────────┘              └──────────┘
 
-  Routing graph (GDS projection):
+  Routing graph:
   ┌──────────────┐  CONNECTS_TO {distance, elevation_change, osm_way_id}
   │:Intersection │ ─────────────────────────────────────────▶ ┌──────────────┐
   └──────────────┘                                            │:Intersection │
@@ -213,10 +213,10 @@ Defined in [`graph/schema.cypher`](../graph/schema.cypher). Summary:
 
 ## Routing Strategy
 
-Neo4j's graph traversal excels at semantic multi-hop queries (Trail → Segment → POI). For pure shortest-path routing on the full segment graph, two approaches are available:
+Neo4j's graph traversal excels at semantic multi-hop queries (Trail → Segment → POI). Route DRAWING left the graph entirely in Phase 12: routes are built at ask time over the exported pack by `shared/routes/` (`docs/route-design.md`), and Neo4j reads the route documents that fall out of it.
 
-1. **Neo4j GDS (Graph Data Science)** — `gds.shortestPath.dijkstra` projected over `(:Intersection)-[:CONNECTS_TO]->(:Intersection)` weighted on `cost_m` (comfort, not raw distance — see above). Best for on-demand queries.
+What is left in the graph is one A-to-B walk: `/chat`'s RouteIntent snaps two named places to intersections and runs `route_between_intersections`, a bounded `shortestPath` over `(:Intersection)-[:CONNECTS_TO]->(:Intersection)`. It minimises hops, not metres — good enough for "how do I get from Lecco to Abbadia", and the honest ceiling is written here rather than in a comment.
 
-2. **Pre-computed `(:CuratedRoute)` nodes** — For common loops, run GDS offline and store results as a node. Query becomes a simple lookup. Best for performance-critical endpoints.
+GDS is no longer on any serving path. R7 deleted `POST /routes` (its only caller) with `route_gds_dijkstra` and `intersection_locations`; `graph_project_routing` / `graph_drop_routing` remain for `scripts.check_graph_connectivity`, which runs WCC to find islands (fragility #9).
 
-See [`docs/query-examples.md`](query-examples.md) for GDS Cypher patterns.
+See [`docs/query-examples.md`](query-examples.md) for Cypher patterns.

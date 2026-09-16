@@ -7,7 +7,6 @@ question back, but to show where the system did something to it.
 
 from chat.composer import compose
 from chat.intents import (
-    LoopSearchIntent,
     RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
@@ -28,24 +27,6 @@ def test_a_clarify_turn_reads_back_nothing():
     plan = compose([ClarifyIntent(question="Which one?", suggestions=[])])
     assert describe(plan) == []
     assert readback(plan) == {}
-
-
-def test_the_widened_band_is_what_is_shown_not_the_number_asked_for():
-    """ "a 15 km loop" arrives as min=max=15000, which matches nothing, so the
-    composer widens it. The band that RAN is what the reading must show —
-    otherwise the one number the user gave looks unmodified while the search
-    used another."""
-    rows = rows_for(LoopSearchIntent(min_distance_m=15000, max_distance_m=15000))
-    assert rows["distance"] == "12 km to 18 km"
-
-
-def test_a_dropped_duration_says_so_in_full():
-    """The catalogue carries no duration until DIN 33466 is calibrated, so the
-    filter is dropped. Silently dropping it is the exact failure the rule was
-    written against, so the reading names it."""
-    rows = rows_for(LoopSearchIntent(max_duration_min=120, max_distance_m=12000))
-    assert "2 h" in rows["time"]
-    assert "not filtered" in rows["time"]
 
 
 def test_features_are_read_back_as_the_conjunction_they_run_as():
@@ -69,27 +50,15 @@ def test_family_friendly_is_read_back_as_the_cap_it_becomes():
 
 
 def test_it_says_which_store_was_searched():
-    both = rows_for(TrailSearchIntent(activity="hike", max_distance_m=16000))
-    assert both["looked in"] == "named trails and our route catalogue"
+    plain = rows_for(TrailSearchIntent(activity="hike", max_distance_m=16000))
+    assert plain["looked in"] == "named trails"
 
-    # A season cannot be checked on the catalogue, so that ask is trails-only
-    # — and says why, rather than quietly returning less.
-    trails_only = rows_for(
-        TrailSearchIntent(activity="hike", max_distance_m=16000, season="winter")
-    )
-    assert "named trails only" in trails_only["looked in"]
-
-    # A theme has no embeddings on the catalogue either.
     themed = rows_for(
         TrailSearchIntent(activity="hike", max_distance_m=16000),
         SemanticThemeIntent(text="shady forest"),
     )
     assert themed["looked in"] == "named trails, matched by description"
     assert themed["described as"] == "shady forest"
-
-    # A loop ask is the catalogue by construction.
-    loops = rows_for(LoopSearchIntent(max_distance_m=12000))
-    assert loops["looked in"] == "our route catalogue"
 
 
 def test_climb_is_metres_and_distance_is_kilometres():
@@ -124,26 +93,11 @@ def test_every_value_is_a_string_a_walker_could_have_said():
         assert row["value"] == row["value"].strip()
 
 
-def test_a_duration_says_which_half_of_the_answer_it_filtered():
-    """Trails are duration-filtered; the catalogue beside them is not.
-
-    A bare "time: under 2 h" over an answer holding both kinds asserts a
-    filter that ran on half the results — the silent drop this block exists
-    to prevent, and the one _loop_rows already names on the explicit path.
-    """
+def test_a_duration_is_stated_plainly():
+    # Trails really are post-filtered by duration, so the row claims no more
+    # than the query did.
     rows = rows_for(TrailSearchIntent(activity="hike", max_duration_min=120))
-    assert rows["looked in"] == "named trails and our route catalogue"
-    assert rows["time"].startswith("under 2 h — named trails only")
-    assert "not calibrated" in rows["time"]
-
-
-def test_a_duration_is_stated_plainly_when_only_trails_answered():
-    # A season the catalogue cannot express keeps the ask trails-only, and
-    # there the duration filter really did apply to everything shown.
-    rows = rows_for(
-        TrailSearchIntent(activity="hike", max_duration_min=120, season="winter")
-    )
-    assert rows["looked in"].startswith("named trails only")
+    assert rows["looked in"] == "named trails"
     assert rows["time"] == "under 2 h"
 
 
@@ -158,33 +112,17 @@ def test_a_single_difficulty_still_reads_as_one_word():
     assert rows["difficulty"] == "difficult"
 
 
-def test_the_reading_shows_both_bands_when_they_differ():
-    """A single stated distance runs EXACT for trails and WIDENED for the
-    catalogue, and one heading cannot claim both. The reading names each.
-
-    Without this, "a 15 km hike" read as "distance: exactly 15 km" while
-    the catalogue beside it had searched 12-18 km — a filter reported over
-    results it did not run, which is the thing this block exists to stop.
-    """
-    rows = rows_for(TrailSearchIntent(min_distance_m=15000, max_distance_m=15000))
-    assert rows["looked in"] == "named trails and our route catalogue"
+def test_the_stated_band_is_shown_as_it_ran():
+    """Trail search runs the band the user stated, so the row is that band."""
     assert (
-        rows["distance"]
-        == "exactly 15 km for trails, 12 km to 18 km in our route catalogue"
+        rows_for(TrailSearchIntent(min_distance_m=10000, max_distance_m=20000))[
+            "distance"
+        ]
+        == "10 km to 20 km"
     )
-
-
-def test_one_band_is_shown_when_both_searches_ran_it():
-    """A genuine range reaches the catalogue untouched, so there is nothing to
-    disambiguate and the row stays plain."""
-    rows = rows_for(TrailSearchIntent(min_distance_m=10000, max_distance_m=20000))
-    assert rows["distance"] == "10 km to 20 km"
-
-
-def test_the_trails_only_reading_shows_the_stated_band_alone():
-    # A season the catalogue cannot express keeps the ask trails-only.
-    rows = rows_for(
-        TrailSearchIntent(min_distance_m=15000, max_distance_m=15000, season="winter")
+    assert (
+        rows_for(TrailSearchIntent(min_distance_m=15000, max_distance_m=15000))[
+            "distance"
+        ]
+        == "exactly 15 km"
     )
-    assert rows["looked in"].startswith("named trails only")
-    assert rows["distance"] == "exactly 15 km"

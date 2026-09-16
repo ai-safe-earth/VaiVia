@@ -7,7 +7,7 @@ loudly instead of running the wrong query.
 **Fragments.** A `// fragment: <name>` block is a reusable Cypher chunk that is
 NOT a runnable template — it exists only to be spliced into templates via a
 `// include: <name>` line. This exists so the loop-candidate filter block lives
-in exactly one place: `search_loops` and `estimate_loops` both include it, so
+in exactly one place: several templates include the same block, so
 they cannot drift, and a count can never disagree with the search it counts.
 Fragments are resolved BEFORE comment lines are stripped (an `// include:` line
 is itself a comment), and a fragment may not include another (depth 1) — the

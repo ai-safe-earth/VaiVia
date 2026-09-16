@@ -1,7 +1,15 @@
 # Decision: routing engine vs custom pathfinding
 
+> **SUPERSEDED (R7, chore/retire-catalogue).** Kept for the measurements and
+> the reasoning, which are still the record of why the choice went the way it
+> did. What actually shipped is neither option here: routes are DRAWN at ask
+> time over the exported pack by `shared/routes/` (`docs/route-design.md`),
+> and the only A-to-B walk left in Neo4j is `/chat`'s RouteIntent over
+> `route_between_intersections` — shortestPath, no GDS, no comfort weighting.
+> GDS survives for one diagnostic, `scripts.check_graph_connectivity`.
+
 Evaluated 2026-08-17 on the Lecco region. **This records an evaluation, not a
-migration.** Nothing has been switched over.
+migration.** Nothing was switched over to either engine.
 
 ## The question
 

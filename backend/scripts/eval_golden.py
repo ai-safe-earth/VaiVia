@@ -35,10 +35,10 @@ trend is worse than a gap in it. Use it to read one failure again without
 paying for the other forty-nine.
 
 Dataset: fixtures/golden_questions.json. Expectations address the COMPOSED
-plan ("search.<field>", "loop.<field>", "theme", "routes", "clarify");
-"expect_trails" names the trail ids retrieval must surface, "expect_loops"
-the catalogue route ids (geometry-stable vv2-…, never names — names are
-rewritten every name_routes run); first id = must rank first. An entry with
+plan ("search.<field>", "outing.<field>", "theme", "routes", "clarify");
+"expect_trails" names the trail ids retrieval must surface; first id = must
+rank first. A DRAWN outing pins no ids — its ids are minted per draw — so it
+is graded by "expect_facts" bands against the pack named in "pack_run_id". An entry with
 "turns" instead of "question" is a CONVERSATION: each turn runs through the
 same extract -> compose -> apply_delta loop the orchestrator uses, the
 standing plan threading between turns, and the expectation addresses the
@@ -147,13 +147,9 @@ def check_plan(expected: dict[str, Any], plan: ComposedPlan) -> list[str]:
         elif key == "routes":
             if len(plan.routes) != want:
                 problems.append(f"routes: want {want}, got {len(plan.routes)}")
-        elif key.startswith(("search.", "loop.", "outing.")):
+        elif key.startswith(("search.", "outing.")):
             prefix, field = key.split(".", 1)
-            holder = {
-                "search": plan.search,
-                "loop": plan.loop,
-                "outing": plan.outing,
-            }[prefix]
+            holder = {"search": plan.search, "outing": plan.outing}[prefix]
             # Dotted tails walk nested models: "outing.start.mode".
             got = holder
             for part in field.split("."):
@@ -314,7 +310,6 @@ async def main() -> None:
                 print(f"         {problem}")
 
             expected_trails = entry.get("expect_trails") or []
-            expected_loops = entry.get("expect_loops") or []
             expected_facts = entry.get("expect_facts") or {}
             if expected_facts and args.graph:
                 if plan.outing is None:
@@ -338,9 +333,7 @@ async def main() -> None:
                         f"{entry.get('pack_run_id')!r}, loaded {planner.run_id!r}"
                     )
                     expected_facts = {}
-            wants_execution = (
-                expected_trails or expected_loops or expected_facts or args.answers
-            )
+            wants_execution = expected_trails or expected_facts or args.answers
             if not (args.graph and wants_execution and not plan.is_clarify):
                 continue
 
@@ -356,10 +349,7 @@ async def main() -> None:
                     print(f"         {problem}")
                 if facts_problems:
                     failed.setdefault(entry["id"], []).extend(facts_problems)
-            for expected, key in (
-                (expected_trails, "trails"),
-                (expected_loops, "loops"),
-            ):
+            for expected, key in ((expected_trails, "trails"),):
                 if not expected:
                     continue
                 retrieved = [r["id"] for r in results.get(key) or []]

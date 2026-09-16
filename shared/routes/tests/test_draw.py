@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from draw.assemble import (
+from vaivia_routes.assemble import (
     Assembled,
     WalkedEdge,
     assemble,
@@ -20,8 +20,8 @@ from draw.assemble import (
     retrace,
     score,
 )
-from draw.loops import edge_jaccard, keep_distinct, ring_points
-from ids import route_id
+from vaivia_routes.ids import route_id
+from vaivia_routes.loops import edge_jaccard, keep_distinct, ring_points
 
 
 def edge(
@@ -306,7 +306,7 @@ def test_edge_jaccard_edges():
 
 
 def test_strict_return_is_the_same_edges_reversed_and_flipped():
-    from draw.assemble import strict_return
+    from vaivia_routes.assemble import strict_return
 
     out = [(11, True), (12, False), (13, True)]
     assert strict_return(out) == [(13, False), (12, True), (11, False)]
@@ -315,7 +315,7 @@ def test_strict_return_is_the_same_edges_reversed_and_flipped():
 
 
 def test_urban_share_is_reversal_invariant_and_absent_is_not_zero():
-    from draw.assemble import urban
+    from vaivia_routes.assemble import urban
 
     def edge(eid, forward, urban_m):
         return WalkedEdge(
