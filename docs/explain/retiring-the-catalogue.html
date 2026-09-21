@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retiring the catalogue — VaiVia</title>
+<style>
+  /* --p0/--p1 are per-unit accent pairs; add --p2 (and .b2/.d2) the same way
+     for a third unit. A one-unit doc uses --p0 only and drops the legend. */
+  :root{
+    --bg:#faf9f7; --panel:#ffffff; --fg:#1c1c22; --muted:#6b6b76; --rule:#e3e1dc;
+    --code-bg:#f2f0ec; --code-fg:#2a2a30; --comment:#8b8b95;
+    --p0:#0e7490; --p0-bg:#e3f3f7; --p0-line:#0e7490;
+    --p1:#bd2a80; --p1-bg:#fbe6f2; --p1-line:#bd2a80;
+    --p2:#6546c9; --p2-bg:#ece7fb; --p2-line:#6546c9;
+    --infra:#8f8c96; --good:#177245; --warn:#9a6a06;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#101014; --panel:#17171c; --fg:#e8e6e3; --muted:#9a97a0; --rule:#2b2b33;
+      --code-bg:#1c1c23; --code-fg:#d8d6d3; --comment:#7e7e8a;
+      --p0:#53c9dd; --p0-bg:#0d3540; --p0-line:#53c9dd;
+      --p1:#ff5cb8; --p1-bg:#3e1130; --p1-line:#ff5cb8;
+      --p2:#a98dff; --p2-bg:#261d47; --p2-line:#a98dff;
+      --infra:#77747e; --good:#5fce8d; --warn:#e3b341;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.65 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  main{max-width:980px; margin:0 auto; padding:0 28px 90px}
+  header.doc{max-width:980px; margin:0 auto; padding:56px 28px 8px}
+  h1{font-size:30px; line-height:1.2; margin:0 0 6px}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 4px}
+  h2{font-size:22px; margin:60px 0 12px; padding-top:18px; border-top:1px solid var(--rule)}
+  h3{font-size:16.5px; margin:30px 0 8px}
+  p{margin:10px 0}
+  a{color:var(--p0); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{
+    font:12.8px/1.55 ui-monospace,"Cascadia Code",Consolas,Menlo,monospace;
+    background:var(--code-bg); padding:1px 5px; border-radius:4px;
+  }
+  pre{
+    background:var(--code-bg); color:var(--code-fg); border:1px solid var(--rule);
+    border-radius:0 0 8px 8px; padding:14px 16px; overflow-x:auto; margin:0 0 18px;
+  }
+  pre code{background:none; padding:0; font-size:12.8px}
+  .file{
+    display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+    background:var(--panel); border:1px solid var(--rule); border-bottom:none;
+    border-radius:8px 8px 0 0; padding:7px 16px; margin-top:16px;
+    font:12px ui-monospace,Consolas,monospace; color:var(--muted);
+  }
+  .file b{color:var(--fg); font-weight:600}
+  .cm{color:var(--comment)}
+  .badge{
+    display:inline-block; font:700 10.5px/1 ui-monospace,Consolas,monospace;
+    padding:4px 7px; border-radius:99px; vertical-align:2px; letter-spacing:.05em;
+  }
+  .b0{background:var(--p0-bg); color:var(--p0)}
+  .b1{background:var(--p1-bg); color:var(--p1)}
+  .b2{background:var(--p2-bg); color:var(--p2)}
+  .fig{
+    background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+    padding:18px 14px 8px; margin:20px 0 8px; overflow-x:auto;
+  }
+  .fig svg{display:block; margin:0 auto; min-width:720px}
+  .figcap{color:var(--muted); font-size:13px; margin:6px 4px 22px; text-align:center}
+  table{border-collapse:collapse; width:100%; margin:14px 0 20px; font-size:13.5px}
+  th,td{border:1px solid var(--rule); padding:7px 10px; text-align:left; vertical-align:top}
+  th{background:var(--code-bg); font-weight:600}
+  td code{font-size:12px}
+  ul,ol{padding-left:24px; margin:10px 0}
+  li{margin:5px 0}
+  .take{
+    background:var(--panel); border:1px solid var(--rule); border-left:4px solid var(--p0);
+    border-radius:8px; padding:12px 18px; margin:22px 0;
+  }
+  .take.t1{border-left-color:var(--p1)}
+  .take.t2{border-left-color:var(--p2)}
+  .take h4{margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+  .take ul{margin:6px 0 2px}
+  .dec b.num{
+    display:inline-block; min-width:20px; text-align:center; border-radius:99px;
+    font:700 11px/20px ui-monospace,Consolas,monospace; margin-right:6px;
+  }
+  .dec.d0 b.num{background:var(--p0-bg); color:var(--p0)}
+  .dec.d1 b.num{background:var(--p1-bg); color:var(--p1)}
+  .dec.d2 b.num{background:var(--p2-bg); color:var(--p2)}
+  nav.toc{
+    background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+    padding:14px 22px; margin:22px 0 0; font-size:14px;
+  }
+  nav.toc ol{margin:6px 0; columns:2; column-gap:40px}
+  .warntag{color:var(--warn); font-weight:600}
+  .goodtag{color:var(--good); font-weight:600}
+  .svgt{font:12px -apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--fg)}
+  .svgs{font:10.5px -apple-system,"Segoe UI",Roboto,sans-serif; fill:var(--muted)}
+  .svgm{font:11px ui-monospace,Consolas,monospace; fill:var(--fg)}
+  .svgmd{font:10.5px ui-monospace,Consolas,monospace; fill:var(--muted)}
+  .gone{text-decoration:line-through}
+</style>
+</head>
+<body>
+<header class="doc">
+  <h1>Retiring the catalogue — every route is drawn, and what still holds a route after it is shown</h1>
+  <p class="sub">VaiVia · branch <code>chore/retire-catalogue</code> · commits <code>f408733</code> <code>2b7e5d3</code> <code>ff3a743</code> <code>9e41785</code> <code>e6c770a</code> <code>eb8f1a0</code> <code>468bf71</code> <code>441b401</code> · written 2026-09-21</p>
+  <p class="sub">Legend used throughout: <span class="badge b0">CHAT</span> the model's vocabulary and the orchestrator &nbsp;·&nbsp; <span class="badge b1">GRAPH</span> Neo4j templates, GDS, the endpoint &nbsp;·&nbsp; <span class="badge b2">ORACLE</span> the pipeline's generator and the parity fixture &nbsp;·&nbsp; grey = pre-existing infrastructure</p>
+  <nav class="toc">
+    <b>Contents</b>
+    <ol>
+      <li><a href="#context">Why this exists</a></li>
+      <li><a href="#system">The system, and where the work lands</a></li>
+      <li><a href="#chat">CHAT · One vocabulary for an outing</a></li>
+      <li><a href="#graph">GRAPH · GDS leaves the serving path</a></li>
+      <li><a href="#oracle">ORACLE · The generator goes, the oracle stays</a></li>
+      <li><a href="#id">The route id, and what holds it now</a></li>
+      <li><a href="#next">What comes next, and recommendations</a></li>
+    </ol>
+  </nav>
+</header>
+<main>
+
+<h2 id="context">1 · Why this exists</h2>
+
+<p>Phase 12 (<code>docs/plan.md</code>, "On-demand routes") replaced a fixed list of routes with
+routes drawn at the moment someone asks. R1–R5 built the new path: the pack (the routable network
+exported as arrays), the engine in <code>shared/routes/</code>, <code>OutingIntent</code>, and the
+planner. But the old path stayed alive beside it. Until this branch, the backend had
+<b>two answers to the same question</b>:</p>
+
+<ul>
+  <li>"a 15 km loop near Lecco" could decompose to <code>loop_search</code>, which filtered the
+  627 pre-generated <code>(:Route)</code> nodes in Neo4j (the <i>catalogue</i>), or to
+  <code>outing</code>, which drew a fresh loop over the pack. Which one ran depended on how the model
+  read the sentence.</li>
+  <li>The pipeline still carried the pgRouting loop factory that minted the catalogue, a bulk loader
+  for it, and a GDS (Neo4j Graph Data Science) routing endpoint nobody called.</li>
+</ul>
+
+<p>Two paths meant two sets of numbers for one ask, two sets of prompt rules to keep apart, and
+about 4,600 lines to keep green. R7 deletes the old path. What was impossible before: saying "every
+route a user sees was drawn by one engine, from one network, under one set of invariants". The
+branch also had to decide, piece by piece, which parts of the old path were in fact holding up
+something still alive — three of them were.</p>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>R7 is a deletion: net about −4,650 lines across backend, pipeline and tests.</li>
+    <li>After it, the model has one way to ask for an outing, and the planner is the only thing that makes a route.</li>
+    <li>Three things the plan said to drop were kept, because each still carries a live feature: <code>Intersection</code>/<code>CONNECTS_TO</code>, the GDS plugin, and <code>catalogue.route</code> in PostGIS.</li>
+  </ul>
+</div>
+
+<h2 id="system">2 · The system, and where the work lands</h2>
+
+<div class="fig">
+<svg viewBox="0 0 960 560" role="img" aria-label="Architecture after R7: chat pipeline, planner over the pack, Neo4j, PostGIS, and what was deleted">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--infra)"/></marker>
+    <marker id="ar0" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p0-line)"/></marker>
+    <marker id="ar1" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p1-line)"/></marker>
+    <marker id="ar2" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p2-line)"/></marker>
+  </defs>
+
+  <!-- frontend + gateway -->
+  <rect x="20" y="20" width="160" height="56" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="34" y="44" class="svgt" font-weight="600">Frontend</text>
+  <text x="34" y="62" class="svgs">cards, map, resume</text>
+  <rect x="20" y="110" width="160" height="56" rx="10" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="34" y="134" class="svgt" font-weight="600">Gateway</text>
+  <text x="34" y="152" class="svgs">auth, quota, SSE proxy</text>
+  <path d="M100 76 L100 106" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="108" y="96" class="svgs">/chat, /routes/*</text>
+
+  <!-- backend -->
+  <rect x="220" y="20" width="440" height="330" rx="12" fill="none" stroke="var(--fg)" stroke-dasharray="0"/>
+  <text x="236" y="42" class="svgt" font-weight="600">Backend (FastAPI)</text>
+
+  <rect x="236" y="54" width="200" height="92" rx="8" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="248" y="74" class="svgt" font-weight="600">prompts + intents</text>
+  <text x="248" y="92" class="svgm">Trail | Outing | Route</text>
+  <text x="248" y="107" class="svgm">| Theme | Clarify</text>
+  <text x="248" y="124" class="svgs">loop SHAPE = outing trigger ①</text>
+  <text x="248" y="139" class="svgmd gone">LoopSearchIntent</text>
+
+  <rect x="450" y="54" width="196" height="92" rx="8" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="462" y="74" class="svgt" font-weight="600">composer + orchestrator</text>
+  <text x="462" y="92" class="svgs">no pack → refuse in words ②</text>
+  <text x="462" y="108" class="svgs">apply_delta, no bridge ③</text>
+  <text x="462" y="124" class="svgmd gone">catalogue_view, _loops</text>
+  <text x="462" y="139" class="svgmd gone">_cross_overlay</text>
+  <path d="M436 100 L446 100" stroke="var(--p0-line)" stroke-width="1.6" marker-end="url(#ar0)"/>
+
+  <rect x="236" y="166" width="200" height="74" rx="8" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="248" y="186" class="svgt" font-weight="600">planner (R4)</text>
+  <text x="248" y="204" class="svgs">pack in memory, draws per ask</text>
+  <text x="248" y="220" class="svgs">docs cached per conversation</text>
+  <path d="M510 146 L420 166" stroke="var(--p0-line)" stroke-width="1.6" marker-end="url(#ar0)"/>
+  <text x="470" y="164" class="svgs">OutingIntent → Constraints</text>
+
+  <rect x="450" y="176" width="196" height="64" rx="8" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="462" y="196" class="svgt" font-weight="600">api/routes/routing.py</text>
+  <text x="462" y="213" class="svgs">by-ids, geojson, detail</text>
+  <text x="462" y="229" class="svgmd gone">POST /routes (GDS) ⓐ</text>
+
+  <rect x="236" y="258" width="200" height="76" rx="8" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="248" y="278" class="svgt" font-weight="600">save_route (R4)</text>
+  <text x="248" y="296" class="svgs">on favourite: document file,</text>
+  <text x="248" y="311" class="svgs">then one (:Route) + (:Start)</text>
+  <text x="248" y="326" class="svgs">⚑ #18 vertex_id</text>
+
+  <rect x="450" y="258" width="196" height="76" rx="8" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="462" y="278" class="svgt" font-weight="600">RouteIntent walk</text>
+  <text x="462" y="296" class="svgm">route_between_</text>
+  <text x="462" y="311" class="svgm">intersections</text>
+  <text x="462" y="326" class="svgs">shortestPath *..100, no GDS ⓑ</text>
+
+  <path d="M180 138 L232 110" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="186" y="116" class="svgs">message</text>
+
+  <!-- Neo4j -->
+  <rect x="700" y="20" width="240" height="330" rx="12" fill="none" stroke="var(--fg)"/>
+  <text x="716" y="42" class="svgt" font-weight="600">Neo4j</text>
+  <rect x="716" y="54" width="208" height="46" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="728" y="74" class="svgm">Trail · Segment · POI</text>
+  <text x="728" y="90" class="svgs">trail search, themes</text>
+  <rect x="716" y="110" width="208" height="46" rx="6" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="728" y="130" class="svgm">Intersection · CONNECTS_TO</text>
+  <text x="728" y="146" class="svgs">KEPT, for RouteIntent ⓑ</text>
+  <rect x="716" y="166" width="208" height="56" rx="6" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="728" y="186" class="svgm">(:Route) (:Start) (:Place)</text>
+  <text x="728" y="202" class="svgs">saved routes only in a fresh DB;</text>
+  <text x="728" y="216" class="svgs">old catalogue nodes linger ⓓ</text>
+  <rect x="716" y="232" width="208" height="46" rx="6" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="728" y="252" class="svgm">GDS plugin</text>
+  <text x="728" y="268" class="svgs">KEPT, one diagnostic caller ⓒ</text>
+  <text x="716" y="300" class="svgmd gone">search_loops · estimate_loops</text>
+  <text x="716" y="316" class="svgmd gone">route_gds_dijkstra · +8 templates</text>
+
+  <path d="M646 300 L712 134" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="652" y="252" class="svgs" transform="rotate(-68 652 252)">node ids</text>
+  <path d="M436 300 C560 360, 680 250, 712 200" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="560" y="358" class="svgs">MERGE on favourite</text>
+  <path d="M646 208 L712 200" stroke="var(--p1-line)" stroke-width="1.6" marker-end="url(#ar1)"/>
+  <text x="652" y="222" class="svgs">route_exists</text>
+
+  <!-- pipeline -->
+  <rect x="20" y="392" width="920" height="150" rx="12" fill="none" stroke="var(--fg)"/>
+  <text x="36" y="414" class="svgt" font-weight="600">Pipeline (PostGIS) and shared/routes</text>
+  <rect x="36" y="426" width="220" height="100" rx="8" fill="var(--p2-bg)" stroke="var(--p2-line)"/>
+  <text x="48" y="446" class="svgm">catalogue.route</text>
+  <text x="48" y="464" class="svgs">KEPT in PostGIS — the oracle's</text>
+  <text x="48" y="480" class="svgs">source, no longer a product</text>
+  <text x="48" y="500" class="svgmd gone">draw/generate.py · emit.py</text>
+  <text x="48" y="515" class="svgmd gone">export/neo4j_load.py · catalogue.cypher</text>
+
+  <rect x="300" y="426" width="250" height="100" rx="8" fill="var(--p2-bg)" stroke="var(--p2-line)"/>
+  <text x="312" y="446" class="svgm">parity_asks.json</text>
+  <text x="312" y="464" class="svgs">627 asks, COMMITTED fixture ⓔ</text>
+  <text x="312" y="480" class="svgs">test_parity replays them over</text>
+  <text x="312" y="496" class="svgs">pack-parity (workstation only)</text>
+  <path d="M256 476 L296 476" stroke="var(--p2-line)" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <text x="258" y="468" class="svgs">dumped once</text>
+
+  <rect x="594" y="426" width="330" height="100" rx="8" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="606" y="446" class="svgt" font-weight="600">export.pack → pack/&lt;run_id&gt;/</text>
+  <text x="606" y="464" class="svgs">network arrays, places, starts, gazetteer</text>
+  <text x="606" y="480" class="svgs">engine tests moved into shared/routes ⓕ</text>
+  <path d="M760 426 C760 390, 340 380, 340 244" stroke="var(--infra)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <text x="600" y="386" class="svgs">loaded at startup (PACK_DIR)</text>
+</svg>
+</div>
+<p class="figcap">Fig. 1 — The serving path after R7. Struck-through text is what the branch deleted;
+coloured boxes are what it changed or deliberately kept. Supabase (chat history, quotas) and the
+eval harness are omitted: R7 changed neither, except for the golden fixture and ledger lines.</p>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>A route reaches a user one way only: planner draws it over the in-memory pack.</li>
+    <li>Neo4j is now a reader of routes that were <i>kept</i> (favourites), not a store of routes that <i>might</i> be shown.</li>
+    <li>The catalogue survives in exactly one role: the ground truth that the parity test checks the engine against.</li>
+  </ul>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="chat">3 · CHAT · One vocabulary for an outing <span class="badge b0">CHAT</span></h2>
+
+<p><b>Goal.</b> Take <code>LoopSearchIntent</code> out of the union the model fills, so that
+"loop" stops being a separate kind of ask and becomes a <i>shape</i> of an outing. Every piece of
+Python that existed only to serve the catalogue answer goes with it: <code>catalogue_view</code>,
+<code>outing_view</code>, <code>merge_loops</code>, <code>widen_narrow_band</code>, the
+orchestrator's catalogue block, and <code>_cross_overlay</code>. The prompt then has to draw the
+line between <code>outing</code> and <code>trail_search</code> on its own — and the golden eval
+showed that the first version of that line was wrong in three ways.</p>
+
+<div class="fig">
+<svg viewBox="0 0 960 470" role="img" aria-label="Sequence: one /chat outing ask after R7">
+  <defs>
+    <marker id="s0" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p0-line)"/></marker>
+    <marker id="sg" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--infra)"/></marker>
+  </defs>
+  <!-- lifelines -->
+  <g class="svgt" font-weight="600">
+    <text x="40" y="24">Frontend</text>
+    <text x="200" y="24">Orchestrator</text>
+    <text x="370" y="24">OpenAI</text>
+    <text x="520" y="24">composer</text>
+    <text x="670" y="24">compile + planner</text>
+    <text x="840" y="24">Supabase</text>
+  </g>
+  <g stroke="var(--rule)" stroke-width="1.2">
+    <line x1="70" y1="34" x2="70" y2="455"/>
+    <line x1="235" y1="34" x2="235" y2="455"/>
+    <line x1="392" y1="34" x2="392" y2="455"/>
+    <line x1="548" y1="34" x2="548" y2="455"/>
+    <line x1="720" y1="34" x2="720" y2="455"/>
+    <line x1="868" y1="34" x2="868" y2="455"/>
+  </g>
+
+  <path d="M70 58 L231 58" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#sg)"/>
+  <text x="80" y="52" class="svgs">"a 15 km loop near Lecco" (via gateway)</text>
+
+  <path d="M235 88 L388 88" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#sg)"/>
+  <text x="243" y="82" class="svgs">message + standing plan + prompt</text>
+  <path d="M392 116 L239 116" stroke="var(--p0-line)" stroke-width="2" marker-end="url(#s0)"/>
+  <text x="246" y="110" class="svgm">{subqueries:[{kind:"outing",shape:"loop"…}]} ①⑤</text>
+
+  <path d="M235 146 L544 146" stroke="var(--p0-line)" stroke-width="1.6" marker-end="url(#s0)"/>
+  <text x="300" y="140" class="svgs">compose(); refine → apply_delta(standing, delta) ③</text>
+  <path d="M548 172 L239 172" stroke="var(--p0-line)" stroke-width="1.6" marker-end="url(#s0)"/>
+  <text x="300" y="166" class="svgm">ComposedPlan(outing=…)</text>
+
+  <rect x="250" y="186" width="300" height="46" rx="6" fill="var(--p0-bg)" stroke="var(--p0-line)"/>
+  <text x="262" y="204" class="svgt">planner is None? ②</text>
+  <text x="262" y="222" class="svgs">→ clarification text, no query, no empty list</text>
+  <path d="M250 212 L74 212" stroke="var(--p0-line)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#s0)"/>
+
+  <path d="M235 260 L716 260" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#sg)"/>
+  <text x="420" y="254" class="svgs">compile_outing(outing, gazetteer) → Constraints | Clarify</text>
+  <path d="M235 288 L716 288" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#sg)"/>
+  <text x="420" y="282" class="svgs">asyncio.to_thread(plan_outing, …) — CPU, off the event loop</text>
+  <path d="M720 316 L239 316" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#sg)"/>
+  <text x="420" y="310" class="svgs">3 cards + 3 documents (ids minted from geometry)</text>
+
+  <path d="M235 350 L864 350" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#sg)"/>
+  <text x="560" y="344" class="svgm">result_refs.loop_ids = [vv2-…] ⑥</text>
+  <path d="M235 380 L74 380" stroke="var(--p0-line)" stroke-width="2" marker-end="url(#s0)"/>
+  <text x="80" y="374" class="svgm">SSE results.kind = "loop_search" ④</text>
+  <text x="80" y="398" class="svgs">cards carry their line inline</text>
+
+  <path d="M864 430 L74 430" stroke="var(--infra)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#sg)"/>
+  <text x="300" y="424" class="svgs">later, on resume: loop_ids → /routes/by-ids → unsaved ids come back "missing" ⑥</text>
+</svg>
+</div>
+<p class="figcap">Fig. 2 — One outing turn after R7. The quota check, the answer-writing model call and
+the gateway hop are omitted; R7 did not change them. The dashed arrow is the no-pack refusal, which
+production cannot reach.</p>
+
+<h3>3.1 · How the data moves and transforms</h3>
+
+<p>The model's vocabulary is the union below. The strict schema sent to OpenAI is built from it, so
+removing a member removes that shape from what the model can emit at all.</p>
+
+<div class="file"><span><b>backend/chat/intents.py</b>:132–139 — the whole vocabulary, one member shorter</span><span class="badge b0">CHAT</span></div>
+<pre><code>Intent = Annotated[
+    TrailSearchIntent
+    | OutingIntent
+    | RouteIntent
+    | SemanticThemeIntent
+    | ClarifyIntent,
+    Field(discriminator="kind"),
+]</code></pre>
+
+<p>With no <code>loop_search</code> to fall into, the prompt must say when an ask is an outing. The
+gate is now a two-part test — a stated shape, or a trigger fact — and it names the words that look
+like triggers but are not.</p>
+
+<div class="file"><span><b>backend/chat/prompts.py</b>:67–82 — the gate, after three fix commits</span><span class="badge b0">CHAT</span></div>
+<pre><code>- outing or trail_search: use outing when the message states a SHAPE (a loop,
+  circular, round trip, out and back) or at least one TRIGGER fact (several
+  days, start mode / drive time / car_free, surface exclusions, setting,
+  fitness, sleeping somewhere). Otherwise trail_search, which is for NAMED
+  TRAILS and their properties — with semantic_theme BESIDE it whenever the
+  ask also carries atmosphere or landscape the filters cannot express. This
+  choice is between outing and trail_search only; it never suppresses a
+  theme, <span class="cm">…                                            ⑤ (eb8f1a0)</span>
+  NOTHING ELSE promotes an ask to an outing.
+  In particular the WORDS for an outing do not: "a day out", "una gita",
+  "un giro", "a trip", "take me out" name no shape and carry no trigger, so
+  they are trail_search like any other ask. A distance, a duration or an
+  activity is not a shape either: "a 2 hour mountain bike ride" and "una gita
+  a piedi di due ore" are BOTH trail_search.   <span class="cm">⑤ (e6c770a)</span></code></pre>
+
+<p>The composed plan reaches the orchestrator. Before R7 a backend with no pack answered an outing
+from the catalogue; now there is nothing behind it, so it refuses.</p>
+
+<div class="file"><span><b>backend/chat/orchestrator.py</b>:379–391 — no pack, no drawing, no empty list</span><span class="badge b0">CHAT</span></div>
+<pre><code>if plan.outing is not None and self._planner is None:
+    <span class="cm"># No pack, no drawing — and with the catalogue retired (R7) there</span>
+    <span class="cm"># is nothing behind it to fall back to. Say so rather than</span>
+    <span class="cm"># streaming an empty result list, which reads as "nothing exists".</span>
+    <span class="cm"># Production cannot reach this: REQUIRE_PACK refuses to boot.   ②</span>
+    return {
+        "clarification": (
+            "I cannot draw routes right now — the route data is not "
+            "loaded. Ask about a named trail instead, or try again "
+            "shortly."
+        ),
+        "suggestions": [],
+    }, {}</code></pre>
+
+<p>A refinement turn ("shorter") merges onto the standing plan in Python. The outing and the trail
+search are overlaid <i>separately</i>; the bridge that used to copy a trail-shaped delta onto a
+loop is gone.</p>
+
+<div class="file"><span><b>backend/chat/composer.py</b>:336–352 — latest-wins, per kind, no cross-kind bridge</span><span class="badge b0">CHAT</span></div>
+<pre><code>merged = ComposedPlan(
+    search=standing.search,
+    theme=standing.theme,
+    outing=standing.outing,
+)
+if delta.outing is not None:
+    merged.outing = (
+        _overlay(merged.outing, delta.outing)
+        if merged.outing is not None
+        else delta.outing
+    )
+if delta.search is not None:                      <span class="cm"># ③ a trail delta stays a trail delta</span>
+    merged.search = (
+        _overlay(merged.search, delta.search)
+        if merged.search is not None
+        else delta.search
+    )</code></pre>
+
+<p>The label the frontend sees keeps its old name, and the ids go to Supabase as before.</p>
+
+<div class="file"><span><b>backend/chat/orchestrator.py</b>:352–358, 427 — the wire label, and the ids that get persisted</span><span class="badge b0">CHAT</span></div>
+<pre><code><span class="cm"># A drawn-outing turn is a loop_search, not a trail_search. The label is</span>
+<span class="cm"># client-facing: … The wire value keeps</span>
+<span class="cm"># its name now the catalogue is gone — the frontend contract is the</span>
+<span class="cm"># shape of the cards, not where they came from.                    ④</span>
+if plan.outing is not None and not (plan.search or plan.theme):
+    return "loop_search"
+…
+refs["loop_ids"] = [card["id"] for card in cards]          <span class="cm"># ⑥</span></code></pre>
+
+<h3>3.2 · Decisions, and why</h3>
+<ul class="dec d0">
+  <li><b class="num">①</b><strong>The loop is a shape, not an intent.</strong> The rejected
+  alternative was to keep <code>loop_search</code> in the schema and route it to the planner. That
+  keeps two field vocabularies for one thing (<code>max_distance_m</code> on one,
+  <code>max_distance_km</code> on the other) and a prompt rule to choose between them that decides
+  nothing. The cost is that the outing/trail boundary is now a prompt rule with no fallback — which
+  is why ⑤ took three commits.</li>
+  <li><b class="num">②</b><strong>No pack means a refusal in words.</strong> An empty list would be
+  read as "no such route exists", which is false. <code>REQUIRE_PACK</code> makes this unreachable
+  in production; it exists for dev and CI backends booted without <code>PACK_DIR</code>.</li>
+  <li><b class="num">③</b><strong><code>_cross_overlay</code> was deleted, not ported.</strong> It
+  bridged two intents that shared field names. <code>OutingIntent</code> spells its limits
+  differently (km, hours), so a bridge would be new unit-converting code, not a deletion. The cost:
+  "shorter" against a standing outing works only if the model emits an <i>outing</i> delta. If it
+  emits a trail delta instead, the standing outing is redrawn unchanged and a trail search runs
+  beside it. Golden g27 and g49 cover the happy case; nothing pins the failure case (Rec. 7). The
+  typed chips avoid the model entirely.</li>
+  <li><b class="num">④</b><strong>The wire value stays <code>"loop_search"</code>.</strong>
+  Renaming it would touch the frontend types, <code>conversations.ts</code> and three test files for no change in behaviour. The
+  cost is a name that describes a mechanism that no longer exists.</li>
+  <li><b class="num">⑤</b><strong>The gate tests for a shape or a trigger, never a noun.</strong>
+  The first wording ("an OUTING TO GO AND DO") let the model classify by the word <i>outing</i>:
+  "una gita a piedi di due ore" became an outing while "a two hour mtb ride" did not. Written as a
+  strict binary, it then pulled descriptive asks away from <code>semantic_theme</code> (g05, g06).
+  And the "never carry X from an earlier turn" rule listed distance, duration, difficulty and
+  feature but not <i>place</i>, so g32 copied <code>Bergamo</code> into a fresh ask — R7 made that
+  bite because the standing plan now holds <code>outing.area</code>, a more visible field than
+  <code>loop.near</code>. Each fix was checked against the golden run before the next.</li>
+  <li><b class="num">⑥</b><strong>Drawn ids are still written to <code>result_refs</code>.</strong>
+  Unchanged by R7, but its meaning changed: see §6.</li>
+</ul>
+
+<h3>3.3 · For a scalable system</h3>
+<p>The real change in load: asks that used to be an indexed Neo4j filter ("a 15 km loop") are now
+a draw. The draw is CPU work in the backend process, run through <code>asyncio.to_thread</code> on
+the default thread pool, measured at 165 ms median for a loop <b>on the dev machine</b> — the VPS
+number R2 owes is still owed, and it now matters more, because every loop ask pays it. The ceiling
+is the thread pool sharing one Python process and one GIL (the global interpreter lock, which lets
+only one thread run Python at a time); the upgrade already named in <code>docs/route-design.md</code>
+is a <code>ProcessPool</code> sized from that measurement. The per-conversation document cache
+(<code>OUTING_CACHE_CONVERSATIONS = 50</code>, in process) is R4's and unchanged.</p>
+
+<h3>3.4 · Security</h3>
+<p>The LLM boundary got smaller, not different. One fewer schema the model can fill, and no
+template name or id in any of the remaining ones. The no-pack refusal is fixed Python text, so it
+cannot echo user input. The adversarial half of <code>check_intents_live</code> is 7/7
+<code>clarify</code> against the final prompt (<code>441b401</code>).</p>
+
+<div class="take">
+  <h4>Key takeaways — CHAT</h4>
+  <ul>
+    <li>One way for the model to ask for an outing; the loop is its <code>shape</code>.</li>
+    <li>The outing/trail boundary lives in the prompt, and cost three golden-driven fixes. Final golden: 62/63, the baseline median.</li>
+    <li>g47 ("voglio camminare") is the one open entry, left unfixed on purpose — see Rec. 8.</li>
+  </ul>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="graph">4 · GRAPH · GDS leaves the serving path <span class="badge b1">GRAPH</span></h2>
+
+<p><b>Goal.</b> Delete every Neo4j template the catalogue needed, and every serving-path use of GDS.
+The plan (<code>docs/plan.md</code> R7) also said to drop the <code>Intersection</code> and
+<code>CONNECTS_TO</code> loads. That line assumed A-to-B routing died with <code>POST /routes</code>.
+It does not: <code>/chat</code>'s <code>RouteIntent</code> ("how do I get from Lecco to Abbadia")
+walks those edges with plain Cypher. So the branch kept them, with the owner's confirmation.</p>
+
+<div class="fig">
+<svg viewBox="0 0 960 300" role="img" aria-label="Before and after: who calls GDS and who walks CONNECTS_TO">
+  <defs>
+    <marker id="g1" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p1-line)"/></marker>
+    <marker id="gg" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--infra)"/></marker>
+  </defs>
+  <text x="30" y="26" class="svgt" font-weight="600">Before R7</text>
+  <text x="500" y="26" class="svgt" font-weight="600">After R7</text>
+  <line x1="480" y1="16" x2="480" y2="290" stroke="var(--rule)"/>
+
+  <rect x="30" y="44" width="170" height="44" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="42" y="64" class="svgm">POST /routes</text>
+  <text x="42" y="80" class="svgs">no caller anywhere</text>
+  <rect x="30" y="112" width="170" height="44" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="42" y="132" class="svgm">/chat RouteIntent</text>
+  <text x="42" y="148" class="svgs">live</text>
+  <rect x="30" y="180" width="170" height="44" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="42" y="200" class="svgm">check_graph_</text>
+  <text x="42" y="216" class="svgm">connectivity</text>
+  <rect x="30" y="240" width="170" height="40" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="42" y="264" class="svgm">loop_search</text>
+
+  <rect x="290" y="60" width="160" height="60" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="302" y="82" class="svgt">GDS projection</text>
+  <text x="302" y="100" class="svgs">per request, Dijkstra</text>
+  <rect x="290" y="140" width="160" height="50" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="302" y="162" class="svgm">CONNECTS_TO</text>
+  <text x="302" y="178" class="svgs">shortestPath *..100</text>
+  <rect x="290" y="226" width="160" height="54" rx="6" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="302" y="248" class="svgm">search_loops</text>
+  <text x="302" y="266" class="svgs">627 (:Route)</text>
+
+  <path d="M200 66 L286 80" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#gg)"/>
+  <text x="206" y="62" class="svgs">snap + project</text>
+  <path d="M200 134 L286 160" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#gg)"/>
+  <text x="206" y="130" class="svgs">node ids</text>
+  <path d="M200 196 L286 100" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#gg)"/>
+  <text x="208" y="178" class="svgs">WCC</text>
+  <path d="M200 260 L286 254" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#gg)"/>
+  <text x="206" y="254" class="svgs">filters</text>
+
+  <rect x="500" y="44" width="170" height="44" rx="6" fill="none" stroke="var(--infra)" stroke-dasharray="4 3"/>
+  <text x="512" y="64" class="svgm gone">POST /routes</text>
+  <text x="512" y="80" class="svgs">deleted ⓐ</text>
+  <rect x="500" y="112" width="170" height="44" rx="6" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="512" y="132" class="svgm">/chat RouteIntent</text>
+  <text x="512" y="148" class="svgs">unchanged ⓑ</text>
+  <rect x="500" y="180" width="170" height="44" rx="6" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="512" y="200" class="svgm">check_graph_</text>
+  <text x="512" y="216" class="svgm">connectivity</text>
+  <rect x="500" y="240" width="170" height="40" rx="6" fill="none" stroke="var(--infra)" stroke-dasharray="4 3"/>
+  <text x="512" y="264" class="svgm gone">loop_search</text>
+
+  <rect x="760" y="60" width="170" height="60" rx="6" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="772" y="82" class="svgt">GDS projection</text>
+  <text x="772" y="100" class="svgs">diagnostic only, WCC ⓒ</text>
+  <rect x="760" y="140" width="170" height="50" rx="6" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="772" y="162" class="svgm">CONNECTS_TO</text>
+  <text x="772" y="178" class="svgs">kept for the one walk</text>
+  <rect x="760" y="226" width="170" height="54" rx="6" fill="var(--p1-bg)" stroke="var(--p1-line)"/>
+  <text x="772" y="248" class="svgm">routes_by_ids</text>
+  <text x="772" y="266" class="svgs">saved routes only ⓓ</text>
+
+  <path d="M670 134 L756 160" stroke="var(--p1-line)" stroke-width="1.8" marker-end="url(#g1)"/>
+  <text x="676" y="130" class="svgs">node ids</text>
+  <path d="M670 196 L756 100" stroke="var(--p1-line)" stroke-width="1.8" marker-end="url(#g1)"/>
+  <text x="680" y="176" class="svgs">project + WCC</text>
+</svg>
+</div>
+<p class="figcap">Fig. 3 — Callers of the routing graph, before and after. The backend's serving
+path no longer reaches GDS at all; the only GDS caller left is an operator script.</p>
+
+<h3>4.1 · How the data moves and transforms</h3>
+
+<div class="file"><span><b>backend/graph/queries.cypher</b>:135–152 — the only A-to-B walk left</span><span class="badge b1">GRAPH</span></div>
+<pre><code>// name: route_between_intersections
+// Bounded shortest path on the Intersection routing graph. Semantic edges never
+// appear in the path expression. Bounded, and the only A-to-B walk left (R7)
+// (needs a live GDS instance to verify — see docs/plan.md Phase 2).   <span class="cm">← stale, Rec. 2</span>
+MATCH (src:Intersection {osm_node_id: $start_node}),
+      (dst:Intersection {osm_node_id: $end_node})
+MATCH path = shortestPath((src)-[:CONNECTS_TO*..100]-(dst))    <span class="cm">ⓑ fewest hops</span>
+WITH path,
+     reduce(d = 0.0, r IN relationships(path) | d + r.distance_m) AS total_m,
+     …
+WHERE $max_distance_m IS NULL OR total_m &lt;= $max_distance_m</code></pre>
+
+<div class="file"><span><b>infra/docker-compose.yml</b>:35–45 — why GDS is still installed, said where it is installed</span><span class="badge b1">GRAPH</span></div>
+<pre><code>      #   gds.*                          WCC for scripts.check_graph_connectivity
+      # dbms.* stays for driver routing; narrowing it further is a later tightening.
+      NEO4J_dbms_security_procedures_allowlist: "db.*,dbms.*,gds.*"
+      # Allowlisted is not enough for GDS. gds.util.asNode reaches outside the
+      # procedure sandbox, … since R7 the connectivity check is the only
+      # caller, but it fails the same way without this. …
+      NEO4J_dbms_security_procedures_unrestricted: "gds.*"        <span class="cm">ⓒ</span></code></pre>
+
+<h3>4.2 · Decisions, and why</h3>
+<ul class="dec d1">
+  <li><b class="num">ⓐ</b><strong><code>POST /routes</code> is deleted.</strong> It resolved two
+  POIs, snapped them, and ran Dijkstra over a per-request GDS projection. Nothing called it — not the
+  frontend, not a script; the gateway proxies the <code>/routes</code> prefix whole, so it was
+  publicly reachable while unused. With it went <code>route_gds_dijkstra</code>,
+  <code>intersection_locations</code>, <code>route_edge_details</code>, the smoke script, and most of
+  <code>test_api_routing.py</code>.</li>
+  <li><b class="num">ⓑ</b><strong><code>Intersection</code>/<code>CONNECTS_TO</code> stay.</strong>
+  The plan's drop list was written assuming A-to-B went with the endpoint. It did not, and dropping
+  the loads would delete a live feature's data. Worth knowing about what stays:
+  <code>shortestPath</code> in Cypher minimises <i>hops</i>, not metres; <code>total_m</code> is
+  summed afterwards and only used as a cap (Rec. 4).</li>
+  <li><b class="num">ⓒ</b><strong>The GDS plugin stays, for a diagnostic.</strong>
+  <code>scripts.check_graph_connectivity</code> projects the routing graph and runs WCC (weakly
+  connected components) to find islands — the check that found fragility #9 (1,627 components). R7
+  is a retirement, not a place to lose a working check. The heap was cut to 1 GB, since it was
+  sized for per-request projections.</li>
+  <li><b class="num">ⓓ</b><strong><code>route_card</code> and <code>routes_by_ids</code> survive.</strong>
+  Favourites and resume hydrate through them, so a saved card and a live card cannot come to differ.
+  What changed is what they find: in a fresh database, only routes someone saved. A database loaded
+  before R7 still holds the 627 catalogue <code>(:Route)</code> nodes, because nothing deletes them —
+  which is also what keeps catalogue-era favourites alive (Rec. 5).</li>
+</ul>
+
+<h3>4.3 · For a scalable system</h3>
+<p>The serving path lost its heaviest Neo4j call: a GDS projection per <code>POST /routes</code>
+request (the full projection was 92 MiB). What is left is bounded Cypher. The remaining ceiling is
+<code>shortestPath</code> itself: unweighted, depth-capped at 100 relationships, and run once per
+RouteIntent (the composer caps routes per turn). Two named places more than 100 junctions apart
+return <code>no_path</code> even when connected. The upgrade, if A-to-B grows, is to answer it from
+the pack like everything else, and drop <code>CONNECTS_TO</code> then.</p>
+
+<h3>4.4 · Security</h3>
+<p>One public route fewer: <code>POST /routes</code> took two free-text place names from any
+authenticated caller and started a graph projection, a cheap way to make Neo4j do expensive work.
+It is gone. What remains open is the procedure allowlist: <code>gds.*</code> is allowlisted and
+unrestricted on the same Neo4j the backend serves from, for the sake of an operator script. The
+backend calls no <code>gds.*</code> procedure, and every template passes the guard tests in
+<code>tests/test_query_loader.py</code> (no writes, bounded, no semantic edges in a path), so the
+exposure is defence-in-depth only. It should not reach production (Rec. 6).</p>
+
+<div class="take t1">
+  <h4>Key takeaways — GRAPH</h4>
+  <ul>
+    <li>The serving path never calls GDS. The only caller is an operator diagnostic.</li>
+    <li>Three plan items were kept on purpose because they hold live features: the routing graph, the plugin, and the card templates.</li>
+    <li>The A-to-B walk is hop-shortest. That is pre-existing, but it is now the only one.</li>
+  </ul>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="oracle">5 · ORACLE · The generator goes, the oracle stays <span class="badge b2">ORACLE</span></h2>
+
+<p><b>Goal.</b> Delete the pgRouting loop factory (<code>draw/generate.py</code>,
+<code>draw/emit.py</code>) and the bulk loader (<code>export/neo4j_load.py</code>,
+<code>catalogue.cypher</code>), without losing the one thing the catalogue still does: prove the
+engine right. Ratified decision ① of Phase 12 is "no human review before a user sees a route", and
+what makes that acceptable is the parity test — the new engine must reproduce all 627 catalogue ids
+from the same asks.</p>
+
+<div class="fig">
+<svg viewBox="0 0 960 230" role="img" aria-label="The parity oracle: from catalogue.route to a committed fixture replayed over the pack">
+  <defs>
+    <marker id="o2" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--p2-line)"/></marker>
+    <marker id="og" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" fill="var(--infra)"/></marker>
+  </defs>
+  <rect x="20" y="40" width="190" height="80" rx="8" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="32" y="62" class="svgm">catalogue.route</text>
+  <text x="32" y="80" class="svgs">PostGIS; 627 rows minted</text>
+  <text x="32" y="96" class="svgs">by the deleted factory</text>
+  <path d="M210 80 L286 80" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#og)"/>
+  <text x="216" y="72" class="svgs">export.parity</text>
+  <text x="216" y="98" class="svgs">(run once)</text>
+
+  <rect x="290" y="40" width="210" height="80" rx="8" fill="var(--p2-bg)" stroke="var(--p2-line)"/>
+  <text x="302" y="62" class="svgm">parity_asks.json</text>
+  <text x="302" y="80" class="svgs">route_id, shape, seed, target_m,</text>
+  <text x="302" y="96" class="svgs">start_vertex, destination_vertex</text>
+  <text x="302" y="112" class="svgs">committed, 190 KB ⓔ</text>
+
+  <rect x="290" y="150" width="210" height="60" rx="8" fill="var(--panel)" stroke="var(--infra)"/>
+  <text x="302" y="172" class="svgm">pipeline/packs/pack-parity/</text>
+  <text x="302" y="190" class="svgs">39.5 MB, gitignored, workstation</text>
+
+  <path d="M500 80 L586 110" stroke="var(--p2-line)" stroke-width="1.8" marker-end="url(#o2)"/>
+  <text x="508" y="84" class="svgs">asks</text>
+  <path d="M500 180 L586 130" stroke="var(--infra)" stroke-width="1.6" marker-end="url(#og)"/>
+  <text x="508" y="176" class="svgs">vertex_id → index ⚠</text>
+
+  <rect x="590" y="80" width="190" height="80" rx="8" fill="var(--p2-bg)" stroke="var(--p2-line)"/>
+  <text x="602" y="102" class="svgm">test_parity.py</text>
+  <text x="602" y="120" class="svgs">draw → assemble → route_id</text>
+  <text x="602" y="136" class="svgs">skipped in CI (no pack)</text>
+  <path d="M780 120 L856 120" stroke="var(--p2-line)" stroke-width="1.8" marker-end="url(#o2)"/>
+  <text x="786" y="112" class="svgs">627/627</text>
+  <text x="786" y="140" class="svgs">or a list of misses</text>
+</svg>
+</div>
+<p class="figcap">Fig. 4 — The oracle after R7. <code>catalogue.route</code> is no longer needed
+for the test to run, only to regenerate its fixture. The ⚠ is Rec. 3.</p>
+
+<h3>5.1 · How the data moves and transforms</h3>
+
+<div class="file"><span><b>shared/routes/tests/test_parity.py</b>:40–58 — the fixture and the pack meet on vertex ids</span><span class="badge b2">ORACLE</span></div>
+<pre><code>PACK_DIR = Path(os.environ.get("VAIVIA_PACK_DIR", PIPELINE_PACKS / "pack-parity"))
+ASKS = Path(os.environ.get("VAIVIA_PARITY_ASKS", FIXTURES / "parity_asks.json"))
+
+pytestmark = pytest.mark.skipif(
+    not (PACK_DIR.is_dir() and ASKS.is_file()),
+    reason="full pack or asks dump not present (see module docstring)",
+)
+…
+    vertex_index = {int(v): i for i, v in enumerate(pack["vertex_id"])}
+    …
+    for ask in asks:
+        net = networks[ask["activity"]]
+        start = vertex_index[ask["start_vertex"]]      <span class="cm"># KeyError if the network was rebuilt</span></code></pre>
+
+<h3>5.2 · Decisions, and why</h3>
+<ul class="dec d2">
+  <li><b class="num">ⓔ</b><strong>The 627 asks became a committed fixture.</strong> They used to be
+  gitignored under <code>pipeline/packs/</code>, which was fine only while
+  <code>catalogue.route</code> could be dumped again on demand. 190 KB in git is cheap insurance on
+  the test that lets drawn routes ship unreviewed. <code>catalogue.route</code> stays in PostGIS as
+  its source; it was never on R7's drop list.</li>
+  <li><b class="num">ⓕ</b><strong>The engine's tests moved in with the engine.</strong>
+  <code>test_draw</code>, <code>test_destinations</code>, <code>test_ids</code> imported only
+  <code>vaivia_routes</code>. They sat in <code>pipeline/tests/</code> because the code used to
+  live there; the R2 re-export shims were the last thing that made that look deliberate
+  (pipeline 273 → 229, shared 32 → 76, same total).</li>
+  <li><b class="num">ⓖ</b><strong>The row mapping outlived its loader.</strong>
+  <code>vaivia_routes.neo4j_rows</code> is what the favourite path writes with, so
+  <code>test_neo4j_load</code> keeps testing it; only the bulk loader's own parser tests went.</li>
+</ul>
+
+<h3>5.3 · For a scalable system</h3>
+<p>The oracle is frozen at one network. The fixture names vertices by id, and CLAUDE.md is explicit
+that vertex ids do not survive a rebuild. So the moment the network is rebuilt — any topology
+repair, any new region — the parity test either crashes on a missing id or quietly replays asks from
+different junctions. Today that is survivable because <code>pack-parity</code> is kept aside. It
+stops being survivable when <code>catalogue.route</code> is finally dropped, because then the
+fixture cannot be regenerated either. Rec. 3 has the fix.</p>
+
+<div class="take t2">
+  <h4>Key takeaways — ORACLE</h4>
+  <ul>
+    <li>No pipeline code mints routes any more; the pack engine is the only drawer.</li>
+    <li>The parity oracle no longer needs <code>catalogue.route</code> to run — only to be regenerated.</li>
+    <li>It is tied to one pack build by vertex id, and says so only by crashing.</li>
+  </ul>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="id">6 · The route id, and what holds it now</h2>
+
+<p>The id is geometry-derived (<code>vv2-</code> + digest, <code>vaivia_routes.ids.route_id</code>)
+and is the one key every layer shares: the card, the document file name, the
+<code>(:Route)</code> node, the favourites row, and <code>messages.result_refs.loop_ids</code>. Before
+R7, most ids a user saw had a <code>(:Route)</code> behind them, because most loop answers came from
+the catalogue. After R7, <b>only saved ones do</b>. The same id now resolves differently depending on
+where you ask:</p>
+
+<table>
+  <tr><th>Holder</th><th>Written when</th><th>Resolves after a restart?</th></tr>
+  <tr><td>SSE card (inline line)</td><td>every answer</td><td>—, it is the live answer</td></tr>
+  <tr><td>orchestrator <code>_outing_docs</code></td><td>every answer, in process</td><td><span class="warntag">no</span> — lost; a later favourite 404s (R4's accepted ceiling)</td></tr>
+  <tr><td><code>messages.result_refs.loop_ids</code></td><td>every answer</td><td><span class="warntag">no, unless saved</span> — by-ids returns it as <code>missing</code></td></tr>
+  <tr><td>document file + <code>(:Route)</code></td><td>on favourite only</td><td><span class="goodtag">yes</span></td></tr>
+  <tr><td><code>(:Start {vertex_id})</code></td><td>on favourite only</td><td><span class="warntag">wrong after a pack rebuild</span> — fragility #18</td></tr>
+</table>
+
+<p>The query the id was built to enable is resume: one hydration call for the whole conversation.</p>
+
+<div class="file"><span><b>frontend/lib/conversations.ts</b>:50–53, 101–103 — resume keeps what by-ids returns and drops the rest</span><span class="badge b0">CHAT</span></div>
+<pre><code>const loops = (row.result_refs?.loop_ids ?? [])
+  .map((id) =&gt; byId.get(id))
+  .filter((loop): loop is Loop =&gt; Boolean(loop));
+…
+const wanted = [
+  ...new Set(rows.flatMap((row) =&gt; row.result_refs?.loop_ids ?? [])),
+];</code></pre>
+
+<p>So a resumed conversation now comes back as prose with no cards, except for routes the user
+saved. The code comment above it still says an id drops out when "its route left the catalogue".
+Nothing is wrong in the sense of a crash — the design rule "kept only when kept" is being followed —
+but the user-visible behaviour of resume changed, and nothing says so (Rec. 1).</p>
+
+<div class="file"><span><b>backend/graph/save_route.cypher</b>:32–42 — the one pack-local key that persists</span><span class="badge b1">GRAPH</span></div>
+<pre><code>// name: save_route_start
+MERGE (s:Start {vertex_id: $row.vertex_id})
+ON CREATE SET s.car_free = $row.car_free,
+              s.names = $row.names,
+              …
+              s.location = point({longitude: $row.lon, latitude: $row.lat})</code></pre>
+
+<p>Fragility #18 was written on this branch: after a pack rebuild, the same <code>vertex_id</code>
+names a different junction, and <code>ON CREATE</code> means the stale node silently wins.
+<code>docs/fragilities.md</code> #18 has the rule; it has no fix yet.</p>
+
+<div class="take">
+  <h4>Key takeaways</h4>
+  <ul>
+    <li>The route id is stable everywhere; what it points at is not — only a favourite makes it durable.</li>
+    <li>Resume lost its cards for every unsaved route. That follows from the design, but the UI does not say it.</li>
+    <li><code>(:Start {vertex_id})</code> is the last pack-local key in Neo4j, and it goes stale on rebuild.</li>
+  </ul>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="next">7 · What comes next, and recommendations</h2>
+
+<table>
+  <tr><th>Item (docs/plan.md numbering)</th><th>Status</th><th>State</th></tr>
+  <tr><td>12 · R1 pack export</td><td><span class="goodtag">done</span></td><td>Format 2 since R5.</td></tr>
+  <tr><td>12 · R2 pack engine</td><td><span class="goodtag">done</span></td><td>627/627 parity. VPS latency still owed — matters more now every loop ask draws.</td></tr>
+  <tr><td>12 · R3 OutingIntent</td><td><span class="goodtag">done</span></td><td>Now the only outing vocabulary.</td></tr>
+  <tr><td>12 · R4 outing planner</td><td><span class="goodtag">done</span></td><td>"Use my location" affordance still open.</td></tr>
+  <tr><td>12 · R5 drive, rail, gazetteer</td><td><span class="goodtag">done</span></td><td>—</td></tr>
+  <tr><td>12 · R6 multi-day</td><td><span class="warntag">dropped</span></td><td>Owner, 2026-09-12. Vocabulary kept so the ask is refused honestly.</td></tr>
+  <tr><td>12 · R7 retire the catalogue</td><td><span class="goodtag">done</span></td><td>This branch. Golden 62/63, <code>check_intents_live</code> 7/7. PR to <code>develop</code> not yet opened.</td></tr>
+  <tr><td>9 · D4 publish-pack</td><td><span class="warntag">open</span></td><td>There was no <code>publish-pack.sh</code> to delete; it is D4's to write. D0–D5 all open, D0 owner-only.</td></tr>
+</table>
+
+<p>Discovered while writing:</p>
+<ol>
+  <li><span class="warntag">Resume shows no cards for unsaved routes, silently.</span> Every
+  <code>loop_ids</code> entry of an unsaved drawn route comes back <code>missing</code> from
+  <code>/routes/by-ids</code>, and <code>toChatMessages</code> drops it. Persisting every drawn
+  document would break "kept only when kept". Cheaper and honest: when a resumed assistant turn had
+  ids and none hydrated, render one line ("These routes were drawn for that moment and not saved —
+  ask again to redraw"). Fix the stale "left the catalogue" comment at
+  <code>frontend/lib/conversations.ts</code>:34–38 in the same change.</li>
+  <li><span class="warntag">Stale catalogue wording in live code, two of them operator-facing.</span>
+  <code>api/main.py</code>:96 logs "outing asks answer from the catalogue" — false since
+  <code>f408733</code>; they refuse. <code>core/config.py</code>:55 says the same.
+  <code>api/routes/routing.py</code>:53–54, 72–74, 104–105 tell an operator to "reload the
+  catalogue", with a loader that no longer exists; :149 cites <code>search_loops</code> and :168
+  cites <code>catalogue.cypher</code>, both deleted. <code>core/config.py</code>:41–44
+  <code>loop_near_radius_m</code> has no reader left. Smaller: <code>composer.py</code>:156,
+  <code>intents.py</code>:65, <code>planner.py</code>:715, <code>queries.cypher</code>:137–138
+  ("needs a live GDS instance"), and an orphaned comment at
+  <code>tests/test_query_loader.py</code>:28–30 that described the deleted
+  <code>catalogue_audit_index</code>. One <code>chore:</code> commit.</li>
+  <li><span class="warntag">The parity fixture is tied to one network by vertex id.</span> Store the
+  pack <code>run_id</code> it was dumped against (<code>pack-parity</code>) in the fixture, and have
+  the test <code>skip</code> with that message on a mismatch rather than raise
+  <code>KeyError</code>. Longer term, key starts by <code>start_lon/start_lat</code> (already in the
+  fixture) and destinations by <code>destination_id</code>, and snap at test time — then the oracle
+  outlives both the network and <code>catalogue.route</code>.</li>
+  <li><span class="warntag"><code>route_between_intersections</code> is hop-shortest, not
+  metre-shortest.</span> Cypher's <code>shortestPath</code> ignores <code>distance_m</code>; it is
+  only summed afterwards. A longer path with fewer junctions wins. Either say so in the template
+  comment and the answer ("a connecting path", not "the shortest"), or move A-to-B onto the pack's
+  Dijkstra and drop <code>CONNECTS_TO</code> — which would also finish the R7 line as written.</li>
+  <li><span class="warntag">Old catalogue nodes are still in any pre-R7 Neo4j.</span> Nothing
+  deletes the 627 <code>(:Route)</code> nodes or their documents, and they are what keeps
+  catalogue-era favourites alive. The plan's R7 "landed as" note does not mention it. Decide and
+  write it down: keep them until favourites are migrated (what happens today, by accident), or
+  delete them and let those favourites read as <code>missing</code>.</li>
+  <li><span class="warntag">GDS is unrestricted on the serving Neo4j for an operator script.</span>
+  <b>Accepted for dev, because</b> no backend path calls <code>gds.*</code> and the template guards
+  hold. For D2 (<code>compose.prod.yml</code>): leave GDS out of the production Neo4j entirely, and
+  run <code>check_graph_connectivity</code> against a dev copy.</li>
+  <li><span class="warntag">Nothing pins the <code>_cross_overlay</code> failure case.</span> g27 and
+  g49 check that "shorter" tightens <code>outing.max_distance_km</code>; add the expectation that no
+  <code>search</code> rides along, so a model that emits a trail delta against a standing outing
+  fails the golden instead of redrawing the old outing beside a trail search.</li>
+  <li><span class="warntag">g47 is open.</span> Left unfixed on purpose in <code>441b401</code>: the
+  mechanism is known (<code>only_activity()</code> needs every other field at its default) but which
+  field the model sets is not visible. Next time it fails, run
+  <code>eval_golden --only g47</code> with the composed plan printed; the answer decides prompt fix
+  versus guard fix. g41 forbids simply loosening the guard.</li>
+  <li><code>chat/compile.py</code>:202 and :214 offer "three days hut to hut in the Orobie" as a
+  suggestion in the coverage refusal — a multi-day trek the planner then refuses (R6 dropped). Swap
+  in a single-day ask. Pre-dates R7; found while reading.</li>
+  <li><code>results.kind = "loop_search"</code> names a path that no longer exists.
+  <b>Accepted, because</b> renaming touches the frontend types, <code>conversations.ts</code> and three test files for no behaviour
+  change; rename it the next time the result contract changes for a real reason.</li>
+</ol>
+
+<p class="sub" style="margin-top:48px">Sources: <code>docs/plan.md</code> (Phase 12 R1–R7, Phase 9),
+<code>docs/route-design.md</code>, <code>docs/fragilities.md</code> #9, #16, #18, the commit messages
+of the eight commits named above, and the files quoted. Line numbers as of
+<code>chore/retire-catalogue</code> @ <code>3dfc3ac</code>; no quoted file has uncommitted changes.
+The three earlier explainers in <code>docs/explain/</code> are deleted in the working tree
+(uncommitted), so this doc links none of them.</p>
+
+</main>
+</body>
+</html>
