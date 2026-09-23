@@ -49,7 +49,7 @@ Not bugs: Supabase auth is parked (`GATEWAY_DEV_NO_AUTH=true` runs all as
   "project": "VaiVia",
   "org": "ai safe earth",
   "status": "amber",
-  "updated": "2026-09-16",
+  "updated": "2026-09-23",
   "deadline": null,
   "people": [
     "oscar"
@@ -169,6 +169,13 @@ Not bugs: Supabase auth is parked (`GATEWAY_DEV_NO_AUTH=true` runs all as
   ],
   "sessions": [
     {
+      "date": "2026-09-23",
+      "model": "opus-5",
+      "person": "oscar",
+      "credits": null,
+      "hours": null
+    },
+    {
       "date": "2026-09-16",
       "model": "opus-5",
       "person": "oscar",
@@ -178,13 +185,6 @@ Not bugs: Supabase auth is parked (`GATEWAY_DEV_NO_AUTH=true` runs all as
     {
       "date": "2026-09-15",
       "model": "opus-5",
-      "person": "oscar",
-      "credits": null,
-      "hours": null
-    },
-    {
-      "date": "2026-09-12",
-      "model": "fable-5",
       "person": "oscar",
       "credits": null,
       "hours": null
