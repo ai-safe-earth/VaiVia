@@ -103,7 +103,7 @@ services:
     # curated route map, QA layers. Deliberately NOT the Supabase Postgres —
     # bulk geometry and raster tiles do not belong in the database production
     # auth depends on. The pgrouting image is postgis/postgis plus pgRouting,
-    # which Phase 4's route enumeration (pgr_ksp) needs.
+    # which the network build and the drive matrix (curate/drive.py) need.
     image: pgrouting/pgrouting:17-3.5-3.8
     container_name: vaivia-postgis
     ports:

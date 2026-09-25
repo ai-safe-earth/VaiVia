@@ -102,7 +102,7 @@ of 646 is a fragment with a famous name.
 The fragment problem is structural, not per-route — of the 751 relations emitted as
 documents, 187 carried a quality warning, 56 were under 500 m, 131 came out in more than
 one piece. So the catalogue publishes `generated` routes only
-(`export/document.py::PUBLISHED_KINDS`, read by both the emitter and `export.neo4j_load`),
+(`vaivia_routes.document.PUBLISHED_KINDS`, read by the emitter),
 and `export.route_documents` withdraws by default. Nothing here changes: `edge_route` is
 still written, still names 10,361 otherwise-nameless edges, and still feeds `qa.v_route*`.
 The relation says what a stretch of network is CALLED; it was never able to say where a
@@ -367,7 +367,7 @@ property of a *terminal* (one or two per route, by shape), interest stays a prop
 only on `picnic_site` — cannot drift apart. Implement against that document, not against
 this section.
 
-## Generated routes (`catalogue.route` + `catalogue.route_edge`, written 2026-08-20)
+## Generated routes (`catalogue.route` + `catalogue.route_edge`, written 2026-08-20; retired as a product in R7 — the tables are the pack engine's parity oracle and these rules run in `shared/routes/vaivia_routes`)
 
 The "on join" table above finally executes here, along a **walked edge sequence** —
 which edge, in what order, in which direction (`route_edge.forward`). Everything reads
@@ -400,7 +400,7 @@ Measured on the second catalogue: 54 of 54 mtb loops at 0 blocked metres, and 18
 produced the same ground as an existing fully-legal foot loop and folded into it by the
 geometry-derived id — a fully bike-legal foot loop IS the mtb loop over that ground.
 
-**The route id derives from the ground** (`draw/route_id.py`): coordinates rounded to
+**The route id derives from the ground** (`shared/routes/vaivia_routes/ids.py`): coordinates rounded to
 5 decimals (~1.1 m), direction-normalised, hashed. A weld moving an endpoint 40 cm
 cannot rename a route (a comment would orphan — docs/social-layer.md); a real reroute
 is a NEW route. Never a sequence number, a `run_id`, or a vertex id — vertex ids do not
@@ -409,7 +409,7 @@ survive a rebuild.
 **Routes are not just loops (owner, 2026-08-20).** The second shape is the
 out-and-back: start → an INTERESTING place → back, with the return leg soft-penalising
 the out leg so it differs where the ground allows and honestly retraces where the valley
-allows one way. Destination choice is `draw/destinations.py`: v0 interest weights
+allows one way. Destination choice is `vaivia_routes/destinations.py`: v0 interest weights
 (peaks and viewpoints at the top — the owner's own examples; springs and picnic sites
 are waypoints, not destinations), a heavy named-bonus, and a deliberately generous
 crow-flies band because measured wander (walked/crow) spans 1.4–3.3 in these mountains —
@@ -575,8 +575,9 @@ rebuild like every derived layer; NULL means not measured for this build —
 absent is not zero). Measured over 101,951 edges the share is **bimodal**:
 58% of edges at exactly 0, 35% at ≥99.9%, only ~7% anywhere between — an
 edge is in town or it is not. `qa.v_network.urban_class` cuts in the valleys
-(0 / 50% / 99%). 2,014.6 of 9,238.0 km run through fabric. The route
-factory's urban-exposure rule reads this column, never `off_road_share`,
+(0 / 50% / 99%). 2,014.6 of 9,238.0 km run through fabric. The
+planner's urban-exposure rule (`backend/chat/planner.py`) reads this column, never
+`off_road_share`,
 which is a highway-class heuristic that cannot tell a park path from an
 alley.
 
@@ -606,7 +607,7 @@ smoothly through 5 and 10 m with no cliff below 2 m — the same shape the
 two-province histogram had. Retained; re-measure after any change to the
 network, as ever.
 
-## The parametric factory (2026-08-25)
+## The parametric factory (2026-08-25; retired in R7 — the three shapes live on in `vaivia_routes.draw`, and the flags below were `generate.py`'s)
 
 Three shapes now, all over our own edges, all directed:
 

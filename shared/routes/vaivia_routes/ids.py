@@ -2,7 +2,7 @@
 
 docs/social-layer.md imposes the stability rule before the first comment
 exists: photos, comments and likes key to `route.id`, so an id that changes
-when the catalogue is rebuilt orphans them silently. That rules out every
+when the network is rebuilt orphans them silently. That rules out every
 convenient identity — sequence numbers change with generation order,
 `run_id`s change every run, vertex and edge ids do not survive
 `build_network` (TRUNCATE ... RESTART IDENTITY). What survives is the

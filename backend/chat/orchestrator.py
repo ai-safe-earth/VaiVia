@@ -58,11 +58,6 @@ logger = logging.getLogger(__name__)
 ANSWER_RESULT_LIMIT = 5
 CARD_RESULT_LIMIT = 20
 
-# Our 1-4 difficulty onto the OSM scales GraphHopper decodes. sac_scale: 1
-# hiking, 2 mountain_hiking, 3 demanding_mountain_hiking, 4+ alpine. mtb:scale
-# is coarser at the easy end, so level 1 still admits a 1.
-HIKE_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 3, 4: 6}
-MTB_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 4, 4: 6}
 # The vector index scores this many candidates before the structured filters
 # cut them down, so a filtered semantic search still has enough to choose from.
 SEMANTIC_CANDIDATE_POOL = 25

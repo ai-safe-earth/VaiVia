@@ -152,9 +152,7 @@ def capped_difficulty(max_level: int | None, family_friendly: bool) -> int | Non
     """The difficulty ceiling that actually runs.
 
     "with the kids" caps at 1 whatever else was said. That is a promise about
-    children, and it was written out at both call sites that make it — the
-    trail search and the catalogue view — where one of them could be changed
-    alone.
+    children, kept in one place so no call site can drop it.
     """
     if not family_friendly:
         return max_level

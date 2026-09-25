@@ -133,7 +133,7 @@ def test_an_exit_is_judged_on_the_way_out_not_on_the_settlement():
         ("settlement", "village", "w5", "settlement"),
         ("urban_exit", "path", "v6", "urban_exit"),
         # Rail however it was proven: the station POI and the rail feed's
-        # stop must read as the same class, or the factory's --start-class
+        # stop must read as the same class, or a start-class filter for
         # station would answer differently by door of proof.
         ("gtfs_stop", "stop", "trenord:123", "station"),
         # The day a basin bus feed is loaded, its stops classify themselves

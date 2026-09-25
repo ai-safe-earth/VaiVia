@@ -2,9 +2,9 @@
 
 Nothing is written while a user merely looks at cards; a favourite (or a
 share, when sharing exists) writes the route DOCUMENT to the store the
-geometry endpoints serve from, and one (:Route) to Neo4j — the same node a
-catalogue route gets, built by the same vaivia_routes.neo4j_rows mapping,
-so every reader downstream treats it identically.
+geometry endpoints serve from, and one (:Route) to Neo4j — the only :Route
+shape the graph has, built by the vaivia_routes.neo4j_rows mapping, so every
+reader downstream treats it identically.
 """
 
 from __future__ import annotations

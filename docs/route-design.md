@@ -200,6 +200,10 @@ compile step owns every number the planner sees. POI kinds to add for this: `chu
 4. **GDS is retired.** A→B routes run on the pack too, so there is one geometric truth. The
    `route_gds_dijkstra` / `graph_project_routing` / `graph_drop_routing` templates and the
    raw `Intersection`/`CONNECTS_TO` load go with it (slice 7).
+   *As shipped in R7 (`docs/plan.md`): `route_gds_dijkstra` and `POST /routes` went; A→B
+   stayed in Neo4j as `route_between_intersections` (bounded `shortestPath`, no GDS), so
+   the `Intersection`/`CONNECTS_TO` load stays; `graph_project_routing` /
+   `graph_drop_routing` and the plugin stay for `scripts.check_graph_connectivity` only.*
 5. **A shared package** `shared/routes/` (import name `vaivia_routes`) holds `assemble`,
    `loops`, `destinations`, `document` and `ids`, as an editable path dependency of both
    uv projects (`[tool.uv.sources]`). Its tests run in the pipeline CI job. `pipeline/draw`
@@ -218,7 +222,8 @@ favourites; gateway, SSE, Supabase quotas, the frontend cards.
 **Goes as product, stays as test corpus** — `catalogue.route` / `route_edge`, the Neo4j
 catalogue load, `search_loops` / `estimate_loops` / `loop_candidates` /
 `loop_poi_conjunction`, `LoopSearchIntent`, `catalogue_view`. `draw/generate.py` and the
-627 ids are the parity test's oracle, nothing else.
+627 ids are the parity test's oracle, nothing else — done in R7, the asks committed as
+`shared/routes/tests/fixtures/parity_asks.json`.
 
 **Superseded in the plan** — Phase 7 P7 job queue (on-demand is synchronous, there is
 nothing to queue); Phase 10's recipe registry, labels and F0/F3/F4 as *catalogue
@@ -248,7 +253,7 @@ GraphHopper (`docs/routing-engine.md`); Phase 9 D4 *publish-catalogue* → *publ
 | 4 | `feat/outing-planner` | 3 | `/chat` wiring, demo A–C, infeasibility counts + ladder, ordinals, assumptions strip + chips |
 | 5 | `feat/pack-drive-rail` | 1.5 | `curate/drive.py`, GTFS rail matrix, gazetteer, `trail_share_5km`, potential fields |
 | 6 | ~~`feat/multi-day`~~ | — | dropped (owner, 2026-09-12): single-day outings only |
-| 7 | `chore/retire-catalogue` | 1 | drop templates and loads, publish script → pack, GDS plugin off |
+| 7 | `chore/retire-catalogue` | 1 | drop templates and loads, publish script → pack; GDS plugin kept for `scripts.check_graph_connectivity` only (as shipped, PR #61) |
 
 Each slice is independently mergeable; the catalogue keeps serving until slice 7. Decision 6
 (heap, tx-log retention) lands with slice 1 — it needs nothing else.

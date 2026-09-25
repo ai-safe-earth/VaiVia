@@ -7,10 +7,10 @@ Lecco-shaped rectangle that holds 31,514 of the graph's 84,137 intersections onc
 Bergamo is ingested, and a projection built from it silently analyses 37% of the
 network while reporting as though it had seen all of it.
 
-`api/routes/routing.py` takes the first branch: a per-request box derived from
-the endpoints and the distance cap. Analysis scripts take the second, and that is
-what this module is — an explicit `--bbox` when the operator wants one, the whole
-ingested graph otherwise.
+Nothing on a serving path projects any more (R7). The one analysis script
+that does, `scripts.check_graph_connectivity`, takes the second branch, and that
+is what this module is — an explicit `--bbox` when the operator wants one, the
+whole ingested graph otherwise.
 
 Parsing is split from fetching so the parsing half is a pure function with a unit
 test, and the fetching half is the one line that needs a database.
@@ -82,7 +82,7 @@ def describe(bbox: Bbox, explicit: str | None = None) -> str:
     )
 
 
-#: argparse help, so the three scripts describe the option identically.
+#: argparse help for the one script left that projects (check_graph_connectivity).
 BBOX_HELP = (
     "'min_lat,min_lon,max_lat,max_lon' to project over; "
     "default is the whole ingested graph"
