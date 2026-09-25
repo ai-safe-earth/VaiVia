@@ -1,4 +1,4 @@
-"""Route favorites: saved catalogue routes, per user.
+"""Route favorites: saved routes, per user.
 
 Storage and endpoints together, because they are one small feature. The rows
 live in Supabase Postgres (infra/supabase/migrations/0003_favorites.sql) —
@@ -10,10 +10,10 @@ needs to; writes come only through here, as the owner, with the user id the
 gateway verified — so every statement carries ``user_id = $1`` the way
 chat/store.py does.
 
-The favorite keys on ``route_id`` alone. :Route nodes are wiped and recreated
-per export; the geometry-derived id is what persists (docs/route-document.md),
-and a favorite whose route left the catalogue is reported as ``missing`` by
-the list endpoint, never silently dropped.
+The favorite keys on ``route_id`` alone. A :Route is written only when a route
+is kept (chat/save_route.py); the geometry-derived id is what persists
+(docs/route-document.md), and a favorite whose :Route is gone is reported as
+``missing`` by the list endpoint, never silently dropped.
 
 Everything mounts under /routes, which the gateway already proxies —
 unfavorite is a POST with ``{"on": false}`` because the gateway forwards only
@@ -108,7 +108,7 @@ class FavoriteState(BaseModel):
 
 class FavoritesList(BaseModel):
     """Hydrated favorites, in saved order (newest first), plus the ids whose
-    route is no longer in the catalogue — shown, never silently dropped."""
+    route is no longer in the graph — shown, never silently dropped."""
 
     routes: list[dict[str, Any]]
     missing: list[str]
@@ -148,13 +148,13 @@ async def set_favorite(
 ) -> FavoriteState:
     """Idempotent toggle. Saving checks the route exists (an honest 404 beats
     a favorite that can never hydrate); unsaving does not — a route that left
-    the catalogue must still be removable from the list.
+    the graph must still be removable from the list.
 
     A DRAWN route exists only in the conversation until someone keeps it:
     favouriting one is the moment its document is written to the store and
     its (:Route) to Neo4j (docs/route-design.md, "Ask time" step 5) — after
     which it hydrates, serves geometry and takes feedback exactly as a
-    catalogue route does."""
+    any saved route does."""
     if body.on:
         rows = await db.run_named("route_exists", route_id=route_id)
         if not rows:

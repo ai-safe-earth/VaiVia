@@ -140,7 +140,7 @@ class TrailGeoJson(BaseModel):
 
 
 class GeoJsonLineString(BaseModel):
-    """A single ring. A catalogue route is one continuous line, unlike a trail,
+    """A single ring. A route is one continuous line, unlike a trail,
     which is a MultiLineString of the segments it is composed of."""
 
     type: Literal["LineString"] = "LineString"
@@ -148,7 +148,7 @@ class GeoJsonLineString(BaseModel):
 
 
 class RouteGeoJson(BaseModel):
-    """GeoJSON Feature — the map payload for one catalogue route."""
+    """GeoJSON Feature — the map payload for one saved route."""
 
     type: Literal["Feature"] = "Feature"
     geometry: GeoJsonLineString
@@ -194,5 +194,5 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     database: Literal["up", "down"]
     #: The loaded pack's run_id — the network outings are drawn over.
-    #: None when no pack is mounted (catalogue-only, dev).
+    #: None when no pack is mounted (dev only; outing asks are refused).
     pack: str | None = None
