@@ -7,6 +7,7 @@
   --vv-ground: #0D0F0E;
   --vv-panel: #1A1E1B;
   --vv-map: #12150F;
+  --vv-chat: #141816;
 
   /* Hairlines */
   --vv-line: #2A2E2B;
@@ -19,6 +20,14 @@
   /* Accents — lime = route/action/confirmed, flare = hazard/stale/missing */
   --vv-lime: #CCFF3B;
   --vv-flare: #FF6B3D;
+
+  /* Data encoding, not accent: the ground a route runs over, drawn as the
+     band under its altitude profile. Three hues validated on --vv-panel for
+     colour-vision separation (2026-09-25); untagged length is hatched in
+     --vv-muted, never a fourth hue. */
+  --vv-surface-paved: #3987E5;
+  --vv-surface-gravel: #C98500;
+  --vv-surface-ground: #199E70;
 
   /* Data encoding, not an accent: the map's moderate difficulty band
      (amendment 2026-08-27). Never a button, label or action colour. */

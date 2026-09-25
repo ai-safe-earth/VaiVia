@@ -7,7 +7,9 @@
  * MapLibre paint properties cannot take a CSS variable.
  *
  * Three rules the layout depends on: square corners everywhere, no box-shadow,
- * and separation by 1px hairline rather than by surface colour.
+ * and three surfaces only — the chrome (header, composer) on --vv-panel, the
+ * conversation on --vv-chat, the map on --vv-map — with 1px hairlines doing
+ * every other separation (amendment 2026-09-25, BRAND-SPEC §4).
  */
 
 * {
@@ -107,6 +109,7 @@ body {
 .app-header {
   flex: none;
   height: 54px;
+  background: var(--vv-panel);
   display: flex;
   align-items: center;
   gap: var(--vv-s2);
@@ -181,6 +184,7 @@ body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  background: var(--vv-chat);
 }
 
 .turn {
@@ -355,6 +359,7 @@ body {
 }
 
 .route-kind-row .route-kind {
+  display: inline;
   padding: 0;
 }
 
@@ -531,10 +536,6 @@ body {
   margin-top: var(--vv-s1);
 }
 
-.detail-profile .profile {
-  height: 56px;
-}
-
 .profile-caveat {
   margin: var(--vv-s2) 0 0;
   color: var(--vv-flare);
@@ -565,8 +566,9 @@ body {
 
 .route-line2 {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--vv-s3);
+  gap: var(--vv-s2) var(--vv-s3);
   margin: 0 0 var(--vv-s2);
   color: var(--vv-muted);
 }
@@ -579,6 +581,54 @@ body {
 /* The exigent warning wears the flare: a safety fact, not a mood. */
 .exigent {
   color: var(--vv-flare);
+  white-space: nowrap;
+}
+
+/* The two grades as marks: six squares filled to the rank, the code beside.
+   Squares, not dots — the brand has no circles. Hollow with a "?" is unknown,
+   which is not easy. */
+.grade {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vv-s1);
+  white-space: nowrap;
+}
+
+.grade-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.grade-dots i {
+  width: 5px;
+  height: 5px;
+  background: var(--vv-line);
+}
+
+.grade-dots i.on {
+  background: var(--vv-text);
+}
+
+.grade-code {
+  color: var(--vv-text);
+}
+
+/* The kind row's right-hand marks: the train icon when the start is a
+   station or a bus stop, then the bookmark. */
+.route-marks {
+  display: flex;
+  align-items: center;
+  gap: var(--vv-s2);
+}
+
+.route-marks .train {
+  display: inline-flex;
+  color: var(--vv-muted);
+}
+
+.route-origin {
+  margin-left: var(--vv-s2);
+  color: var(--vv-muted);
 }
 
 .detail-block {
@@ -586,7 +636,7 @@ body {
 }
 
 /* A card whose map line could not be fetched says so on the card. Flare for
-   the retryable failure, muted for the settled "left the catalogue". */
+   the retryable failure, muted for the settled "no longer saved". */
 .line-note {
   margin: 0 0 var(--vv-s2);
   color: var(--vv-muted);
@@ -814,6 +864,7 @@ body {
 .composer {
   flex: none;
   display: flex;
+  background: var(--vv-panel);
   /* The map layer stops above the composer by this height — it is a
      measurement, so pin it rather than leaving it to the Ask button's
      padding. */
@@ -892,24 +943,6 @@ body {
   cursor: not-allowed;
 }
 
-/* ── Data credit ──────────────────────────────────────────────────────────
-   ODbL attribution for the OSM data behind every answer. Always on screen and
-   never behind a toggle: flex:none keeps it as the conversation grows. */
-
-.data-credit {
-  flex: none;
-  padding: var(--vv-s2) var(--vv-s7);
-  border-top: 1px solid var(--vv-line);
-}
-
-.data-credit a {
-  color: var(--vv-muted);
-}
-
-.data-credit a:hover {
-  color: var(--vv-text);
-}
-
 /* ── Map layer ───────────────────────────────────────────────────────────
    The map over the conversation, stopping above the composer so a question can
    be asked without putting it away. Closed it is translated out and made
@@ -954,29 +987,6 @@ body {
   min-height: 0;
 }
 
-/* The way back, said in words. Top-LEFT: the nav control owns top-right, and
-   the label is the point — the header icon was the only exit and nobody read
-   a zigzag as "back". Solid ground under it, because it sits over tiles. */
-.map-back {
-  position: absolute;
-  top: var(--vv-s3);
-  left: var(--vv-s3);
-  z-index: 2;
-  padding: var(--vv-s3) var(--vv-s5);
-  border: 1px solid var(--vv-line);
-  background: var(--vv-ground);
-  color: var(--vv-text);
-  font: 400 9.5px/1 var(--vv-sans);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.map-back:hover {
-  border-color: var(--vv-lime);
-  color: var(--vv-lime);
-}
-
 /* The picked route's card, under the canvas and under the map's own
    attribution row — never over either. Fixed share of the layer and scrolls:
    a card that grew with its detail would push the map to a sliver. */
@@ -989,23 +999,102 @@ body {
   background: var(--vv-ground);
 }
 
+/* The route profile: an SVG that fills the card's width, the curve in lime
+   over a faint fill, the ground it runs over as a band beneath it — data
+   encoding, not accent (tokens.css). The hover line names the metre. */
 .profile {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 46px;
+  position: relative;
+  padding-top: var(--vv-s5);
 }
 
-.profile i {
-  flex: 1;
-  background: var(--vv-lime);
+.profile svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
 }
 
-.profile-labels {
+.profile .curve {
+  fill: none;
+  stroke: var(--vv-lime);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile .area {
+  fill: var(--vv-lime);
+  opacity: 0.12;
+}
+
+.profile .hatch {
+  fill: var(--vv-muted);
+}
+
+.profile .hover line {
+  stroke: var(--vv-text);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile .hover circle {
+  fill: var(--vv-ground);
+  stroke: var(--vv-text);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  padding: 2px var(--vv-s2);
+  border: 1px solid var(--vv-line);
+  background: var(--vv-ground);
+  color: var(--vv-text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.profile-legend {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--vv-s4);
-  margin-top: var(--vv-s2);
+  margin: var(--vv-s2) 0 var(--vv-s3);
+  color: var(--vv-muted);
+}
+
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vv-s1);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+}
+
+.surface-paved {
+  fill: var(--vv-surface-paved);
+  background: var(--vv-surface-paved);
+}
+
+.surface-gravel {
+  fill: var(--vv-surface-gravel);
+  background: var(--vv-surface-gravel);
+}
+
+.surface-ground {
+  fill: var(--vv-surface-ground);
+  background: var(--vv-surface-ground);
+}
+
+.swatch.surface-untagged {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--vv-muted) 0 2px,
+    transparent 2px 4px
+  );
 }
 
 /* A ground block with a hairline, not bare text: the basemap underneath is

@@ -176,9 +176,10 @@ Now:
 - `frontend/components/MapView.tsx` credits map data *and* trails, links to
   `openstreetmap.org/copyright` and to the ODbL text, and the control renders
   expanded (`compact: false`) rather than behind the ⓘ toggle.
-- `frontend/app/page.tsx` carries a persistent `.data-credit` footer in the chat
-  column. This matters because OSM-derived facts reach the user through the
-  written answers too — a user who never opens the map still sees the credit.
+- Every route card's Sources disclosure names OpenStreetMap and the ODbL. The
+  persistent `.data-credit` footer that used to sit under the chat column was
+  removed on 2026-09-25 (owner decision): OSM-derived facts still reach the user
+  through the written answers, so the credit stays one tap away on every card.
 
 Still open: nothing here covers Trailforks, which requires its own attribution
 the moment any of their data lands.

@@ -338,14 +338,6 @@ export default function Home() {
           <div className="map-canvas">
             <MapView geometry={geometry} />
             {emptyNote && <p className="map-empty vv-body-sm">{emptyNote}</p>}
-            {/* The way back, in words, on the layer being dismissed (owner
-                decision 2026-09-08, overturning "one affordance, one place"):
-                the header's zigzag is where the map is OPENED, and it was not
-                where anyone looked for the way out. Escape and Back still
-                work; this is the one you can see. */}
-            <button type="button" className="map-back" onClick={closeMap}>
-              Back to list
-            </button>
           </div>
           {picked && (
             <section className="route-panel" aria-label="Picked route">
@@ -355,9 +347,10 @@ export default function Home() {
                   loop={picked}
                   selected
                   // Open on arrival: the tap that raised this panel was the
-                  // ask for the route's numbers, so making them a second tap
-                  // away would be asking twice.
-                  defaultOpen
+                  // ask for the route's profile. "Less" on it lowers the
+                  // layer again.
+                  expanded
+                  onClose={closeMap}
                   detail={routeDetail}
                   favorited={favoriteIds.has(picked.id)}
                   onToggleFavorite={user ? toggleFavorite : undefined}
@@ -371,28 +364,6 @@ export default function Home() {
           )}
         </div>
       </div>
-
-      {/* Trail geometry, paths and POIs in every answer are OSM-derived, so the
-          credit is a row of the app itself — visible with the map up and with
-          the map down, never behind a toggle (BRAND-SPEC §12). */}
-      <footer className="data-credit vv-body-sm">
-        <a
-          href="https://www.openstreetmap.org/copyright"
-          target="_blank"
-          rel="noreferrer"
-        >
-          © OpenStreetMap
-        </a>{' '}
-        contributors ·{' '}
-        <a
-          href="https://opendatacommons.org/licenses/odbl/"
-          target="_blank"
-          rel="noreferrer"
-        >
-          ODbL
-        </a>{' '}
-        — check conditions locally.
-      </footer>
     </main>
   );
 }
