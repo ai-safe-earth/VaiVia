@@ -55,11 +55,19 @@ async def test_an_outing_is_drawn_not_searched(db, planner):
     assert card["id"].startswith("vv2-")
     assert card["ordinal"] == 1
     assert card["geometry"]["type"] == "LineString"
+    # The card carries its own profile and surface spans: /routes/{id}/detail
+    # answers 404 until the route is kept, so the map panel reads from here.
+    profile = card["profile"]
+    assert len(profile["distance_m"]) == len(profile["elevation_m"]) >= 2
+    spans = card["spans"]
+    assert spans and abs(spans[-1]["to_m"] - card["distance_m"]) < 1.0
+    assert all(spans[i]["to_m"] < spans[i + 1]["to_m"] for i in range(len(spans) - 1))
     assert results["assumptions"]
     assert "counts" in results
-    # the answer model saw facts, never geometry
+    # the answer model saw facts, never geometry, profile or spans
     _message, results_json = llm.answer_calls[0]
-    assert "geometry" not in json.loads(results_json)["loops"][0]
+    seen = json.loads(results_json)["loops"][0]
+    assert not {"geometry", "profile", "spans"} & seen.keys()
 
 
 async def test_a_chip_redraws_with_no_model_call(db, planner):
