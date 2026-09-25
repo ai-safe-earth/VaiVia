@@ -58,11 +58,6 @@ logger = logging.getLogger(__name__)
 ANSWER_RESULT_LIMIT = 5
 CARD_RESULT_LIMIT = 20
 
-# Our 1-4 difficulty onto the OSM scales GraphHopper decodes. sac_scale: 1
-# hiking, 2 mountain_hiking, 3 demanding_mountain_hiking, 4+ alpine. mtb:scale
-# is coarser at the easy end, so level 1 still admits a 1.
-HIKE_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 3, 4: 6}
-MTB_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 4, 4: 6}
 # The vector index scores this many candidates before the structured filters
 # cut them down, so a filtered semantic search still has enough to choose from.
 SEMANTIC_CANDIDATE_POOL = 25
@@ -114,6 +109,10 @@ def _strong_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [r for r in rows if r.get("score") is None or r["score"] >= floor]
 
 
+#: What a drawn card carries for the map and the profile, never for prose.
+BULK_CARD_KEYS = frozenset({"geometry", "profile", "spans"})
+
+
 def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
     """The results as the ANSWER model sees them: card lists cut to a prefix.
 
@@ -124,11 +123,12 @@ def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
     view = dict(results)
     for key in ("loops", "trails"):
         if isinstance(view.get(key), list):
-            # Geometry never reaches the answer model (docs/route-design.md:
-            # it receives facts, the assumptions strip and the counts) — a
-            # coordinate list is thousands of tokens the prose cannot use.
+            # Geometry, the profile and the spans never reach the answer
+            # model (docs/route-design.md: it receives facts, the assumptions
+            # strip and the counts) — a coordinate list is thousands of
+            # tokens the prose cannot use.
             view[key] = [
-                {k: v for k, v in row.items() if k != "geometry"}
+                {k: v for k, v in row.items() if k not in BULK_CARD_KEYS}
                 for row in view[key][:ANSWER_RESULT_LIMIT]
             ]
     return view

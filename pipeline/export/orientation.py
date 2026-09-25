@@ -3,7 +3,7 @@
 Edges store their attributes along their own stored geometry (source →
 target); a route that walks an edge backwards swaps ascent and descent and
 reverses the profile — the inversion metadata-rules.md specifies and
-`draw/assemble.py` already applies to generated routes, because the generator
+`vaivia_routes/assemble.py` already applies to drawn routes, because the planner
 KNOWS its walk. A mapped OSM relation records membership, not orientation
 (`source_map.edge_route` has no direction column), so for mapped routes the
 walk has to be INFERRED from geometry — which is what this module does, from

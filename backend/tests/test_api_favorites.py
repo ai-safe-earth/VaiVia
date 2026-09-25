@@ -55,12 +55,12 @@ def test_toggle_is_idempotent_and_the_list_hydrates(client, db):
 
 
 def test_unfavoriting_works_even_when_the_route_is_gone(client, db):
-    """A route that left the catalogue must still be removable — the 404
+    """A route whose saved :Route is gone must still be removable — the 404
     check guards saving, never unsaving."""
     db.when("route_exists", [{"id": ROUTE_ID}])
     client.post(f"/routes/{ROUTE_ID}/favorite", json={"on": True}, headers=USER)
 
-    db.when("route_exists", [])  # the catalogue moved on
+    db.when("route_exists", [])  # the saved node is gone
     response = client.post(
         f"/routes/{ROUTE_ID}/favorite", json={"on": False}, headers=USER
     )
@@ -74,8 +74,8 @@ def test_unfavoriting_works_even_when_the_route_is_gone(client, db):
 
 
 def test_a_vanished_favorite_is_reported_missing_not_dropped(client, db):
-    """:Route nodes are replaced wholesale per export; a favorite whose id no
-    longer hydrates is named in `missing` so the client can say so."""
+    """A saved :Route can vanish (graph rebuilt, node quarantined); a favorite
+    whose id no longer hydrates is named in `missing` so the client can say so."""
     db.when("route_exists", [{"id": ROUTE_ID}])
     client.post(f"/routes/{ROUTE_ID}/favorite", json={"on": True}, headers=USER)
     client.post("/routes/gone-route/favorite", json={"on": True}, headers=USER)
@@ -132,7 +132,7 @@ def test_favoriting_a_drawn_route_writes_document_and_node(
     document = _drawn_document()
     rid = document["id"]
     client.app.state.outing_docs = {"c1": [document]}
-    db.when("route_exists", [])  # not in the catalogue: it was drawn
+    db.when("route_exists", [])  # no saved node yet: it was drawn this turn
 
     response = client.post(
         f"/routes/{rid}/favorite", json={"on": True}, headers={"X-User-Id": "u1"}

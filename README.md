@@ -2,7 +2,7 @@
 
 **Ask for a trail in plain language; get an answer grounded in a real graph of the mountains.**
 
-> *"Find a 2-day mountain bike route near Lake Como with a place to sleep."*
+> *"A mountain bike loop near Lake Como, about three hours, with a hut to eat at."*
 > *"Easy trail for kids that passes a swimming spot."*
 > *"Something scenic and shaded in Bergamo, under 15 km, no exposed sections in spring."*
 
@@ -41,7 +41,7 @@ separation is what lets one query reason over both:
 |---|---|
 | Simple (1–2 hops) | *"Show me all MTB trails near Lecco"* |
 | Compound (2–3 hops) | *"Easy trail for kids that passes a swimming spot"* |
-| Complex (4+ hops) | *"2-day loop with a mountain hut at the halfway point"* |
+| Complex (4+ hops) | *"A loop with a mountain hut at the halfway point"* |
 
 Coverage today: **Lecco** and **Bergamo**, ingested from live Overpass —
 ~41,700 segments, ~83,300 routing edges.
@@ -217,10 +217,10 @@ unordered `sum(s.length)` gives the wrong answer.
 (:Intersection)-[:CONNECTS_TO {distance, elevation_change, osm_way_id, surface, highway_type}]->(:Intersection)
 ```
 
-Segments carry edge data but are **not** routing vertices. Real routing uses GDS
-Dijkstra over an Intersection/`CONNECTS_TO` projection, with `shortestPath` as a
-fallback when GDS is absent. Traversals are always bounded and spatially
-pre-filtered.
+Segments carry edge data but are **not** routing vertices. Route drawing left the
+graph (`docs/route-design.md`): outings are drawn at ask time over the exported pack,
+and the only A-to-B left in Neo4j is `/chat`'s bounded `shortestPath` over
+`CONNECTS_TO`, no GDS. Traversals are always bounded and spatially pre-filtered.
 
 ### Graph model at a glance
 

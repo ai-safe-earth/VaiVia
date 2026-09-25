@@ -158,7 +158,6 @@ export function FavoritesView({
               onPick?.(picked);
               void select(picked);
             }}
-            onExpand={(picked) => void select(picked)}
             line={lineStatus[loop.id]}
             detail={routeDetails.details[loop.id]}
             favorited={favorites.has(loop.id)}
@@ -172,8 +171,7 @@ export function FavoritesView({
               {list.missing.length === 1
                 ? 'One saved route is'
                 : `${list.missing.length} saved routes are`}{' '}
-              no longer in the catalogue — kept here in case a rebuild brings
-              {list.missing.length === 1 ? ' it' : ' them'} back.
+              no longer available — kept here so nothing disappears silently.
             </p>
           </div>
         )}

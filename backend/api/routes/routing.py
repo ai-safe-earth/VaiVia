@@ -37,7 +37,7 @@ SUPPORTED_SCHEMA_VERSIONS = {"2.0", "2.1"}
 
 
 def _verify_document(document: dict, route_id: str, row: dict) -> None:
-    """The contract checks between the catalogue row and the file it names.
+    """The contract checks between the (:Route) row and the file it names.
 
     The filename used to be the whole contract: the API opened
     `{route_id}.json` and trusted every field in it, so a stale, renamed or
@@ -50,8 +50,7 @@ def _verify_document(document: dict, route_id: str, row: dict) -> None:
         raise HTTPException(
             status_code=503,
             detail=f"document_mismatch: the file for {route_id!r} carries id "
-            f"{document_id!r} — the store and the catalogue disagree; "
-            "re-emit the documents and reload the catalogue",
+            f"{document_id!r} — the store and the graph disagree",
         )
     version = document.get("schema_version")
     if version not in SUPPORTED_SCHEMA_VERSIONS:
@@ -62,16 +61,15 @@ def _verify_document(document: dict, route_id: str, row: dict) -> None:
             f"{sorted(SUPPORTED_SCHEMA_VERSIONS)}",
         )
     document_run = document.get("provenance", {}).get("run_id")
-    catalogue_run = row.get("doc_run_id")
-    # Null means the graph predates the field (loaded before the loader
-    # stamped it): nothing to compare, so nothing to refuse. The audit
-    # script reports that state; a reload closes it.
-    if catalogue_run is not None and document_run != catalogue_run:
+    node_run = row.get("doc_run_id")
+    # Null means the node predates the field: nothing to compare, so nothing
+    # to refuse.
+    if node_run is not None and document_run != node_run:
         raise HTTPException(
             status_code=503,
-            detail=f"build_mismatch: route {route_id!r} was catalogued from "
-            f"export {catalogue_run!r} but the document on disk is from "
-            f"{document_run!r}; re-emit and reload together",
+            detail=f"build_mismatch: route {route_id!r} was saved from build "
+            f"{node_run!r} but the document on disk is from "
+            f"{document_run!r}; the pair was not written together",
         )
 
 
@@ -79,10 +77,10 @@ async def _load_route_document(route_id: str, db: DbDep) -> dict:
     """The 404/503 ladder every document-backed endpoint shares.
 
     The graph answers only "does this route exist", so an unknown id 404s
-    before the filesystem is touched; a catalogue route whose document store
+    before the filesystem is touched; a saved route whose document store
     is missing or unconfigured is a 503, never an empty answer — the
     semantic-search degradation rule. What it finds is then VERIFIED against
-    the catalogue row before anything is served (_verify_document).
+    the (:Route) row before anything is served (_verify_document).
     """
     rows = await db.run_named("route_exists", route_id=route_id)
     if not rows:
@@ -101,8 +99,8 @@ async def _load_route_document(route_id: str, db: DbDep) -> dict:
     except OSError:
         raise HTTPException(
             status_code=503,
-            detail=f"route {route_id!r} is in the catalogue but its document is "
-            "missing from the store — re-emit the documents",
+            detail=f"route {route_id!r} is in the graph but its document is "
+            "missing from the store — check ROUTE_DOCUMENTS_DIR",
         ) from None
     document = _read_document(str(document_path), stat.st_mtime_ns, stat.st_size)
     _verify_document(document, route_id, rows[0])
@@ -112,7 +110,7 @@ async def _load_route_document(route_id: str, db: DbDep) -> dict:
 #: How many parsed route documents to hold. Selecting one card asks for its
 #: geometry AND its detail, which was the same file read and json.loads'd
 #: twice; a fold of cards multiplies that by ten. Documents are static between
-#: exports, so the parse is worth keeping.
+#: writes, so the parse is worth keeping.
 DOCUMENT_CACHE_SIZE = 32
 
 
@@ -120,7 +118,7 @@ DOCUMENT_CACHE_SIZE = 32
 def _read_document(path: str, mtime_ns: int, size: int) -> dict:
     """One parsed route document. Callers READ it; nobody may mutate it.
 
-    Keyed by mtime and size as well as path, so a re-export invalidates the
+    Keyed by mtime and size as well as path, so a rewrite invalidates the
     entry by not matching it rather than by anyone remembering to clear a
     cache — route ids are geometry-derived and survive a rebuild, which is
     exactly why the path alone would not be enough.
@@ -142,13 +140,13 @@ def _attribution(document: dict) -> str:
 
 @router.get("/routes/by-ids")
 async def routes_by_ids(ids: str, db: DbDep) -> dict:
-    """Hydrate catalogue route ids back into cards, in the order given.
+    """Hydrate route ids back into cards, in the order given.
 
     The resume path: the client stores only ids per conversation turn
     (messages.result_refs) and asks for the cards again here. Same contract
-    as /routes/favorites — routes_by_ids shares search_loops' RETURN, so the
-    client renders the cards it renders for a live answer; an id whose route
-    left the catalogue comes back in `missing`, never silently dropped.
+    as /routes/favorites — routes_by_ids ends in the route_card fragment, so
+    the client renders the cards it renders for a live answer; an id with no
+    saved :Route comes back in `missing`, never silently dropped.
     The literal path registers before the /routes/{route_id} patterns.
     """
     wanted = [part.strip() for part in ids.split(",") if part.strip()][:100]
@@ -162,10 +160,10 @@ async def routes_by_ids(ids: str, db: DbDep) -> dict:
 
 @router.get("/routes/{route_id}/geojson", response_model=RouteGeoJson)
 async def get_route_geojson(route_id: str, db: DbDep) -> RouteGeoJson:
-    """Map payload for one catalogue route, read from its ROUTE DOCUMENT.
+    """Map payload for one saved route, read from its ROUTE DOCUMENT.
 
     The graph deliberately carries no geometry (a second home for it is how
-    two truths start — pipeline/export/catalogue.cypher); the document is
+    two truths start — graph/save_route.cypher carries none); the document is
     canonical and this endpoint is the API serving it.
     """
     document = await _load_route_document(route_id, db)

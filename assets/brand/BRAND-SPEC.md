@@ -27,7 +27,9 @@ Two consequences that drive every decision below:
 ## 2. Colour
 
     --vv-ground   #0D0F0E   page background, pin cores, text on lime
-    --vv-panel    #1A1E1B   inset panels, quoted user message, hairline steps
+    --vv-panel    #1A1E1B   inset panels, quoted user message, hairline steps,
+                            the chrome (header, composer) since 2026-09-25
+    --vv-chat     #141816   the conversation surface (amendment 2026-09-25)
     --vv-line     #2A2E2B   structural hairlines (1px)
     --vv-line-2   #1A1E1B   internal/secondary hairlines (1px)
     --vv-text     #F2F3F0   all primary text and default icon strokes
@@ -98,7 +100,7 @@ Scale — use these exact values:
 - Spacing scale: 6, 9, 12, 14, 16, 18, 20, 22, 26, 34, 46px. Pick from it.
 - Panel padding: 16px 18px on mobile, 16px 20px on web.
 - ONE column at every width (amendment 2026-08-28, replacing "chat panel 400px
-  on desktop, map takes the rest"): header, stage, credit, capped at 720px and
+  on desktop, map takes the rest"): header and stage, capped at 720px and
   centred with a hairline on each side. The conversation is the base layer of
   the stage; the composer is the app's bottom edge and never leaves it; the map
   is a layer that slides up over the conversation when a route is tapped and
@@ -107,6 +109,10 @@ Scale — use these exact values:
   in all but name.
 - Borders: 1px solid var(--vv-line) between structural blocks;
   1px solid var(--vv-line-2) between rows inside a block.
+- Surfaces (amendment 2026-09-25, replacing "separation by hairline, never by
+  surface colour"): three tones tell the chrome, the conversation and the map
+  apart — header and composer on --vv-panel, the transcript on --vv-chat, the
+  map layer on --vv-map. Inside a surface, hairlines still do every separation.
 - border-radius: 0 everywhere. Exceptions: app icon (platform mask) and the
   mic button (circle) — nothing else.
 - No box-shadow anywhere.
@@ -196,8 +202,14 @@ unavailable are --vv-muted. (Not built: the strip was removed 2026-08-27 and
 returns on the map layer's top edge when the API can feed the layers.)
 
 Attribution is the last row of the map, Body-small in --vv-muted, above a
-hairline — and the app's own ODbL credit is the last row of the shell, on
-screen with the map up and with the map down.
+hairline. The shell's own credit row was removed 2026-09-25 (owner decision):
+with the map down, the credit lives in every route card's Sources disclosure.
+
+The route profile (2026-09-25) is an SVG in the panel card: the curve in lime
+over a faint lime fill, and beneath it a band coloured by the ground the route
+runs over — --vv-surface-paved / -gravel / -ground, validated for colour-vision
+separation on --vv-panel, untagged length hatched in --vv-muted. Data encoding,
+never accent: none of the three is ever a button, label or action colour.
 
 Below the map's attribution, the picked route's card: the SAME card as the
 transcript's, opened on arrival, at most 45% of the layer and scrolling. The
@@ -282,8 +294,10 @@ that blames the user for a coverage gap.
 
 ## 9. Attribution and legal
 
-- OpenStreetMap ODbL attribution must be visible on every view that renders
-  map data or derived geometry. Do not move it into a modal or an about page.
+- OpenStreetMap ODbL attribution must be visible wherever map data renders (the
+  map's own attribution row) and reachable from every route card (its Sources
+  disclosure). Do not move it into a modal or an about page. Amended 2026-09-25:
+  the always-on shell credit row is gone (owner decision).
 - Trailforks attribution currently reads "terms pending". Keep that wording
   until commercial terms for consumer use are confirmed. Do not remove the
   Trailforks credit and do not upgrade the wording without being told.
@@ -302,7 +316,8 @@ that blames the user for a coverage gap.
       disclosure always.
 - [ ] Sources shows OSM way IDs, Trailforks ID, MAPS_TO distance, and the
       never-merged wording.
-- [ ] ODbL attribution visible wherever map data renders.
+- [ ] ODbL attribution visible wherever map data renders, and in every route
+      card's Sources.
 - [ ] All corners square except app icon and mic button; no shadows.
 - [ ] Only two font families; labels 9.5px +0.11em uppercase; data in mono.
 - [ ] No text sits on a lime or flare fill except ground-coloured button and

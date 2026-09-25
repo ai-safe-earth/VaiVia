@@ -1,15 +1,8 @@
-"""Route generation: draw bounded loop candidates over the curated network.
+"""What is left of the catalogue generator: divergence.py.
 
-The design docs/route-pipeline.md ratified — anchor × distance × seed →
-generate, score, keep the best few — built where the data now lives, over
-source_map.edge with pgRouting. The provider spike settled the engine question
-(pipeline/docs/provider-comparison.md): routing over our own edges makes every
-route an edge SEQUENCE, so difficulty, the MTB conjunction and ascent are read
-along it natively, with no corridor match.
-
-Layout:
-    route_id.py   the geometry-derived stable id (docs/social-layer.md imposes it)
-    assemble.py   pure: an edge sequence -> measures, difficulty, MTB, warnings
-    loops.py      pure: via-point rings, dedupe, scoring
-    generate.py   the CLI: pgr_dijkstra legs, candidates, catalogue.route
+Drawing moved to the shared package (vaivia_routes: draw, assemble, loops,
+destinations, ids) in R2, and the pgRouting CLI went with the catalogue in R7
+(docs/route-design.md). `divergence` measures where sibling routes from one
+terminal part ways (start/end contract §6) and is read by the route document
+emitter.
 """

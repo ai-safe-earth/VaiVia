@@ -159,7 +159,7 @@ def test_the_start_becomes_a_node_and_a_link():
 
 def test_a_document_without_a_start_loads_without_one():
     # A route can have terminals none of which is a network vertex we know —
-    # the loader then anchors on nothing rather than inventing a start.
+    # the row mapping then anchors on nothing rather than inventing a start.
     rows = sample(terminals=[])
 
     assert rows["start"] is None
@@ -210,7 +210,7 @@ def test_an_osm_document_maps_with_its_measured_shape():
 
 
 def test_a_legacy_document_without_shape_falls_back():
-    """Schema 1.1 documents carry no top-level shape. The loader serves them
+    """Schema 1.1 documents carry no top-level shape. The row mapping serves them
     with the old chain -- generation shape for generated, 'named' for OSM --
     so a store that predates the bump still loads rather than lying."""
     from export.document import build_document
@@ -265,8 +265,8 @@ def test_the_emitter_reads_ONE_publication_rule():
 def test_the_withdrawal_takes_only_what_its_manifest_lists(tmp_path):
     """Both emitters write vv2-*.json since the id cutover.
 
-    A glob would have taken the generated catalogue with it — the whole
-    product — which is why ownership lives in a manifest.
+    A glob would have taken another writer's documents with it (the backend's
+    saved routes share the pattern), which is why ownership lives in a manifest.
     """
     mine = tmp_path / "vv2-1111111111111111.json"
     mine.write_text("{}", encoding="utf-8")
@@ -285,7 +285,7 @@ def test_the_withdrawal_takes_only_what_its_manifest_lists(tmp_path):
     assert not mine.exists()
     assert not legacy.exists()
     assert not (tmp_path / "routes.geojson").exists()
-    assert theirs.exists(), "the generated catalogue is not this emitter's to delete"
+    assert theirs.exists(), "another writer's document is not this emitter's to delete"
 
 
 def test_withdrawing_twice_removes_nothing_the_second_time(tmp_path):

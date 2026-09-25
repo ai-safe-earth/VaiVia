@@ -147,7 +147,7 @@ test.describe('VaiVia smoke', () => {
     // tapped, opened on arrival — the tap WAS the ask for its numbers.
     const panelCard = page.locator('.route-panel .route-card');
     await expect(panelCard).toHaveAttribute('data-route-id', clickedId!);
-    await expect(panelCard.locator('.route-detail .profile i').first()).toBeVisible({
+    await expect(panelCard.locator('.route-detail .profile svg')).toBeVisible({
       timeout: 10_000,
     });
 
@@ -159,16 +159,13 @@ test.describe('VaiVia smoke', () => {
     ]);
     expect(canvasWidth).toBe(boxWidth);
 
-    // ODbL is on screen in BOTH states, never behind a toggle (BRAND-SPEC
-    // §12): the app's own credit row, and the map's attribution while the map
-    // is up.
+    // ODbL is on screen with the map up: the map's own attribution row (the
+    // shell's credit row went 2026-09-25; every card's Sources carries it).
     await expect(page.locator('.maplibregl-ctrl-attrib')).toBeVisible();
-    await expect(page.locator('.data-credit')).toBeVisible();
 
-    // The way back a finger can find: a labelled button on the layer itself
-    // (owner decision 2026-09-08 — Escape and Back were the only exits and
-    // neither is discoverable on a phone).
-    await page.locator('.map-back').click();
+    // The way back a finger can find: "Less" on the panel card lowers the
+    // layer (owner decision 2026-09-25, replacing "Back to list").
+    await page.locator('.route-panel .detail-toggle').click();
     await expect(layer).toBeHidden();
     await card.click();
     await expect(layer).toBeVisible();
@@ -178,7 +175,6 @@ test.describe('VaiVia smoke', () => {
     // which is what makes Android's back gesture do the obvious thing.
     await page.keyboard.press('Escape');
     await expect(layer).toBeHidden();
-    await expect(page.locator('.data-credit')).toBeVisible();
     await expect(card).toHaveAttribute('aria-pressed', 'true');
     await card.click();
     await expect(layer).toBeVisible();
@@ -198,14 +194,15 @@ test.describe('VaiVia smoke', () => {
     const kind = await card.locator('.route-kind').innerText();
     expect(['LOOP', 'OUT & BACK', 'LINEAR']).toContain(kind.toUpperCase());
 
-    // The transcript's own card still expands in place — "See more" draws the
-    // line but leaves the reader where they are, and never raises the map.
+    // "+ info" on the transcript's card is the body tap by another name: it
+    // raises the map with the profile in the panel, and "Less" lowers it.
     await card.locator('.detail-toggle').click();
-    await expect(layer).toBeHidden();
-    await expect(card.locator('.route-detail')).toBeVisible();
-    await expect(card.locator('.route-detail .profile i').first()).toBeVisible({
+    await expect(layer).toBeVisible();
+    await expect(panelCard.locator('.route-detail .profile svg')).toBeVisible({
       timeout: 10_000,
     });
+    await page.locator('.route-panel .detail-toggle').click();
+    await expect(layer).toBeHidden();
 
     // When the search found more than the prose narrates, the fold offers
     // the rest five at a time. Not every ask overflows, so this is

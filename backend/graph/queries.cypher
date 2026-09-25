@@ -134,8 +134,7 @@ LIMIT $limit
 
 // name: route_between_intersections
 // Bounded shortest path on the Intersection routing graph. Semantic edges never
-// appear in the path expression. Bounded, and the only A-to-B walk left (R7)
-// (needs a live GDS instance to verify — see docs/plan.md Phase 2).
+// appear in the path expression. Bounded, and the only A-to-B walk left (R7).
 MATCH (src:Intersection {osm_node_id: $start_node}),
       (dst:Intersection {osm_node_id: $end_node})
 MATCH path = shortestPath((src)-[:CONNECTS_TO*..100]-(dst))
@@ -251,8 +250,8 @@ ORDER BY score DESC
 LIMIT $limit
 
 // name: graph_project_routing
-// Bounded projection: only intersections inside the query bbox are projected,
-// so Dijkstra never sees the whole country.
+// Bounded projection for scripts.check_graph_connectivity: only intersections
+// inside the box are projected, so the check never sees the whole country.
 MATCH (source:Intersection)-[r:CONNECTS_TO]->(target:Intersection)
 WHERE source.location.latitude >= $min_lat
   AND source.location.latitude <= $max_lat
@@ -276,13 +275,13 @@ CALL gds.graph.drop($graph_name, false) YIELD graphName
 RETURN graphName
 
 // fragment: route_card
-// The row a card is drawn from, shared by the search answer and the
-// favorites list so the two cannot show different routes differently.
+// The row a favourites card is drawn from (routes_by_ids is its only reader
+// since R7; a drawn card comes from the document instead).
 // It was copied rather than shared once, and had already drifted: the
 // copy grew a stray relationship variable, and a column would have gone
 // missing next. Expects r and s in scope (s may be null) and ends at the
 // RETURN, so each reader adds only its own ORDER BY / LIMIT.
-// The display POI list, capped -- any conjunction filter has already run.
+// The display POI list, capped.
 CALL (r) {
   MATCH (r)-[:PASSES]->(p:Place)
   WITH DISTINCT p
@@ -301,7 +300,7 @@ RETURN r.route_id AS id,
        r.destination_name AS destination_name,
        r.distance_m AS distance_m,
        r.ascent_m AS ascent_m,
-       // The expanded card's figures. Already on the node (the export copies
+       // The expanded card's figures. Already on the node (the save path copies
        // the document's measures), so returning them costs nothing.
        r.descent_m AS descent_m,
        r.lowest_m AS lowest_m,
@@ -331,7 +330,7 @@ RETURN r.route_id AS id,
 // The geometry itself lives in the route DOCUMENT (docs/route-document.md),
 // served from the documents store by the API -- never copied into the graph,
 // where a second home for it is how two truths start. This template only
-// answers "is this a catalogue route", so the endpoint can 404 honestly
+// answers "is this a saved route", so the endpoint can 404 honestly
 // before touching the filesystem.
 //
 // warnings = 0 quarantines a bad route here too: a quarantined
@@ -341,9 +340,10 @@ RETURN r.route_id AS id,
 MATCH (r:Route {route_id: $route_id})
 WHERE r.warnings = 0
 RETURN r.route_id AS id,
-       // Which export's document this node was loaded from, so the API can
-       // refuse a file from another build instead of serving it silently.
-       // Null on a graph loaded before the field existed; the check skips.
+       // Which build's document this node was saved from (provenance.run_id,
+       // stamped by vaivia_routes.neo4j_rows), so the API can refuse a file from
+       // another build instead of serving it silently. Null on a node saved
+       // before the field existed; the check skips.
        r.doc_run_id AS doc_run_id
 
 // name: healthcheck
@@ -364,15 +364,13 @@ RETURN trails, segments, intersections, pois, connects_to,
 // name: routes_by_ids
 // Hydrate favorite routes through the shared card fragment -- literally
 // the same: both end in the route_card fragment, so a favorites card and a
-// search card cannot come to differ. No ORDER BY:
+// resumed card cannot come to differ. No ORDER BY:
 // the caller re-sorts to the favorites' own saved order (Postgres created_at),
-// which the graph does not know. An id no longer in the catalogue simply
-// yields no row — the API reports it as missing rather than dropping it
-// silently, because :Route nodes are replaced wholesale per export and only
-// the geometry-derived id persists.
-// A quarantined route yields no row here either, so a
-// favorite that grew warnings on a later export reads as missing rather than
-// rendering as a card search would never show.
+// which the graph does not know. An id with no saved :Route simply yields no
+// row — the API reports it as missing rather than dropping it silently,
+// because only the geometry-derived id persists.
+// A quarantined route (warnings > 0) yields no row here either, so it reads
+// as missing rather than rendering as a card the planner would never show.
 MATCH (r:Route)
 WHERE r.route_id IN $route_ids AND r.warnings = 0
 OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
@@ -387,8 +385,8 @@ OPTIONAL MATCH (r)-[:STARTS_AT]->(s:Start)
 // once Bergamo was ingested, so every caller that projected it was silently
 // analysing 37% of the network -- see docs/fragilities.md #16. A projection
 // bbox is the QUERY's or the GRAPH's; it is never the app's configured one, and
-// keeping the extent here rather than as a string in three scripts is what stops
-// the fourth copy drifting.
+// keeping the extent here rather than inline in the one script that projects
+// (check_graph_connectivity) is what stops the next copy drifting.
 //
 // An aggregate over every :Intersection, no traversal: ~0.2 s over 84,137 nodes,
 // well inside db.transaction.timeout (measured 2026-08-23).

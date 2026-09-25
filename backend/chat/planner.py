@@ -20,6 +20,7 @@ import numpy as np
 from vaivia_routes.assemble import (
     MTB_ORDER,
     Assembled,
+    WalkedEdge,
     assemble,
     assert_connected,
     score,
@@ -50,8 +51,8 @@ DEFAULT_TARGET_M = {"foot": 10000.0, "mtb": 18000.0}
 #: are never relaxed — they are promises, not preferences.
 RELAX_BAND = 1.5
 
-#: Destination kinds when the ask names none (the catalogue's INTEREST set
-#: does the ranking; this only bounds the pool).
+#: Destination kinds when the ask names none (vaivia_routes.destinations'
+#: INTEREST set does the ranking; this only bounds the pool).
 PLACES_M = 100.0
 
 METRES_PER_DEG_LAT = 111_320.0
@@ -711,9 +712,39 @@ def _terminal(pack: Pack, vertex: int) -> dict:
     }
 
 
+def _spans(walked: list[WalkedEdge]) -> list[dict]:
+    """The route in walking order as stretches of one surface, one highway and
+    one grade: `to_m` is where each stretch ends, so the profile's cumulative
+    `distance_m` and this list index the same metres. Consecutive edges that
+    read the same are merged, which keeps a 500-edge loop to a few dozen rows."""
+    spans: list[dict] = []
+    at = 0.0
+    for edge in walked:
+        at += edge.length_m
+        key = (edge.surface, edge.highway, edge.sac_scale)
+        if (
+            spans
+            and (spans[-1]["surface"], spans[-1]["highway"], spans[-1]["sac"]) == key
+        ):
+            spans[-1]["to_m"] = round(at, 1)
+        else:
+            spans.append(
+                {
+                    "to_m": round(at, 1),
+                    "surface": edge.surface,
+                    "highway": edge.highway,
+                    "sac": edge.sac_scale,
+                }
+            )
+    return spans
+
+
 def _card(entry: dict, document: dict, constraints: Constraints) -> dict:
-    """The search_loops card shape, plus the geometry the map needs inline —
-    a drawn route is in no catalogue, so there is nothing to fetch later."""
+    """The route_card shape (graph/queries.cypher), plus what only a drawn
+    route can carry inline: the geometry, the altitude profile and the surface
+    spans. A drawn route is in no store — /routes/{id}/detail exists only once
+    it is kept — so the card is the only place the map and the profile can
+    read from."""
     facts: Assembled = entry["facts"]
     destination: Destination | None = entry["destination"]
     surface = shares(Span(e.surface, e.length_m) for e in entry["walked"])
@@ -755,4 +786,6 @@ def _card(entry: dict, document: dict, constraints: Constraints) -> dict:
             if not p["is_start"]
         ][:8],
         "geometry": document["geometry"],
+        "profile": facts.profile,
+        "spans": _spans(entry["walked"]),
     }

@@ -1,7 +1,7 @@
 [project]
 name = "vaivia-pipeline"
 version = "0.1.0"
-description = "VaiVia geodata pipeline: sources -> PostGIS -> curated route map -> Neo4j"
+description = "VaiVia geodata pipeline: sources -> PostGIS -> route documents + pack"
 requires-python = ">=3.11"
 dependencies = [
     # Division of labour (docs/metadata-rules.md): PostGIS does set-based work
@@ -20,9 +20,6 @@ dependencies = [
     # is a contract other tiers read. Validating the emitter against it in the
     # test suite is what stops the contract and the producer drifting apart.
     "jsonschema>=4.0",
-    # The Neo4j export: the catalogue's reader-side load (docs/route-document.md
-    # — Neo4j is a READER of the route documents, and this is the reading).
-    "neo4j>=5.0",
     "contextily>=1.7.1",
     # The pack (docs/route-design.md): the network the planner draws over,
     # exported by export.pack in the format shared/routes defines. numpy was

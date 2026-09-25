@@ -187,7 +187,7 @@ describe('a card click draws its own answer', () => {
     );
   });
 
-  it('a 404 line reads as left-the-catalogue, and the rest still draw', async () => {
+  it('a 404 line reads as no-longer-saved, and the rest still draw', async () => {
     api.fetchRouteGeoJson.mockImplementation(async (id) =>
       id === 'a2' ? null : line(id),
     );
@@ -198,7 +198,7 @@ describe('a card click draws its own answer', () => {
       expect(lastDrawn(onGeometry)).toEqual({ ids: ['a1'], selected: ['a1'] }),
     );
     await waitFor(() =>
-      expect(card('a2').textContent).toContain('left the catalogue'),
+      expect(card('a2').textContent).toContain('no longer saved'),
     );
   });
 });

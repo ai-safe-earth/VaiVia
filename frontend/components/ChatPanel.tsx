@@ -37,10 +37,13 @@ import { LoopCard } from './LoopCard';
 import { QueryReading } from './QueryReading';
 import { TrailCard } from './TrailCard';
 
+/** Three asks that DRAW on the parity pack (checked 2026-09-25; golden g64,
+ *  g65, g61). A starter that decomposes to a trail search is a dead starter:
+ *  "a two hour mountain bike ride" did, and answered nothing. */
 const SUGGESTIONS = [
-  'easy walk with my kids near a lake',
-  'a two hour mountain bike ride',
-  'hike with a hut at the halfway point',
+  'an easy half-day walk around Bergamo, starting from the station',
+  'a hike loop of about two hours from Lecco, no asphalt',
+  'an easy mountain bike loop from Bergamo, about two hours',
 ];
 
 /** Where the card list folds when the results event carries no
@@ -267,7 +270,9 @@ export function ChatPanel({
   async function selectLoop(loop: Loop, turn: number, loops: Loop[], fold: number) {
     setSelectedTrail(loop.id);
     routes.select(loop.id);
-    void routes.load(loop.id);
+    // A drawn route carries its profile and spans; only a saved route has a
+    // document detail to fetch (and /detail answers 404 for a drawn one).
+    if (loop.profile === undefined) void routes.load(loop.id);
     const clickedIndex = loops.findIndex((candidate) => candidate.id === loop.id);
     // A takeover restores everything this answer had on show: its revealed
     // reach when that is known, never less than the fold or the clicked card.
@@ -588,9 +593,8 @@ export function ChatPanel({
                     messageId={message.messageId}
                     conversationId={conversationId ?? undefined}
                     onSelect={(picked) => {
-                      // The body tap is the gesture that raises the map. "See
-                      // more" below draws the same line but stays in the
-                      // transcript: one gesture, one meaning.
+                      // The body tap and "+ info" are one gesture: both raise
+                      // the map with this route's profile under it.
                       // No turn while the answer is still streaming — the id
                       // arrives with `done`. The panel card then shows no
                       // thumbs for that pick; the transcript card grows them
@@ -610,14 +614,6 @@ export function ChatPanel({
                         message.results?.answered_count ?? DEFAULT_FOLD,
                       );
                     }}
-                    onExpand={(picked) =>
-                      void selectLoop(
-                        picked,
-                        index,
-                        message.results?.loops ?? [],
-                        message.results?.answered_count ?? DEFAULT_FOLD,
-                      )
-                    }
                     line={lineStatus[loop.id]}
                     detail={routes.details[loop.id]}
                     favorited={favorites?.has(loop.id) ?? false}
@@ -680,8 +676,7 @@ export function ChatPanel({
                   <div className="notice-body">
                     <span className="vv-label">No matches</span>
                     <p className="vv-body">
-                      Nothing in the catalogue fits all of that — try relaxing
-                      one constraint.
+                      Nothing fits all of that — try relaxing one constraint.
                     </p>
                   </div>
                 </div>

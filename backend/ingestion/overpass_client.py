@@ -39,9 +39,9 @@ USER_AGENT = os.environ.get("OVERPASS_USER_AGENT", "VaiVia/0.1 (trail data inges
 # those is wrong, and often illegal. Anchored so `service` cannot also match
 # `services` (motorway service areas) or `secondary_link` ramps.
 #
-# Caveat this does NOT fix: Dijkstra still weights by raw distance, so a
-# straight road can now beat a winding trail. Comfort weighting is the
-# follow-up — highway_type is already stored on every CONNECTS_TO edge.
+# Caveat this does NOT fix: route_between_intersections is hop-shortest and
+# reads no weight, so a straight road can still beat a winding trail (cost_m
+# sits on every CONNECTS_TO edge, unread — docs/route-design.md).
 # Trail-to-segment matching is unaffected: COMPATIBLE_HIGHWAYS in
 # spatial_match.py still refuses to compose a trail out of residential streets.
 WALKABLE_HIGHWAYS = (
