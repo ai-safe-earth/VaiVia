@@ -142,3 +142,49 @@ async def test_without_a_pack_the_turn_says_so_rather_than_answering_empty(db):
     assert "drawn" not in results
     assert "not loaded" in results["clarification"]
     assert db.calls == []
+
+
+TO_A_PEAK = {
+    "kind": "outing",
+    "activity": "hike",
+    "start": {"mode": "named", "name": "Lecco"},
+    "waypoints": [{"kind": None, "name": "Colle Santo Stefano", "role": "end"}],
+}
+
+
+async def test_an_a_to_b_ask_is_drawn_there_and_back_over_the_pack(db, planner):
+    """RouteIntent is retired: "from Lecco to Colle Santo Stefano" is an
+    outing with a named start and a named end, and both names resolve from
+    the pack's own places — the graph's POI list is never asked."""
+    orchestrator, _llm, _ = build(db, TO_A_PEAK, planner)
+    events = await collect(
+        orchestrator, user_id="u1", message="from Lecco to Colle Santo Stefano"
+    )
+    results = results_of(events)
+    assert results.get("drawn") is True, results.get("clarification")
+    assert results["loops"]
+    for card in results["loops"]:
+        assert card["destination_name"] == "Colle Santo Stefano"
+        assert card["shape"] == "out_and_back"
+    assert db.calls == []  # names resolved in the pack, no graph lookup
+
+
+async def test_an_unknown_start_is_said_not_swapped(db, planner):
+    outing = dict(TO_A_PEAK, start={"mode": "named", "name": "Atlantis"})
+    orchestrator, llm, _ = build(db, outing, planner)
+    events = await collect(orchestrator, user_id="u1", message="from Atlantis")
+    results = results_of(events)
+    assert "Atlantis" in results["clarification"]
+    assert "loops" not in results
+    assert llm.answer_calls == []
+
+
+async def test_an_unknown_destination_is_said_not_swapped(db, planner):
+    outing = dict(
+        TO_A_PEAK, waypoints=[{"kind": None, "name": "Parco dei Colli", "role": "end"}]
+    )
+    orchestrator, _llm, _ = build(db, outing, planner)
+    events = await collect(orchestrator, user_id="u1", message="to Parco dei Colli")
+    results = results_of(events)
+    assert "Parco dei Colli" in results["clarification"]
+    assert "loops" not in results

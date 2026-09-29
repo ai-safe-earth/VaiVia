@@ -101,18 +101,6 @@ RETURN c.seq AS seq,
        [p IN s.coordinates | [p.longitude, p.latitude]] AS coordinates
 ORDER BY c.seq ASC
 
-// name: nearest_intersection
-// Snap a coordinate to the routing graph. Spatially pre-filtered by the point
-// index so it never scans the full intersection set.
-MATCH (i:Intersection)
-WHERE point.distance(i.location, point({latitude: $lat, longitude: $lon}))
-      < $radius_m
-RETURN i.osm_node_id AS osm_node_id,
-       point.distance(i.location, point({latitude: $lat, longitude: $lon}))
-         AS distance_m
-ORDER BY distance_m ASC
-LIMIT 1
-
 // name: poi_by_name_fulltext
 // Preferred place-name lookup: Lucene-backed, ranked by relevance. The caller
 // escapes Lucene syntax (core/text.py) so user text is only ever search terms.
@@ -131,24 +119,6 @@ RETURN p.osm_id AS osm_id, p.name AS name, p.type AS type,
        p.location.latitude AS lat, p.location.longitude AS lon
 ORDER BY size(p.name) ASC
 LIMIT $limit
-
-// name: route_between_intersections
-// Bounded shortest path on the Intersection routing graph. Semantic edges never
-// appear in the path expression. Bounded, and the only A-to-B walk left (R7).
-MATCH (src:Intersection {osm_node_id: $start_node}),
-      (dst:Intersection {osm_node_id: $end_node})
-MATCH path = shortestPath((src)-[:CONNECTS_TO*..100]-(dst))
-WITH path,
-     reduce(d = 0.0, r IN relationships(path) | d + r.distance_m) AS total_m,
-     reduce(g = 0.0, r IN relationships(path) |
-            g + coalesce(r.elevation_gain_m, 0.0)) AS gain_m
-WHERE $max_distance_m IS NULL OR total_m <= $max_distance_m
-RETURN total_m,
-       gain_m,
-       [n IN nodes(path) |
-         [n.location.longitude, n.location.latitude]] AS coordinates,
-       [r IN relationships(path) | r.osm_way_id] AS osm_way_ids,
-       [r IN relationships(path) | r.surface] AS surfaces
 
 // name: count_embedded_trails
 // Gate for semantic search: the endpoint returns 503 while this is zero

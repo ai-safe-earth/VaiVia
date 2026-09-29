@@ -55,7 +55,7 @@ Monorepo; the roadmap and target architecture live in `docs/plan.md` — read it
 - Trailforks data is **API-only and needs a granted key**; Outside's terms require prior written consent for commercial, in-software and AI use, which is all three of what VaiVia is (`docs/licensing.md`). Ingestion is a deliberate stub and no Trailforks data has ever entered the system; the data is OSM throughout, with open-licensed enrichment (Wikipedia/Wikidata) over marquee places. Keep the two-source model, but wire nothing new to Trailforks.
 - **Routing graph is Intersection–Intersection**: `(:Intersection)-[:CONNECTS_TO {distance, elevation_change, osm_way_id, surface, highway_type}]->(:Intersection)`. Segments are NOT routing vertices; never put `PASSES_BY` or other semantic edges in a path expression.
 - **Trail identity lives only on `(:Trail)`** — never filter by trail name on segments.
-- **Always bound traversals** (`*..100`) and spatially pre-filter. Route drawing is NOT the graph's job — the pack engine draws (`docs/route-design.md`); the graph's only A-to-B is `route_between_intersections` (bounded shortestPath) behind `/chat`'s RouteIntent.
+- **Always bound traversals** (`*..100`) and spatially pre-filter. Route drawing is NOT the graph's job — the pack engine draws every route, A-to-B included (`docs/route-design.md`); an A-to-B ask is an outing with a named end.
 - **Ingestion must be idempotent**: `MERGE` on `osm_way_id` / `osm_node_id` / Trailforks IDs.
 - Distance-along-trail queries must use `COMPOSED_OF.seq` — unordered `sum(s.length)` is wrong.
 - Semantic-search endpoints return `503` (not empty results) when the vector index is unpopulated.

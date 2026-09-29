@@ -55,6 +55,13 @@ RELAX_BAND = 1.5
 #: INTEREST set does the ranking; this only bounds the pool).
 PLACES_M = 100.0
 
+#: How far (crow flies) a NAMED destination may sit from a start and still be
+#: drawn as a day's there-and-back — the summit@1 recipe's one-way 20 km.
+MAX_NAMED_CROW_M = 20_000.0
+
+#: The waypoint roles that make a place the END of the outing.
+END_ROLES = ("end", "bathe", "eat")
+
 METRES_PER_DEG_LAT = 111_320.0
 
 SOURCES = [
@@ -109,7 +116,24 @@ def plan_outing(
     target_m = (
         (band[0] + band[1]) / 2 if band else DEFAULT_TARGET_M[constraints.activity]
     )
-    if band is None:
+    # A NAMED end ("to Canto Alto") is the A-to-B ask: the route goes there
+    # and back, however long that is. A name the pack does not hold is said,
+    # never swapped for a place of the same kind somewhere else.
+    named_ends, unknown = _named_ends(state.pack, net, constraints)
+    if unknown is not None:
+        out.clarify = ClarifyIntent(
+            question=(
+                f"I do not know a place called {unknown!r} in the area VaiVia "
+                "covers. Try a nearby village, peak or rifugio?"
+            ),
+            suggestions=[
+                "a hike to Rifugio Rosalba from Lecco",
+                "a route to Canto Alto from Ponteranica",
+            ],
+        )
+        return out
+
+    if band is None and not named_ends:
         out.assumptions.append(
             f"no length stated — aiming for ~{target_m / 1000:.0f} km (our estimate)"
         )
@@ -125,6 +149,17 @@ def plan_outing(
             if w.role in ("end", "bathe", "eat"):
                 wanted_kinds.update(w.kinds)
 
+    toward: tuple[float, float] | None = None
+    if named_ends and anchor is None and shape != "loop":
+        # No start named: start from the trailheads that put the destination
+        # a sensible walk away, rather than from wherever ranks first overall.
+        first = named_ends[0]
+        toward = (
+            float(state.pack["vertex_lat"][first.vertex_id]),
+            float(state.pack["vertex_lon"][first.vertex_id]),
+        )
+        out.assumptions.append(f"no start named — starting near {first.name}")
+
     starts = _candidate_starts(
         state.pack,
         net,
@@ -133,6 +168,7 @@ def plan_outing(
         out,
         wanted_kinds or None,
         target_m,
+        toward=toward,
     )
     if not starts:
         out.clarify = ClarifyIntent(
@@ -152,8 +188,12 @@ def plan_outing(
                 walked = draw_loop(net, vertex, (lon, lat), target_m, seed)
                 _collect(candidates, out.counts, walked, vertex, target_m, shape)
         else:
-            pool = _destinations(state.pack, net, constraints, lon, lat, target_m)
-            if not pool:
+            pool = (
+                _within_reach(named_ends, state.pack, lon, lat, out.counts)
+                if named_ends
+                else _destinations(state.pack, net, constraints, lon, lat, target_m)
+            )
+            if not pool and not named_ends:
                 out.counts["no destination of the wanted kind in reach"] = (
                     out.counts.get("no destination of the wanted kind in reach", 0) + 1
                 )
@@ -229,16 +269,19 @@ def _candidate_starts(
     result: PlannerResult | None = None,
     wanted_kinds: set[str] | None = None,
     target_m: float | None = None,
+    toward: tuple[float, float] | None = None,
 ) -> list[tuple[int, float, float]]:
     """(vertex index, lon, lat) of the starts this ask fans out over.
 
     Selection, in order: the mode's class filter; the asked area's polygon;
     the drive matrix when a drive-time limit is stated (crow-fly at 50 km/h
     as the said-out-loud fallback when the pack carries no matrix); then
-    ranking — near the anchor, else busiest station, else the starts that
-    open the most unpaved ground (trail_share). For a destination shape,
-    starts whose potential field puts a wanted kind inside the crow band
-    sort first: "end at a lake" is a lookup, not a hope.
+    ranking — near the anchor, else toward a named destination (`toward`,
+    lat/lon: starts whose crow distance to it sits in the band first), else
+    busiest station, else the starts that open the most unpaved ground
+    (trail_share). For a destination shape, starts whose potential field
+    puts a wanted kind inside the crow band sort first: "end at a lake" is a
+    lookup, not a hope.
     """
     is_start = pack["place_is_start"]
     classes = np.array(pack.decode("place_start_class"), dtype=object)
@@ -289,6 +332,14 @@ def _candidate_starts(
     if anchor is not None:
         kx, ky = _metric(anchor[0])
         rank_key = (kx * (lon - anchor[1])) ** 2 + (ky * (lat - anchor[0])) ** 2
+    elif toward is not None and target_m:
+        # The destination is fixed, so the start is what gets chosen: in the
+        # crow band first, then nearest the band's middle.
+        kx, ky = _metric(toward[0])
+        crow = np.hypot(kx * (lon - toward[1]), ky * (lat - toward[0]))
+        low, high = crow_band(target_m)
+        outside = ((crow < low) | (crow > high)).astype(np.float64)
+        rank_key = outside * 1e12 + np.abs(crow - (low + high) / 2)
     elif constraints.start_mode == "station":
         rank_key = -pack["place_n_trips"][idx].astype(np.float64)
     else:
@@ -377,7 +428,7 @@ def _destinations(
 
     wanted: set[str] = set()
     for w in constraints.waypoints:
-        if w.role in ("end", "bathe", "eat"):
+        if w.role in END_ROLES:
             wanted.update(w.kinds)
     if not wanted:
         wanted = set(INTEREST)
@@ -408,6 +459,122 @@ def _destinations(
             )
         )
     return rank(pool, top=SEEDS)
+
+
+def find_places(pack: Pack, name: str) -> list[int]:
+    """Place indices a NAME means, best first — the pack's own gazetteer, so a
+    place resolves exactly when the network can reach it.
+
+    Exact (case-insensitive) matches beat names that start with it, which
+    beat names that merely contain it ("Mandello" finds "Mandello del
+    Lario"). Ties go to the place a walker would head for (INTEREST), then
+    the shorter name, then the index — deterministic, so ids stay stable.
+    """
+    key = " ".join(name.lower().split())
+    if not key:
+        return []
+    hits = _name_hits(pack, key)
+    if not hits:
+        # "Lecco station", "stazione di Bergamo": the kind is in the words,
+        # the name is what is left. Only tried when the whole phrase fails.
+        bare = " ".join(w for w in key.split() if w not in STATION_WORDS)
+        if bare and bare != key:
+            hits = _name_hits(pack, bare)
+    return [hit[-1] for hit in sorted(hits)]
+
+
+#: Words that say "the station" around a place name rather than name it.
+STATION_WORDS = frozenset(
+    {"station", "stazione", "train", "railway", "fs", "di", "of", "the"}
+)
+
+
+def _name_hits(pack: Pack, key: str) -> list[tuple[int, float, int, int]]:
+    from vaivia_routes.destinations import INTEREST
+
+    kinds = pack.decode("place_kind")
+    hits: list[tuple[int, float, int, int]] = []
+    for i, raw in enumerate(pack["place_name"]):
+        place = " ".join(str(raw).lower().split())
+        if not place or key not in place:
+            continue
+        tier = 0 if place == key else 1 if place.startswith(key) else 2
+        hits.append((tier, -INTEREST.get(kinds[i], 0.0), len(place), i))
+    return hits
+
+
+def resolve_place(pack: Pack, name: str) -> tuple[float, float] | None:
+    """(lat, lon) of the place a name means, or None."""
+    found = find_places(pack, name)
+    if not found:
+        return None
+    i = found[0]
+    return float(pack["place_lat"][i]), float(pack["place_lon"][i])
+
+
+def _named_ends(
+    pack: Pack, net: Network, constraints: Constraints
+) -> tuple[list[Destination], str | None]:
+    """The destinations the ask NAMED, and the first name nothing matched.
+
+    One place per name — the best match on the main component. A named end
+    is the ask; a place merely of the same kind would be a different one.
+
+    Only role "end" names a destination. The model writes descriptions into
+    `name` for the kind-driven roles ("lake or river", role bathe), so those
+    stay kind lookups; and an end whose name places nowhere but which
+    carries a kind ("a lake") falls back to that kind rather than refusing.
+    """
+    ends: list[Destination] = []
+    kinds = pack.decode("place_kind")
+    sources = pack.decode("place_source")
+    for w in constraints.waypoints:
+        if not w.name or w.role != "end":
+            continue
+        found = [
+            i
+            for i in find_places(pack, w.name)
+            if pack["vertex_component"][int(pack["place_vertex"][i])]
+            == net.main_component
+        ]
+        if not found:
+            if w.kinds:
+                continue
+            return [], w.name
+        i = found[0]
+        ends.append(
+            Destination(
+                place_id=f"{sources[i]}:{pack['place_source_id'][i]}",
+                kind=kinds[i],
+                name=str(pack["place_name"][i]) or w.name,
+                vertex_id=int(pack["place_vertex"][i]),
+                crow_m=0.0,
+            )
+        )
+    return ends, None
+
+
+def _within_reach(
+    named: list[Destination],
+    pack: Pack,
+    lon: float,
+    lat: float,
+    counts: dict[str, int],
+) -> list[Destination]:
+    """The named destinations a day's there-and-back from this start can
+    reach; the rest are counted, so an empty answer says why."""
+    kx, ky = _metric(lat)
+    pool: list[Destination] = []
+    for d in named:
+        crow = math.hypot(
+            kx * (float(pack["vertex_lon"][d.vertex_id]) - lon),
+            ky * (float(pack["vertex_lat"][d.vertex_id]) - lat),
+        )
+        if crow > MAX_NAMED_CROW_M:
+            _count(counts, f"{d.name} over {MAX_NAMED_CROW_M / 1000:.0f} km away")
+            continue
+        pool.append(d._replace(crow_m=crow))
+    return pool
 
 
 # ── candidates, rejection, relaxation ────────────────────────────────────────

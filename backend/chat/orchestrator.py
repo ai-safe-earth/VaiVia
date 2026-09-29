@@ -7,10 +7,11 @@ The pipeline, and why it is shaped this way:
   2. Plan extraction — the model's only structured output: the message
      decomposed into atomic subqueries, schema-validated.
   3. Composition — chat/composer.py (Python, not the model) merges the atoms
-     into at most one search, one semantic theme, and a bounded route list, or
-     a clarification with suggestions when there is too little to search well.
-  4. Template dispatch — each composed piece maps to a named template. The
-     model never names a template and never sees Cypher.
+     into at most one search, one semantic theme and one outing, or a
+     clarification with suggestions when there is too little to search well.
+  4. Dispatch — a search maps to a named template, an outing (A-to-B asks
+     included: a named end) is drawn by the planner over the pack. The model
+     never names a template and never sees Cypher.
   5. Grounded answer — the model writes prose over results it is handed. Every
      trail id in the response also appears in result_refs, so the frontend can
      render exactly what the graph returned.
@@ -32,13 +33,14 @@ from chat.composer import (
     apply_delta,
     capped_difficulty,
     compose,
+    drop_unsaid_places,
     standing_dump,
     standing_load,
 )
-from chat.intents import ClarifyIntent, RouteIntent
+from chat.intents import ClarifyIntent
 from chat.llm import LLMClient, Usage, results_to_json
 from chat.pack_state import PlannerState
-from chat.planner import plan_outing
+from chat.planner import plan_outing, resolve_place
 from chat.readback import readback
 from chat.sanitize import strip_links_stream
 from chat.store import ConversationStore
@@ -88,11 +90,6 @@ SEMANTIC_CANDIDATE_POOL = 25
 # construction. That wants an ABSOLUTE floor beside this one, whose value is
 # exactly what a real corpus would let us measure.
 SEMANTIC_SCORE_DROP = 0.05
-
-
-async def _nothing() -> None:
-    """A block this turn does not run. gather() wants a coroutine either way."""
-    return None
 
 
 def _strong_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -228,7 +225,7 @@ class ChatOrchestrator:
                 message, history, standing=standing_raw
             )
             plan_usage = plan_result.usage
-            subqueries = plan_result.envelope.subqueries
+            subqueries = drop_unsaid_places(plan_result.envelope.subqueries, message)
             plan = compose(subqueries)
             # reset discards the plan in force BEFORE refine is considered: it
             # is the only way to clear a constraint (a delta can change one
@@ -251,7 +248,7 @@ class ChatOrchestrator:
                 "clarify": plan.is_clarify,
                 "refined": refined,
                 "chip": chip is not None,
-                "routes": len(plan.routes),
+                "outing": plan.outing is not None,
                 "theme": bool(plan.theme),
             },
         )
@@ -347,8 +344,6 @@ class ChatOrchestrator:
     def _result_kind(plan: ComposedPlan) -> str:
         if plan.is_clarify:
             return "clarify"
-        if plan.routes and not (plan.search or plan.theme or plan.outing):
-            return "route"
         # A drawn-outing turn is a loop_search, not a trail_search. The label is
         # client-facing: mislabelling it makes the frontend render drawn routes
         # as if they were named trails, which they are not. The wire value keeps
@@ -401,7 +396,17 @@ class ChatOrchestrator:
                     "clarification": compiled.question,
                     "suggestions": compiled.suggestions,
                 }, {}
-            anchor = await self._outing_anchor(plan, compiled)
+            anchor, unknown = await self._outing_anchor(plan, compiled)
+            if unknown is not None:
+                # A start nobody can place must be said: drawing from some
+                # other start would answer a question that was not asked.
+                return {
+                    "clarification": (
+                        f"I do not know a place called {unknown!r} in the area "
+                        "VaiVia covers. Try a nearby town or trailhead?"
+                    ),
+                    "suggestions": ["a loop from Lecco", "a hike from Bergamo"],
+                }, {}
             drawn = await asyncio.to_thread(
                 plan_outing, self._planner, compiled, anchor
             )
@@ -426,18 +431,11 @@ class ChatOrchestrator:
                 results["relaxed"] = drawn.relaxed
             refs["loop_ids"] = [card["id"] for card in cards]
 
-        # The blocks are independent reads over the same driver, so they go out
-        # together. Sequentially, a trails-and-routes turn paid for the trail
-        # search and then the routes one after another — two round trips of
-        # latency for work that shares no state.
         wants_trails = plan.search is not None or plan.theme is not None
-        trail_result, route_result = await asyncio.gather(
-            (
-                self._search(plan.search or TrailSearchIntent(), plan.theme)
-                if wants_trails
-                else _nothing()
-            ),
-            self._routes(plan.routes) if plan.routes else _nothing(),
+        trail_result = (
+            await self._search(plan.search or TrailSearchIntent(), plan.theme)
+            if wants_trails
+            else None
         )
 
         if trail_result is not None:
@@ -449,22 +447,6 @@ class ChatOrchestrator:
             if semantic_unavailable:
                 results["semantic_unavailable"] = True
             refs["trail_ids"] = [r["id"] for r in trails]
-
-        if route_result is not None:
-            routes, route_refs = route_result
-            results["routes"] = routes
-            refs.update(route_refs)
-            # Legacy single-route shape: the first resolved route also appears
-            # as `route` + `geometry`, so existing clients keep working.
-            resolved = next((r for r in routes if r.get("route")), None)
-            if resolved:
-                results.setdefault("route", resolved["route"])
-                results.setdefault("geometry", resolved["geometry"])
-            elif routes:
-                results.setdefault("route", None)
-                for key in ("unknown_place", "off_network", "no_path"):
-                    if key in routes[0]:
-                        results.setdefault(key, routes[0][key])
 
         return results, refs
 
@@ -487,18 +469,30 @@ class ChatOrchestrator:
 
     async def _outing_anchor(
         self, plan: ComposedPlan, compiled: Constraints
-    ) -> tuple[float, float] | None:
-        """Where the ask is anchored: the validated `near` for "here", a
-        geocoded name otherwise. Resolution is the one I/O an ask needs, so
-        it happens here rather than inside the CPU-bound planner."""
+    ) -> tuple[tuple[float, float] | None, str | None]:
+        """Where the ask is anchored, and a named START nothing could place.
+
+        The validated `near` for "here"; otherwise the name, looked up in the
+        pack's own places first (they are what the network reaches — the
+        graph's POI list lacks most villages and peaks) and the graph's POIs
+        second. An area name that places nowhere is not an error: coverage
+        already answered for it, and its polygon bounds the starts."""
         if compiled.start_mode == "here" and plan.near is not None:
-            return plan.near
-        name = compiled.start_name or (plan.outing.area if plan.outing else None)
-        if name:
+            return plan.near, None
+        area = plan.outing.area if plan.outing else None
+        for name in (compiled.start_name, area):
+            if not name:
+                continue
+            if self._planner is not None:
+                point = resolve_place(self._planner.pack, name)
+                if point is not None:
+                    return point, None
             rows = await self._find_poi(name)
             if rows:
-                return rows[0]["lat"], rows[0]["lon"]
-        return plan.near
+                return (rows[0]["lat"], rows[0]["lon"]), None
+            if name == compiled.start_name:
+                return None, name
+        return plan.near, None
 
     async def _search(
         self, intent: TrailSearchIntent, theme: str | None
@@ -563,18 +557,6 @@ class ChatOrchestrator:
 
         return rows, semantic_unavailable
 
-    async def _routes(
-        self, intents: list[RouteIntent]
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        routes: list[dict[str, Any]] = []
-        refs: dict[str, Any] = {}
-        for index, intent in enumerate(intents):
-            result, route_refs = await self._route(intent)
-            routes.append(result)
-            for key, value in route_refs.items():
-                refs[f"{key}_{index}" if len(intents) > 1 else key] = value
-        return routes, refs
-
     async def _find_poi(self, name: str) -> list[dict[str, Any]]:
         """Relevance-ranked full-text lookup, CONTAINS as the fallback."""
         query = lucene_escape(name).strip()
@@ -585,51 +567,3 @@ class ChatOrchestrator:
             if rows:
                 return rows
         return await self._db.run_named("poi_by_name", name=name, limit=1)
-
-    async def _route(
-        self, intent: RouteIntent
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        settings = get_settings()
-        start = await self._find_poi(intent.start)
-        end = await self._find_poi(intent.end)
-        if not start or not end:
-            missing = intent.start if not start else intent.end
-            return {"route": None, "unknown_place": missing}, {}
-
-        snapped = []
-        for poi in (start[0], end[0]):
-            hit = await self._db.run_named(
-                "nearest_intersection",
-                lat=poi["lat"],
-                lon=poi["lon"],
-                radius_m=settings.snap_radius_m,
-            )
-            if not hit:
-                return {"route": None, "off_network": poi["name"]}, {}
-            snapped.append(hit[0]["osm_node_id"])
-
-        rows = await self._db.run_named(
-            "route_between_intersections",
-            start_node=snapped[0],
-            end_node=snapped[1],
-            max_distance_m=min(
-                intent.max_distance_m or settings.max_route_distance_m,
-                settings.max_route_distance_m,
-            ),
-        )
-        if not rows:
-            return {"route": None, "no_path": True}, {}
-
-        row = rows[0]
-        return (
-            {
-                "route": {
-                    "total_distance_m": row["total_m"],
-                    "elevation_gain_m": row.get("gain_m"),
-                    "start": start[0]["name"],
-                    "end": end[0]["name"],
-                },
-                "geometry": {"type": "LineString", "coordinates": row["coordinates"]},
-            },
-            {"start_poi": start[0]["osm_id"], "end_poi": end[0]["osm_id"]},
-        )

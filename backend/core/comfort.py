@@ -9,10 +9,11 @@ So CONNECTS_TO carries `cost_m` alongside `distance_m`:
 
     cost_m = distance_m * highway_penalty * surface_penalty
 
-Nothing minimises `cost_m` today — `route_between_intersections` is
-hop-shortest and reads no weight (docs/route-design.md) — but it stays on the
-edge for a cost-aware walk. Every distance shown to a user comes from
-`distance_m`; conflating the two would quote inflated lengths.
+Nothing in the graph minimises `cost_m` today — A-to-B routes are drawn over
+the pack, which carries its own cost columns (docs/route-design.md, decision
+4) — but it stays on the edge for a cost-aware walk. Every distance shown to
+a user comes from `distance_m`; conflating the two would quote inflated
+lengths.
 
 Penalties are ratios of tolerance, not of speed: `secondary: 4.5` means a rider
 would accept about 4.5 km of trail rather than 1 km of that road. They are

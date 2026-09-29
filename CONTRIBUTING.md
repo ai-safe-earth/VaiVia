@@ -235,8 +235,8 @@ See [`docs/architecture.md`](docs/architecture.md) and
 - **Trail identity lives only on `(:Trail)`** — never filter by trail name on a
   segment.
 - **Always bound traversals** (`*..100`) and pre-filter spatially. Route drawing
-  is not the graph's job — the pack engine draws (`docs/route-design.md`); the
-  graph's only A-to-B is `route_between_intersections` (bounded `shortestPath`).
+  is not the graph's job — the pack engine draws every route, A-to-B included
+  (`docs/route-design.md`).
 - **Ingestion must be idempotent** — `MERGE` on `osm_way_id` / `osm_node_id` /
   Trailforks IDs. Re-running must leave counts identical.
 - Distance-along-trail must use `COMPOSED_OF.seq`; an unordered

@@ -100,13 +100,21 @@ class OutingIntent(BaseModel):
     def waypoint_roles(self) -> list[str]:
         return [w.role for w in self.waypoints]
 
+    @property
+    def waypoint_names(self) -> list[str]:
+        return [w.name for w in self.waypoints if w.name]
+
 
 class RouteIntent(BaseModel):
-    """Route between two named places. Maps to the routing template chain."""
+    """An A-to-B ask as the MODEL states it: two place names, either one
+    absent. It is a shape of extraction, not a path to run — the composer
+    turns it into an OutingIntent with a named start and a named end, drawn
+    over the pack like every other route (docs/route-design.md decision 4).
+    Nothing walks the graph for it any more."""
 
     kind: Literal["route"] = "route"
-    start: str
-    end: str
+    start: str | None = None
+    end: str | None = None
     max_distance_m: Annotated[float, Field(gt=0)] | None = None
 
 

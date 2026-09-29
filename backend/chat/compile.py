@@ -278,7 +278,13 @@ def compile_outing(
             f"(at most {SURFACE_SHARE_CAP:.0%} of the way)"
         )
 
+    start_key = " ".join((intent.start.name or "").lower().split())
     for w in intent.waypoints:
+        # The model sometimes repeats the named START as an end waypoint
+        # ("from Ponteranica to Canto Alto" -> ends Ponteranica AND Canto
+        # Alto). The start is where the outing begins, never where it goes.
+        if w.name and start_key and " ".join(w.name.lower().split()) == start_key:
+            continue
         # A role with a semantic set (bathe/eat/sleep) UNIONS a stated kind
         # rather than being replaced by it: "a lake or river to bathe"
         # arriving as kind=bathing_water must not narrow the ask to the one

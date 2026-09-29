@@ -6,8 +6,8 @@ from pydantic import ValidationError
 from chat.intents import (
     ClarifyIntent,
     IntentEnvelope,
+    OutingIntent,
     PlanEnvelope,
-    RouteIntent,
     SemanticThemeIntent,
     StartSpec,
     TrailSearchIntent,
@@ -21,19 +21,29 @@ def test_plan_envelope_discriminates_each_subquery():
             "subqueries": [
                 {"kind": "trail_search", "activity": "hike"},
                 {"kind": "semantic_theme", "text": "panoramic ridge"},
-                {"kind": "route", "start": "Lecco", "end": "Rifugio"},
+                {"kind": "outing", "activity": "hike"},
             ]
         }
     )
     kinds = [type(s) for s in envelope.subqueries]
-    assert kinds == [TrailSearchIntent, SemanticThemeIntent, RouteIntent]
+    assert kinds == [TrailSearchIntent, SemanticThemeIntent, OutingIntent]
+
+
+def test_a_route_carries_only_names_either_one_absent():
+    """A route is the model's A-to-B shape: two place names, either absent
+    ("a route to Canto Alto" has no start). No query, no id, no geometry —
+    the composer draws it as an outing over the pack."""
+    envelope = PlanEnvelope.model_validate(
+        {"subqueries": [{"kind": "route", "start": None, "end": "Canto Alto"}]}
+    )
+    route = envelope.subqueries[0]
+    assert route.kind == "route" and route.start is None
+    assert set(type(route).model_fields) == {"kind", "start", "end", "max_distance_m"}
 
 
 def test_outing_discriminates_and_cannot_smuggle_geometry():
     """The Phase 12 boundary rule: no field carries a query, template, id,
     coordinate or weight — injected ones must not survive validation."""
-    from chat.intents import OutingIntent
-
     envelope = PlanEnvelope.model_validate(
         {
             "subqueries": [
@@ -96,9 +106,9 @@ def test_plan_strict_schema_is_openai_safe():
 
 def test_envelope_discriminates_on_kind():
     envelope = IntentEnvelope.model_validate(
-        {"intent": {"kind": "route", "start": "Lecco", "end": "Rifugio"}}
+        {"intent": {"kind": "semantic_theme", "text": "panoramic ridge"}}
     )
-    assert isinstance(envelope.intent, RouteIntent)
+    assert isinstance(envelope.intent, SemanticThemeIntent)
 
 
 def test_unknown_intent_kind_is_rejected():

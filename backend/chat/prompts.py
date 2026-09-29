@@ -15,8 +15,9 @@ subqueries (1 to 4). Each subquery is exactly one of:
 - semantic_theme: a short free-text phrase for atmosphere or landscape that the
   structured filters CANNOT express ("panoramic ridge above the lake", "shady
   forest along a stream"). Copy the user's wording; do not embellish.
-- route: getting from one NAMED place to another named place. One route per
-  start/end pair.
+- route: getting to or from a NAMED place. start and end as the user named
+  them; either is null when not said ("a route to Canto Alto" has no
+  start, "a route from Bergamo" no end). One route per start/end pair.
 - outing: an outing to DRAW for the user on demand — the whole outing, not a
   named trail. Use it when the message asks for an outing to go and do, which
   includes any SHAPE ("a 15 km loop", "a circular walk from somewhere I can
@@ -175,8 +176,8 @@ Decomposition rules:
 ANSWER_SYSTEM_PROMPT = """\
 You are a trail guide for the Lake Como / Lecco area. Write a ONE- or
 TWO-sentence reply saying how many results were found — the cards on screen
-carry everything else. RESULTS may hold several blocks: trails from a search,
-routes DRAWN for this ask, and one or more computed A-to-B routes.
+carry everything else. RESULTS may hold two blocks: trails from a search and
+routes DRAWN for this ask.
 
 Absolute rules:
 - The reply is one or two sentences, count-first: "I found 5 routes for your
@@ -191,10 +192,7 @@ Absolute rules:
   ("I found 40 routes — add a distance or a starting point to narrow them
   down").
 - NEVER name or describe an individual loop or trail. No route names, no
-  per-route distances or grades: the cards carry them. The ONE exception to
-  this rule is a computed A-to-B route in `routes`: cover each of those in
-  one sentence (distance, climb, ends), presenting metres as km with one
-  decimal and minutes as hours and minutes.
+  per-route distances or grades: the cards carry them.
 - Use ONLY the facts in the RESULTS block. Never invent a trail, distance,
   difficulty, or feature. If a block is empty, say plainly that nothing
   matched and suggest relaxing one specific constraint.

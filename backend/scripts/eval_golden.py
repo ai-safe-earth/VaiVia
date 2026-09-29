@@ -36,7 +36,7 @@ trend is worse than a gap in it. Use it to read one failure again without
 paying for the other forty-nine.
 
 Dataset: fixtures/golden_questions.json. Expectations address the COMPOSED
-plan ("search.<field>", "outing.<field>", "theme", "routes", "clarify");
+plan ("search.<field>", "outing.<field>", "theme", "clarify");
 "expect_trails" names the trail ids retrieval must surface; first id = must
 rank first. A DRAWN outing pins no ids — its ids are minted per draw — so it
 is graded by "expect_facts" bands against the pack named in "pack_run_id". An entry with
@@ -62,6 +62,7 @@ from chat.composer import (
     ComposedPlan,
     apply_delta,
     compose,
+    drop_unsaid_places,
     standing_dump,
     standing_load,
 )
@@ -145,9 +146,6 @@ def check_plan(expected: dict[str, Any], plan: ComposedPlan) -> list[str]:
         if key == "theme":
             if bool(plan.theme) != want:
                 problems.append(f"theme: want present={want}, got {plan.theme!r}")
-        elif key == "routes":
-            if len(plan.routes) != want:
-                problems.append(f"routes: want {want}, got {len(plan.routes)}")
         elif key.startswith(("search.", "outing.")):
             prefix, field = key.split(".", 1)
             holder = {"search": plan.search, "outing": plan.outing}[prefix]
@@ -155,7 +153,20 @@ def check_plan(expected: dict[str, Any], plan: ComposedPlan) -> list[str]:
             got = holder
             for part in field.split("."):
                 got = getattr(got, part, None) if got is not None else None
-            if isinstance(want, list):
+            if key.endswith(("name", "names")):
+                # Place names are the user's words: "Mandello" asked, the
+                # model may write "Mandello del Lario" — contained, any case.
+                gots = [got] if isinstance(got, str) or got is None else got
+                if want is None:
+                    ok = not got
+                else:
+                    wants = want if isinstance(want, list) else [want]
+                    ok = all(
+                        any(w.lower() in (g or "").lower() for g in gots) for w in wants
+                    )
+                if not ok:
+                    problems.append(f"{key}: want {want}, got {got}")
+            elif isinstance(want, list):
                 if not set(want) <= set(got or []):
                     problems.append(f"{key}: want superset of {want}, got {got}")
             elif isinstance(want, dict) and want.keys() & {"lt", "lte", "gt"}:
@@ -214,7 +225,7 @@ async def run_turns(
     kinds: list[str] = []
     for turn in turns:
         result = await client.extract_plan(turn, [], standing=standing_raw)
-        subqueries = result.envelope.subqueries
+        subqueries = drop_unsaid_places(result.envelope.subqueries, turn)
         plan = compose(subqueries)
         kinds = [s.kind for s in subqueries]
         if result.envelope.refine and not plan.is_clarify:
