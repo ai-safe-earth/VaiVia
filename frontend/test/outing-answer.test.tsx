@@ -94,12 +94,7 @@ afterEach(() => {
 
 function renderPanel(messages: ChatMessage[]) {
   return render(
-    <ChatPanel
-      initialMessages={messages}
-      onGeometry={vi.fn()}
-      onDetail={vi.fn()}
-      onPick={vi.fn()}
-    />,
+    <ChatPanel initialMessages={messages} />,
   );
 }
 
@@ -149,27 +144,16 @@ describe('drawn answers', () => {
   });
 
   it('draws inline geometry without ever fetching', async () => {
-    const onGeometry = vi.fn();
-    const view = render(
-      <ChatPanel
-        initialMessages={DRAWN_TURN}
-        onGeometry={onGeometry}
-        onDetail={vi.fn()}
-        onPick={vi.fn()}
-      />,
-    );
+    const view = renderPanel(DRAWN_TURN);
     const card = view.container.querySelector<HTMLElement>(
       '[data-route-id="vv2-aaaaaaaaaaaaaaaa-fwd"]',
     )!;
     fireEvent.click(card);
-    await waitFor(() => {
-      const emitted = onGeometry.mock.calls.at(-1)?.[0] as GeoJSON.FeatureCollection;
+    await waitFor(() =>
       expect(
-        emitted?.features
-          .filter((f) => f.properties?.selected)
-          .map((f) => f.properties?.id),
-      ).toEqual(['vv2-aaaaaaaaaaaaaaaa-fwd']);
-    });
+        card.querySelector<HTMLElement>('[data-testid="card-map"]')?.dataset.line,
+      ).toBe('ok:vv2-aaaaaaaaaaaaaaaa-fwd'),
+    );
     expect(api.fetchRouteGeoJson).not.toHaveBeenCalled();
   });
 });

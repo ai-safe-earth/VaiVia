@@ -16,36 +16,18 @@ import { Sources } from './Sources';
 
 interface Props {
   trail: Trail;
-  selected: boolean;
-  /** Absent in the map layer's route panel — that card IS the selection. */
-  onSelect?: (trail: Trail) => void;
 }
 
-export function TrailCard({ trail, selected, onSelect }: Props) {
-  // Same expand idiom as LoopCard / Sources: per-card state, stopPropagation
-  // because the card body is the selection click target. A trail's expanded
-  // half shows only what its row already carries — no second fetch.
+export function TrailCard({ trail }: Props) {
+  // Same expand idiom as Sources: per-card state. A trail's expanded half
+  // shows only what its row already carries — no second fetch.
   const [open, setOpen] = useState(false);
   const length = distanceFigure(trail.total_distance_m);
   const climb = elevationFigure(trail.elevation_gain_m);
   const time = durationFigure(trail);
 
-  // A div with button semantics rather than <button>: the card holds real
-  // anchors, and an anchor inside a button is invalid HTML.
   return (
-    <div
-      role={onSelect ? 'button' : undefined}
-      tabIndex={onSelect ? 0 : undefined}
-      className="route-card"
-      aria-pressed={onSelect ? selected : undefined}
-      onClick={onSelect ? () => onSelect(trail) : undefined}
-      onKeyDown={(event) => {
-        if (onSelect && (event.key === 'Enter' || event.key === ' ')) {
-          event.preventDefault();
-          onSelect(trail);
-        }
-      }}
-    >
+    <div className="route-card">
       {/* The kind label keeps trails distinguishable from catalogue outings
           when one answer holds both (owner rule 2026-08-21). */}
       <span className="route-kind vv-label">Named trail</span>

@@ -1,18 +1,16 @@
 // @vitest-environment jsdom
 /**
- * The route card, in its two hosts.
+ * The route card, opened in place (owner decision 2026-09-29).
  *
- * In the transcript it is a collapsed button: the body tap and "+ info" both
- * raise the map. In the map layer's panel it is the same component, given
- * `expanded` (the profile and the numbers on arrival) and `onClose` (its
- * toggle reads "Less" and lowers the layer) and no onSelect — it is already
- * the selection, so there is nothing to pick and it is not a button.
+ * Closed, it is a button: the body tap and "+ info" both open it. Open, it
+ * carries its own map and detail, is no longer a button, and only its close
+ * button — top left — closes it.
  */
 
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { LoopCard, rideGrade, walkGrade } from '@/components/LoopCard';
+import { LoopCard, rideGrade, routeEnds, walkGrade } from '@/components/LoopCard';
 import type { Loop } from '@/lib/types';
 
 const api = vi.hoisted(() => ({ sendFeedback: vi.fn(async () => undefined) }));
@@ -71,35 +69,41 @@ const DRAWN: Loop = {
 
 afterEach(cleanup);
 
-describe('the route panel card', () => {
-  it('shows its profile and numbers on arrival when expanded', () => {
-    const view = render(<LoopCard loop={DRAWN} selected expanded onClose={() => undefined} />);
+describe('the card opens in place', () => {
+  it('shows its map, profile and numbers when open', () => {
+    const view = render(<LoopCard loop={DRAWN} expanded onClose={() => undefined} />);
     expect(view.container.querySelector('.route-detail')).toBeTruthy();
+    expect(view.container.querySelector('.route-detail [data-testid="card-map"]')).toBeTruthy();
     expect(view.container.querySelector('.route-detail .profile svg')).toBeTruthy();
   });
 
-  it('stays shut in the transcript, where a tap is what opens the map', () => {
-    const view = render(<LoopCard loop={LOOP} selected onSelect={() => undefined} />);
+  it('stays shut until opened', () => {
+    const view = render(<LoopCard loop={LOOP} onOpen={() => undefined} />);
     expect(view.container.querySelector('.route-detail')).toBeNull();
+    expect(view.container.querySelector('.card-close')).toBeNull();
   });
 
-  it('is not a button without an onSelect: nothing to press, nothing to focus', () => {
-    const view = render(<LoopCard loop={LOOP} selected expanded />);
+  it('closed, the body and "+ info" both open it', () => {
+    const onOpen = vi.fn();
+    const view = render(<LoopCard loop={LOOP} onOpen={onOpen} />);
+    fireEvent.click(view.container.querySelector('[data-route-id="p1"]')!);
+    fireEvent.click(view.container.querySelector('.detail-toggle')!);
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(onOpen).toHaveBeenCalledWith(LOOP);
+  });
+
+  it('open, it is not a button: only the close button acts', () => {
+    const onOpen = vi.fn();
+    const onClose = vi.fn();
+    const view = render(<LoopCard loop={LOOP} expanded onOpen={onOpen} onClose={onClose} />);
     const card = view.container.querySelector('[data-route-id="p1"]')!;
     expect(card.getAttribute('role')).toBeNull();
     expect(card.getAttribute('tabindex')).toBeNull();
-  });
+    expect(view.container.querySelector('.detail-toggle')).toBeNull();
 
-  it('"+ info" picks the route and "Less" closes the panel', () => {
-    const onSelect = vi.fn();
-    const onClose = vi.fn();
-    const shut = render(<LoopCard loop={LOOP} selected onSelect={onSelect} />);
-    fireEvent.click(shut.container.querySelector('.detail-toggle')!);
-    expect(onSelect).toHaveBeenCalledWith(LOOP);
-    cleanup();
-    const open = render(<LoopCard loop={LOOP} selected expanded onClose={onClose} />);
-    expect(open.container.querySelector('.detail-toggle')!.textContent).toContain('Less');
-    fireEvent.click(open.container.querySelector('.detail-toggle')!);
+    fireEvent.click(card);
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(view.getByLabelText('Close'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
@@ -114,7 +118,7 @@ describe('what the card says at a glance', () => {
     expect(rideGrade({ ...LOOP, mtb_rideable: true })).toMatchObject({ rank: 0, code: '✓' });
     expect(rideGrade(LOOP)).toMatchObject({ rank: 0, code: '?' });
 
-    const view = render(<LoopCard loop={DRAWN} selected onSelect={() => undefined} />);
+    const view = render(<LoopCard loop={DRAWN} onOpen={() => undefined} />);
     const marks = view.container.querySelectorAll('.grade');
     expect(marks).toHaveLength(2);
     expect(marks[0]!.querySelectorAll('.grade-dots i.on')).toHaveLength(2);
@@ -122,18 +126,37 @@ describe('what the card says at a glance', () => {
     expect(view.container.querySelector('.exigent')!.textContent).toContain('T4 move');
   });
 
-  it('says a route is drawn and reachable by train with a label and an icon', () => {
-    const view = render(<LoopCard loop={DRAWN} selected onSelect={() => undefined} />);
-    expect(view.container.querySelector('.route-origin')!.textContent).toBe('drawn for you');
+  it('says where it starts and ends, and whether a train reaches it', () => {
+    const view = render(<LoopCard loop={DRAWN} onOpen={() => undefined} />);
+    expect(view.container.querySelector('.route-kind')!.textContent).toBe(
+      'start Lecco · end Lecco',
+    );
     expect(view.getByLabelText('Reachable by train')).toBeTruthy();
-    // The kind row keeps the shape alone in .route-kind (the smoke reads it).
-    expect(view.container.querySelector('.route-kind')!.textContent).toBe('Loop');
+    // No "drawn for you" and no shape word: the ends say what it is.
+    expect(view.container.textContent).not.toContain('drawn for you');
+  });
+
+  it('names the ends in the two shapes: start A · end A, start A · end B', () => {
+    const at = { ...LOOP, start_names: ['Ponteranica'] };
+    expect(routeEnds(at)).toBe('start Ponteranica · end Ponteranica');
+    expect(routeEnds({ ...at, shape: 'destination', destination_name: 'Canto Alto' })).toBe(
+      'start Ponteranica · end Canto Alto',
+    );
+    // There and back to a named place is still "start A · end B".
+    expect(routeEnds({ ...at, shape: 'out_and_back', name: 'To Canto Alto' })).toBe(
+      'start Ponteranica · end Canto Alto',
+    );
+    // A relation's own name is not where it ends.
+    expect(routeEnds({ ...at, shape: 'linear', name: 'Sentiero delle Orobie' })).toBe(
+      'start Ponteranica',
+    );
+    expect(routeEnds(LOOP)).toBeNull();
   });
 });
 
 describe('the profile carries the ground', () => {
   it('draws one band segment per span, hatching the untagged stretch, with a legend of shares', () => {
-    const view = render(<LoopCard loop={DRAWN} selected expanded />);
+    const view = render(<LoopCard loop={DRAWN} expanded />);
     const band = view.container.querySelectorAll('.profile .band rect');
     expect(band).toHaveLength(3);
     expect(band[0]!.getAttribute('class')).toBe('surface-paved');
@@ -166,7 +189,7 @@ describe('the profile carries the ground', () => {
       places: [],
       attribution: 'OpenStreetMap, ODbL',
     };
-    const view = render(<LoopCard loop={saved} selected expanded detail={detail} />);
+    const view = render(<LoopCard loop={saved} expanded detail={detail} />);
     expect(view.container.querySelector('.profile .band')!.getAttribute('data-summary')).toBe(
       'true',
     );
@@ -174,7 +197,7 @@ describe('the profile carries the ground', () => {
   });
 
   it('says a drawn route has no profile rather than pretending to fetch one', () => {
-    const view = render(<LoopCard loop={{ ...DRAWN, profile: null }} selected expanded />);
+    const view = render(<LoopCard loop={{ ...DRAWN, profile: null }} expanded />);
     expect(view.container.textContent).toContain('No altitude profile');
     expect(view.container.textContent).not.toContain('Fetching');
   });
@@ -186,13 +209,13 @@ describe('the open card asks whether the route was right', () => {
   const TURN = { messageId: 'm1', conversationId: 'c1' };
 
   it('says nothing without a turn — a saved route answers no question', () => {
-    const view = render(<LoopCard loop={LOOP} selected expanded />);
+    const view = render(<LoopCard loop={LOOP} expanded />);
     expect(view.queryByLabelText('Bad route')).toBeNull();
   });
 
   it('posts the vote against this route and asks what is wrong', () => {
     api.sendFeedback.mockClear();
-    const view = render(<LoopCard loop={LOOP} selected expanded {...TURN} />);
+    const view = render(<LoopCard loop={LOOP} expanded {...TURN} />);
     fireEvent.click(view.getByLabelText('Bad route'));
     expect(api.sendFeedback).toHaveBeenCalledWith(
       'm1',
@@ -206,25 +229,27 @@ describe('the open card asks whether the route was right', () => {
   });
 
   it('forgets the vote when the same route arrives from another turn', () => {
-    const view = render(<LoopCard loop={LOOP} selected expanded {...TURN} />);
+    const view = render(<LoopCard loop={LOOP} expanded {...TURN} />);
     fireEvent.click(view.getByLabelText('Bad route'));
     expect(view.getByLabelText('Bad route').getAttribute('aria-pressed')).toBe('true');
 
     view.rerender(
-      <LoopCard loop={LOOP} selected expanded messageId="m2" conversationId="c1" />,
+      <LoopCard loop={LOOP} expanded messageId="m2" conversationId="c1" />,
     );
     expect(view.getByLabelText('Bad route').getAttribute('aria-pressed')).toBe('false');
     expect(view.queryByLabelText("What's wrong?")).toBeNull();
   });
 
-  it('keeps its clicks and its typing off the card that raises the map', () => {
-    const onSelect = vi.fn();
+  it('keeps its clicks and its typing off the card', () => {
+    const onOpen = vi.fn();
+    const onClose = vi.fn();
     const view = render(
-      <LoopCard loop={LOOP} selected expanded onSelect={onSelect} {...TURN} />,
+      <LoopCard loop={LOOP} expanded onOpen={onOpen} onClose={onClose} {...TURN} />,
     );
     fireEvent.click(view.getByLabelText('Bad route'));
     const field = view.getByLabelText("What's wrong?");
     fireEvent.keyDown(field, { key: ' ' });
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

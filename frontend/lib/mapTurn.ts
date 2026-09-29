@@ -1,96 +1,8 @@
 /**
- * Whose answer owns the map.
- *
- * The drawn set belongs to ONE answer. Two ways it stopped doing so, both
- * found by review: "show more" under an older answer merged that answer's
- * routes into the current one's drawn set, and a slow fetch's continuation
- * wrote into a set another answer had taken over in the meantime.
- *
- * The rules live here, as functions ChatPanel calls and the tests import —
- * not as prose a test mirrors, which is how a race guard can be inverted in
- * the component while its test stays green.
+ * A card's map line and the rules for trusting it. Each open card draws its
+ * own route alone (owner decision 2026-09-29), so there is no shared drawn set
+ * left to guard — only the line itself, which must be this route's or nothing.
  */
-
-
-export interface RevealPlan {
-  /** Drop what is drawn: this reveal comes from another answer. */
-  clear: boolean;
-  /** The [from, to) slice of that answer's loops to fetch and draw. */
-  slice: [number, number];
-  /** The answer that owns the map after this reveal. */
-  drawnTurn: number;
-}
-
-/**
- * What "show more" should do, given who owns the map now.
- *
- * Revealing cards of the answer already drawn ADDS to it. From any other
- * answer it is a change of subject: that answer takes the map over, drawn
- * from its first card, so what is shown is one answer whole and never a mix.
- *
- * The slice runs from 0 in BOTH cases: the fetch behind it skips lines it
- * already holds, so on the drawn answer this costs nothing extra — and it
- * backfills any hole an earlier click-takeover left behind the fold.
- */
-export function planReveal(
-  drawnTurn: number | null,
-  turn: number,
-  _from: number,
-  to: number,
-): RevealPlan {
-  return { clear: drawnTurn !== turn, slice: [0, to], drawnTurn: turn };
-}
-
-/**
- * May a fetch that has just resolved write into the drawn set?
- *
- * Only if the answer it was dispatched for still owns the map. Guarding the
- * dispatch alone left the continuation free to merge an older answer's routes
- * into a newer one's.
- */
-export function mayDraw(drawnTurn: number | null, turn: number): boolean {
-  return drawnTurn === turn;
-}
-
-/**
- * May a continuation paint for this card?
- *
- * Only if it is still the selected one, so a slow card A cannot land on top
- * of card B.
- */
-export function isStillSelected(selectedNow: string | null, resolvedFor: string): boolean {
-  return selectedNow === resolvedFor;
-}
-
-/**
- * What a click on a card should do, given who owns the map now.
- *
- * A click was the one entry point without a turn guard: every older answer's
- * cards stay rendered and clickable in the transcript, and clicking one drew
- * whatever answer's features happened to be cached — "any card shows any
- * map". A click on the drawn answer restyles in place; from any other answer
- * it is a change of subject, exactly like planReveal: that answer takes the
- * map over. The slice always reaches the clicked card, which may sit past
- * the fold if it was revealed before the takeover.
- */
-export interface SelectPlan {
-  /** Refetch and redraw: the click comes from an answer not on the map. */
-  takeover: boolean;
-  /** The [0, to) slice of that answer's loops the map needs. */
-  slice: [number, number];
-  /** The answer that owns the map after this click. */
-  drawnTurn: number;
-}
-
-export function planSelect(
-  drawnTurn: number | null,
-  turn: number,
-  fold: number,
-  clickedIndex: number,
-): SelectPlan {
-  const to = Math.max(fold, clickedIndex + 1);
-  return { takeover: drawnTurn !== turn, slice: [0, to], drawnTurn: turn };
-}
 
 /**
  * One card's map line, with the fetch outcome kept beside it.
@@ -146,36 +58,6 @@ export function inlineLine(loop: {
 /** Should this entry be fetched (again)? Errors retry; ok and missing hold. */
 export function needsFetch(entry: LineEntry | undefined): boolean {
   return entry === undefined || entry.status === 'error';
-}
-
-/**
- * The features the map should draw for a selection, or null for "draw
- * nothing".
- *
- * The rule that closes the sibling leak: when something IS selected but its
- * line is not drawable, the map clears rather than showing the selection's
- * siblings — MapView fits the map to whatever it is given, and four wrong
- * routes framed under a clicked card's name is exactly the defect. With no
- * selection (a fresh answer drawn whole) every ok line shows, deliberately.
- */
-export function drawableFeatures(
-  entries: ReadonlyMap<string, LineEntry>,
-  selectedId: string | null,
-): GeoJSON.Feature[] | null {
-  if (selectedId !== null && entries.get(selectedId)?.status !== 'ok') return null;
-  const features: GeoJSON.Feature[] = [];
-  for (const [id, entry] of entries) {
-    if (entry.status !== 'ok') continue;
-    features.push({
-      ...entry.feature,
-      properties: {
-        ...(entry.feature.properties ?? {}),
-        id,
-        selected: id === selectedId,
-      },
-    });
-  }
-  return features.length ? features : null;
 }
 
 /** The selected feature of a collection, if any — else a bare Feature (a

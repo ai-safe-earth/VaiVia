@@ -4,7 +4,7 @@ import type { KeyboardEvent } from 'react';
 
 import { SAC_ORDER } from '@/lib/difficulty';
 import { distance, distanceFigure, elevationFigure } from '@/lib/format';
-import type { LineStatus } from '@/lib/mapTurn';
+import type { LineEntry } from '@/lib/mapTurn';
 import {
   type DrawnProfile,
   sharesFromDistribution,
@@ -13,31 +13,29 @@ import {
 import type { Loop, RouteDetail } from '@/lib/types';
 
 import { Icon } from './brand';
+import { CardMap } from './CardMap';
 import { Feedback } from './Feedback';
 import { RouteProfile } from './MapChrome';
 import { Sources } from './Sources';
 
 interface Props {
   loop: Loop;
-  selected: boolean;
-  /** The transcript and the saved list: a tap on the body or on "+ info"
-   *  raises the map with this route's profile under it. Absent in the map
-   *  layer's route panel — that card IS the selection, so there is nothing
-   *  for a tap on it to pick, and without a handler it is not a button. */
-  onSelect?: (loop: Loop) => void;
-  /** The map panel's card: open on arrival with the profile, and its toggle
-   *  reads "Less", which lowers the layer. */
+  /** Open in place (owner decision 2026-09-29): the map and the detail
+   *  unfold inside the card, and stay until its close button — no layer
+   *  over the conversation. */
   expanded?: boolean;
+  /** A tap on the body, the name or "+ info" — one gesture — opens the card.
+   *  Open, the body is no longer a button: only the close button closes. */
+  onOpen?: (loop: Loop) => void;
   onClose?: () => void;
   /** The document detail of a SAVED route, fetched by the parent: undefined
    *  = not asked yet, null = there is none. A drawn route carries its own
    *  profile and spans and needs no detail. */
   detail?: RouteDetail | null;
-  /** This card's map line: undefined = not asked yet, 'ok' = drawn on
-   *  select, 'missing' = the route is no longer saved (settled), 'error' =
-   *  the fetch failed and a click retries. Said on the card, because the
-   *  silent alternative was drawing the SIBLINGS under this card's name. */
-  line?: LineStatus;
+  /** This card's map line: undefined = not asked yet, 'ok' = drawn,
+   *  'missing' = the route is no longer saved (settled), 'error' = the fetch
+   *  failed and reopening retries. Said on the card, never a blank map. */
+  line?: LineEntry;
   /** Saved state + toggle. Absent when signed out — favorites are account
    *  data, so the mark only exists with an account. */
   favorited?: boolean;
@@ -120,6 +118,23 @@ export function exigentWarning(loop: Loop): string | null {
   return `${SAC_LABEL[loop.sac_max!]!.split(' ')[0]} move`;
 }
 
+/** Where the route starts and ends, in the owner's two shapes (2026-09-29):
+ *  start A · end A for a loop, start A · end B for anything that goes
+ *  somewhere — usually there and back. Null when not even the start is
+ *  named, rather than a label made of dashes. */
+export function routeEnds(loop: Loop): string | null {
+  const start = loop.start_names?.[0] ?? null;
+  const circular = loop.shape === 'loop' || loop.shape === 'circular';
+  const goes = loop.shape === 'destination' || loop.shape === 'out_and_back';
+  // A destination route is named "To <place>"; any other name (an OSM
+  // relation's) is the route's own, not where it ends.
+  const named = loop.name?.startsWith('To ') ? loop.name.slice(3) : null;
+  const end = circular ? start : goes ? (loop.destination_name ?? named) : null;
+  if (!start && !end) return null;
+  if (!end) return `start ${start}`;
+  return `start ${start ?? '—'} · end ${end}`;
+}
+
 function GradeMark({ label, grade }: { label: string; grade: Grade }) {
   return (
     <span className="grade" title={grade.title}>
@@ -136,9 +151,8 @@ function GradeMark({ label, grade }: { label: string; grade: Grade }) {
 
 export function LoopCard({
   loop,
-  selected,
-  onSelect,
   expanded = false,
+  onOpen,
   onClose,
   detail,
   line,
@@ -147,15 +161,16 @@ export function LoopCard({
   messageId,
   conversationId,
 }: Props) {
-  const activate = onSelect ? () => onSelect(loop) : undefined;
-  const activateByKey = onSelect
+  // Closed, the whole card opens it; open, nothing but the close button acts.
+  const opener = !expanded && onOpen ? () => onOpen(loop) : undefined;
+  const openByKey = opener
     ? (event: KeyboardEvent) => {
         // The card's own keys only, never a descendant's: Enter on the toggle
         // and a space typed into the feedback field both bubble to here.
         if (event.target !== event.currentTarget) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          onSelect(loop);
+          opener();
         }
       }
     : undefined;
@@ -168,34 +183,36 @@ export function LoopCard({
     loop.name ??
     (loop.ref ? `Sentiero ${loop.ref}` : `${distance(loop.distance_m)} ${loop.activity} loop`);
   const warning = exigentWarning(loop);
-
-  const shapeLabel =
-    loop.shape === 'loop' || loop.shape === 'circular'
-      ? 'Loop'
-      : loop.shape === 'out_and_back'
-        ? 'There & back'
-        : loop.shape === 'destination'
-          ? 'Out & back'
-          : loop.shape === 'linear'
-            ? 'Linear'
-            : 'Named route';
+  const ends = routeEnds(loop);
+  const status = line?.status;
 
   return (
     <div
-      role={onSelect ? 'button' : undefined}
-      tabIndex={onSelect ? 0 : undefined}
+      role={opener ? 'button' : undefined}
+      tabIndex={opener ? 0 : undefined}
       className="route-card"
       data-route-id={loop.id}
-      aria-pressed={onSelect ? selected : undefined}
-      onClick={activate}
-      onKeyDown={activateByKey}
+      data-open={expanded || undefined}
+      onClick={opener}
+      onKeyDown={openByKey}
     >
       <div className="route-kind-row">
-        <span>
-          <span className="route-kind vv-label">{shapeLabel}</span>
-          {loop.kind === 'drawn' && (
-            <span className="route-origin vv-label">drawn for you</span>
+        <span className="route-kind-lead">
+          {expanded && onClose && (
+            <button
+              type="button"
+              className="card-close"
+              aria-label="Close"
+              title="Close"
+              onClick={(event) => {
+                event.stopPropagation();
+                onClose();
+              }}
+            >
+              ✕
+            </button>
           )}
+          {ends && <span className="route-kind vv-label">{ends}</span>}
         </span>
         <span className="route-marks">
           {loop.car_free && (
@@ -226,12 +243,12 @@ export function LoopCard({
         </span>
       </div>
 
-      {line === 'missing' && (
+      {status === 'missing' && (
         <p className="line-note vv-body-sm">No map line — this route is no longer saved.</p>
       )}
-      {line === 'error' && (
+      {status === 'error' && (
         <p className="line-note line-note-retry vv-body-sm">
-          Map line unavailable — select the card to retry.
+          Map line unavailable — close and reopen the card to retry.
         </p>
       )}
 
@@ -263,20 +280,19 @@ export function LoopCard({
           </span>
         )}
         <GradeMark label="ride" grade={rideGrade(loop)} />
-        {(onSelect || onClose) && (
+        {opener && (
           <button
             type="button"
             className="detail-toggle"
-            aria-expanded={expanded}
+            aria-expanded={false}
             onClick={(event) => {
               event.stopPropagation();
-              if (expanded) onClose?.();
-              else onSelect?.(loop);
+              opener();
             }}
           >
-            <span>{expanded ? 'Less' : 'info'}</span>
+            <span>info</span>
             <span className="sign" aria-hidden="true">
-              {expanded ? '−' : '+'}
+              +
             </span>
           </button>
         )}
@@ -285,6 +301,7 @@ export function LoopCard({
       {expanded && (
         <LoopDetail
           loop={loop}
+          line={line}
           detail={detail}
           messageId={messageId}
           conversationId={conversationId}
@@ -294,17 +311,19 @@ export function LoopCard({
   );
 }
 
-/** The expanded half, in the map layer's panel: the profile with the ground
+/** The open half, in place: the route's own map, the profile with the ground
  *  under it, the figures, both grades in one line, where it starts, the
  *  quality notes carried (never filtered), the attribution — and the thumbs,
  *  because opening a route is where it is actually judged. */
 function LoopDetail({
   loop,
+  line,
   detail,
   messageId,
   conversationId,
 }: {
   loop: Loop;
+  line?: LineEntry;
   detail?: RouteDetail | null;
   messageId?: string;
   conversationId?: string;
@@ -357,6 +376,11 @@ function LoopDetail({
 
   return (
     <div className="route-detail">
+      {/* The map's own gestures stay on the map: a pan must not bubble up
+          to the card. */}
+      <div onClick={(event) => event.stopPropagation()}>
+        <CardMap routeId={loop.id} line={line} />
+      </div>
       {profile ? (
         <RouteProfile profile={profile} />
       ) : fetching ? (
