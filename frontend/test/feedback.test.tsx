@@ -31,7 +31,6 @@ const TRANSCRIPT: ChatMessage[] = [
 function mount() {
   return render(
     <ChatPanel
-      onGeometry={vi.fn()}
       initialConversationId="conv-1"
       initialMessages={TRANSCRIPT}
     />,

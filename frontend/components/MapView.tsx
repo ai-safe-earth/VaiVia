@@ -77,6 +77,9 @@ export function MapView({ geometry }: Props) {
       center: LECCO,
       zoom: 11,
       attributionControl: { compact: false },
+      // The map sits inside a scrolling transcript: a plain wheel or one
+      // finger scrolls the conversation, ctrl+wheel or two fingers move the map.
+      cooperativeGestures: true,
     });
     map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
 
@@ -137,12 +140,10 @@ export function MapView({ geometry }: Props) {
       }
 
       const bounds = boundsOf(data);
-      // The route panel mounts in the same commit as the geometry it belongs
-      // to, which shortens the canvas: fit against the box as it IS, or the
-      // route is framed for a canvas that no longer exists. Every other
-      // resize is maplibre's own trackResize.
+      // Fit against the box as it IS: the card's detail mounts in the same
+      // commit as the map. Every other resize is maplibre's own trackResize.
       instance.resize();
-      if (bounds) instance.fitBounds(bounds, { padding: 64, maxZoom: 15, duration: 600 });
+      if (bounds) instance.fitBounds(bounds, { padding: 32, maxZoom: 15, duration: 0 });
     };
 
     if (instance.isStyleLoaded()) draw();

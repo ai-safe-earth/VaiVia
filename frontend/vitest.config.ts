@@ -17,5 +17,7 @@ export default defineConfig({
     // would otherwise pick it up and fail on @playwright/test imports.
     // Component tests are .tsx and declare jsdom per file.
     include: ['test/**/*.test.{ts,tsx}'],
+    // Stands the card map in for MapLibre, which needs WebGL.
+    setupFiles: ['test/setup.ts'],
   },
 });

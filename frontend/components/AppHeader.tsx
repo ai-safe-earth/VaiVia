@@ -10,15 +10,10 @@ interface Props {
   onFavorites?: () => void;
   /** Whether the saved-routes view is the one on screen. */
   favoritesOpen?: boolean;
-  /** Raises or lowers the map layer. The only way to reach the map for an
-   *  answer that has geometry but no card — a composed A→B route. */
-  onMap?: () => void;
-  /** Whether the map layer is the one on top. */
-  mapOpen?: boolean;
 }
 
 /**
- * 54px of chrome: mark, wordmark, saved routes, map, account.
+ * 54px of chrome: mark, wordmark, saved routes, account.
  *
  * The account's e-mail is the title of Sign out rather than a block of its
  * own: at 360px the row is mark + wordmark + two icons + Sign out, and an
@@ -33,8 +28,6 @@ export function AppHeader({
   onSignOut,
   onFavorites,
   favoritesOpen,
-  onMap,
-  mapOpen,
 }: Props) {
   return (
     <header className="app-header">
@@ -53,18 +46,6 @@ export function AppHeader({
           onClick={onFavorites}
         >
           <Icon name="saved" />
-        </button>
-      )}
-      {onMap && (
-        <button
-          type="button"
-          className="header-saved"
-          aria-pressed={mapOpen}
-          aria-label="Map"
-          title="Map"
-          onClick={onMap}
-        >
-          <Icon name="trail" />
         </button>
       )}
       {onSignOut && (
