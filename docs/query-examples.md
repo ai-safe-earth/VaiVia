@@ -102,8 +102,9 @@ WHERE total_m < 20000
 RETURN path, round(total_m / 1000, 2) AS total_km
 ```
 
-This is the only A-to-B the graph runs (`route_between_intersections`, behind `/chat`'s
-`RouteIntent`); anything heavier is drawn by the pack planner (`docs/route-design.md`).
+A hand query only: the product no longer runs any A-to-B in the graph. `/chat` draws
+A-to-B asks over the pack as outings with a named end (`docs/route-design.md`,
+decision 4).
 
 ### Route with a hut at the midpoint
 

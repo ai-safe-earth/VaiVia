@@ -108,3 +108,19 @@ def test_ask_e_uncovered_area_is_a_python_clarify_naming_coverage():
     assert isinstance(compile_outing(outing(area="the Orobie")), Constraints)
     assert isinstance(compile_outing(outing(area="le Grigne")), Constraints)
     assert isinstance(compile_outing(outing(area="la Grigna")), Constraints)
+
+
+def test_the_named_start_is_never_also_an_end():
+    """The model repeats the start as an end waypoint ("from Ponteranica to
+    Canto Alto" -> ends Ponteranica AND Canto Alto); only the real end stays."""
+    c = compile_outing(
+        OutingIntent(
+            activity="hike",
+            start={"mode": "named", "name": "Ponteranica"},
+            waypoints=[
+                {"name": "ponteranica", "role": "end"},
+                {"name": "Canto Alto", "role": "end"},
+            ],
+        )
+    )
+    assert [w.name for w in c.waypoints] == ["Canto Alto"]

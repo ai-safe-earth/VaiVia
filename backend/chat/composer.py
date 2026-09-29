@@ -2,25 +2,24 @@
 
 The model decomposes a message into atomic subqueries (chat/intents.py). This
 module — plain Python, no model in the loop — merges them into at most one
-structured search, one semantic theme, and a bounded list of routes, each of
-which the orchestrator maps onto a named parameterized template. When the plan
+structured search, one semantic theme and one outing to draw; the
+orchestrator maps the search onto a named parameterized template and hands
+the outing to the planner. When the plan
 carries too little to search well, composition yields a clarification with
 concrete suggestions instead of guessing. Nothing here ever builds query text.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from chat.intents import (
     ClarifyIntent,
     Intent,
     OutingIntent,
-    RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
 )
 
 MAX_SUBQUERIES = 4
-MAX_ROUTES = 2
 
 # A stated loop distance narrower than this fraction of itself is treated as a
 # point estimate rather than a real interval, and widened.
@@ -109,7 +108,6 @@ class ComposedPlan:
     clarify: ClarifyIntent | None = None
     search: TrailSearchIntent | None = None
     theme: str | None = None
-    routes: list[RouteIntent] = field(default_factory=list)
     #: The on-demand ask, verbatim, drawn by the planner over the pack.
     outing: OutingIntent | None = None
     #: The typed, coverage-validated "from here" point, attached by the
@@ -196,8 +194,9 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
       * an empty plan, or any clarify subquery, makes the whole turn a
         clarification (a partially-adversarial plan must not half-run);
       * structured searches merge tightest-wins; semantic themes join;
-      * routes are kept in order, capped at MAX_ROUTES;
-      * a search with no constraints and no theme and no routes is
+      * one outing per turn — an A-to-B ask is an outing with a named end
+        (docs/route-design.md decision 4), drawn over the pack;
+      * a search with no constraints and no theme and no outing is
         under-specified -> clarify with suggestions that drive a good search.
     """
     # The clarify scan reads the WHOLE plan, before the cap. A clarify poisons
@@ -222,7 +221,6 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     searches = [sanitize(s) for s in subqueries if isinstance(s, TrailSearchIntent)]
     themes = [s.text.strip() for s in subqueries if isinstance(s, SemanticThemeIntent)]
     themes = [t for t in themes if t]
-    routes = [s for s in subqueries if isinstance(s, RouteIntent)][:MAX_ROUTES]
     # One outing per turn: a message describes one outing, and two outing
     # subqueries are the model splitting what it should not — the first
     # speaks. (compile.py owns everything downstream of this.)
@@ -234,7 +232,6 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
 
     actionable = (
         bool(theme)
-        or bool(routes)
         or outing is not None
         or (search is not None and has_constraints(search))
     )
@@ -259,7 +256,6 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
         search is not None
         and only_activity(search)
         and theme is None
-        and not routes
         and outing is None
     ):
         return ComposedPlan(
@@ -279,7 +275,6 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     return ComposedPlan(
         search=search,
         theme=theme,
-        routes=routes,
         outing=outing,
     )
 
@@ -318,17 +313,9 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
     """Merge a refinement turn's delta onto the conversation's standing plan.
 
     Only called when the model set `refine` and this turn is not a clarify
-    (a clarify poisons the turn before it gets here). A route ask with nothing
-    else is a change of subject — "now route me from A to B" — and starts
-    fresh even under a stray refine flag.
-
-    Standing ROUTES are never carried: a route is a one-shot answer, not a
-    constraint in force, and carrying it re-ran "Lecco to Bergamo" under
-    every later ask of the conversation (owner session, 2026-08-26).
+    (a clarify poisons the turn before it gets here).
     """
     if standing.is_clarify:
-        return delta
-    if delta.routes and not (delta.search or delta.outing or delta.theme):
         return delta
 
     merged = ComposedPlan(
@@ -350,8 +337,6 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
         )
     if delta.theme:
         merged.theme = delta.theme
-    if delta.routes:
-        merged.routes = list(delta.routes)
     return merged
 
 
@@ -364,13 +349,14 @@ def standing_dump(plan: ComposedPlan) -> dict | None:
         "search": plan.search.model_dump() if plan.search else None,
         "outing": plan.outing.model_dump() if plan.outing else None,
         "theme": plan.theme,
-        "routes": [r.model_dump() for r in plan.routes],
     }
 
 
 def standing_load(data: dict | None) -> ComposedPlan | None:
     """The inverse, defensive: jsonb written by an older build, or by nothing,
-    must degrade to "no standing plan", never to a crash mid-turn."""
+    must degrade to "no standing plan", never to a crash mid-turn. A "routes"
+    key from before RouteIntent was retired is ignored — a route was never a
+    constraint in force."""
     if not isinstance(data, dict):
         return None
     try:
@@ -386,10 +372,9 @@ def standing_load(data: dict | None) -> ComposedPlan | None:
                 else None
             ),
             theme=data.get("theme") or None,
-            routes=[RouteIntent.model_validate(r) for r in data.get("routes") or []],
         )
     except Exception:  # noqa: BLE001 — malformed history is "no standing plan"
         return None
-    if not (plan.search or plan.theme or plan.routes or plan.outing):
+    if not (plan.search or plan.theme or plan.outing):
         return None
     return plan

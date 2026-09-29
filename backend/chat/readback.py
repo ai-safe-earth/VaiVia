@@ -163,9 +163,6 @@ def describe(plan: ComposedPlan) -> list[dict[str, str]]:
     if plan.theme is not None:
         _row(rows, "described as", plan.theme)
 
-    for route in plan.routes:
-        _row(rows, "route", f"{route.start} to {route.end}")
-
     return rows
 
 

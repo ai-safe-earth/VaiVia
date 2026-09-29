@@ -65,7 +65,7 @@ internal; the backend trusts only a shared-secret hop and never parses a token.
 ### 2. The LLM never sees or writes Cypher
 
 The model's only structured output is a plan of validated atomic subqueries
-(`TrailSearchIntent | RouteIntent | SemanticThemeIntent | ClarifyIntent`).
+(`TrailSearchIntent | OutingIntent | SemanticThemeIntent | ClarifyIntent`).
 Python — `backend/chat/composer.py`, not the model — merges them tightest-wins
 and maps the result onto named, read-only, parameterized templates in
 `backend/graph/queries.cypher`. No field in the intent schema can carry a query,

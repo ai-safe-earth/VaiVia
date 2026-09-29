@@ -7,7 +7,6 @@ question back, but to show where the system did something to it.
 
 from chat.composer import compose
 from chat.intents import (
-    RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
 )
@@ -65,11 +64,6 @@ def test_climb_is_metres_and_distance_is_kilometres():
     rows = rows_for(TrailSearchIntent(min_elevation_gain_m=1000, max_distance_m=20000))
     assert rows["climb"] == "over 1000 m"
     assert rows["distance"] == "under 20 km"
-
-
-def test_a_route_ask_reads_back_its_endpoints():
-    rows = rows_for(RouteIntent(start="Lecco", end="Abbadia"))
-    assert rows["route"] == "Lecco to Abbadia"
 
 
 def test_every_value_is_a_string_a_walker_could_have_said():

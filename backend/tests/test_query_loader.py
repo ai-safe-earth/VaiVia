@@ -10,13 +10,11 @@ EXPECTED = {
     "search_trails",
     "trail_by_id",
     "trail_geometry",
-    "nearest_intersection",
     "poi_by_name",
     "poi_by_name_fulltext",
     "semantic_search_trails",
     "semantic_search_trails_filtered",
     "count_embedded_trails",
-    "route_between_intersections",
     "graph_project_routing",
     "graph_drop_routing",
     "healthcheck",
@@ -85,14 +83,15 @@ def test_no_template_writes_to_the_graph():
         ), f"{name} mutates data"
 
 
-def test_routing_templates_never_traverse_semantic_edges():
-    """PASSES_BY / COMPOSED_OF / LOCATED_IN must not appear in path expressions."""
-    for name in ("route_between_intersections",):
-        body = query_loader.get_query(name)
-        assert "PASSES_BY" not in body
-        assert "COMPOSED_OF" not in body
-        assert "LOCATED_IN" not in body
-        assert "NEAR_POI" not in body
+def test_variable_length_paths_never_traverse_semantic_edges():
+    """PASSES_BY / COMPOSED_OF / LOCATED_IN / NEAR_POI must not appear in a
+    variable-length path expression, in any template. (The graph's last
+    A-to-B walk went with RouteIntent; A-to-B is drawn over the pack now.)"""
+    varlength = re.compile(r"\[[^\]]*\*[^\]]*\]")
+    for name in query_loader.query_names():
+        for rel in varlength.findall(query_loader.get_query(name)):
+            for semantic in ("PASSES_BY", "COMPOSED_OF", "LOCATED_IN", "NEAR_POI"):
+                assert semantic not in rel, f"{name} walks {semantic}"
 
 
 def test_variable_length_traversals_are_bounded():

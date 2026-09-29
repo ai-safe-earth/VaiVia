@@ -100,14 +100,9 @@ class OutingIntent(BaseModel):
     def waypoint_roles(self) -> list[str]:
         return [w.role for w in self.waypoints]
 
-
-class RouteIntent(BaseModel):
-    """Route between two named places. Maps to the routing template chain."""
-
-    kind: Literal["route"] = "route"
-    start: str
-    end: str
-    max_distance_m: Annotated[float, Field(gt=0)] | None = None
+    @property
+    def waypoint_names(self) -> list[str]:
+        return [w.name for w in self.waypoints if w.name]
 
 
 class SemanticThemeIntent(BaseModel):
@@ -130,11 +125,7 @@ class ClarifyIntent(BaseModel):
 
 
 Intent = Annotated[
-    TrailSearchIntent
-    | OutingIntent
-    | RouteIntent
-    | SemanticThemeIntent
-    | ClarifyIntent,
+    TrailSearchIntent | OutingIntent | SemanticThemeIntent | ClarifyIntent,
     Field(discriminator="kind"),
 ]
 

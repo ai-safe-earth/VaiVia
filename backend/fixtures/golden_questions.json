@@ -129,9 +129,12 @@
  },
  {
   "id": "g13",
-  "question": "an easy ride past a hut, and how do I get from Lecco to Abbadia?",
+  "question": "an easy ride past a hut, and something shady along a stream",
   "expect": {
-   "routes": 1
+   "search.poi_types": [
+    "hut"
+   ],
+   "theme": true
   },
   "expect_trails": []
  },
@@ -328,7 +331,11 @@
    "how do I get from Abbadia to Mandello?"
   ],
   "expect": {
-   "routes": 1
+   "outing.start.name": "Abbadia",
+   "outing.waypoint_names": [
+    "Mandello"
+   ],
+   "outing.max_distance_km": null
   }
  },
  {
@@ -361,10 +368,11 @@
    "a 10 km loop"
   ],
   "expect": {
-   "routes": 0,
+   "outing.shape": "loop",
    "outing.max_distance_km": {
     "lte": 12
-   }
+   },
+   "outing.waypoint_names": null
   }
  },
  {
@@ -404,7 +412,10 @@
   "id": "g39",
   "question": "how do I get from Lecco station to Rifugio Rosalba?",
   "expect": {
-   "routes": 1
+   "outing.start.name": "Lecco",
+   "outing.waypoint_names": [
+    "Rosalba"
+   ]
   }
  },
  {
@@ -672,5 +683,48 @@
    "mtb_rideable": true
   },
   "pack_run_id": "pack-parity"
+ },
+ {
+  "id": "g66",
+  "question": "a route to Canto Alto from Ponteranica",
+  "expect": {
+   "outing.start.name": "Ponteranica",
+   "outing.waypoint_names": [
+    "Canto Alto"
+   ]
+  },
+  "expect_facts": {
+   "destination_name": "Canto Alto"
+  },
+  "pack_run_id": "pack-parity"
+ },
+ {
+  "id": "g67",
+  "question": "a route to canto alto",
+  "expect": {
+   "outing.waypoint_names": [
+    "Canto Alto"
+   ]
+  },
+  "expect_facts": {
+   "destination_name": "Canto Alto"
+  },
+  "pack_run_id": "pack-parity"
+ },
+ {
+  "id": "g68",
+  "question": "a route from bergamo",
+  "expect": {
+   "outing.start.name": "Bergamo"
+  }
+ },
+ {
+  "id": "g69",
+  "question": "a route to parco dei colli",
+  "expect": {
+   "outing.waypoint_names": [
+    "Parco dei Colli"
+   ]
+  }
  }
 ]

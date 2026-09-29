@@ -129,8 +129,9 @@ The routing graph: intersections are the vertices, and each edge carries the
 segment data needed for cost-based pathfinding. Both directions are
 materialized (unless OSM `oneway`), and each direction carries its own
 `elevation_gain_m`/`elevation_loss_m` — A→B's climb is B→A's descent — so
-routing can cost real climbing effort. This is the graph `route_between_intersections`
-walks (bounded `shortestPath`) and `scripts.check_graph_connectivity` projects —
+routing can cost real climbing effort. It is kept for
+`scripts.check_graph_connectivity`, which projects it — nothing in the product
+walks it since A→B moved to the pack (`fix/route-on-pack`) —
 `(:Segment)` nodes are NOT part of the routing
 traversal; they exist for trail composition (`COMPOSED_OF`) and POI proximity
 (`PASSES_BY`).
@@ -140,8 +141,8 @@ user-visible bug.** `distance_m` is the true length of the edge in metres.
 `cost_m` is that length multiplied by how unpleasant the way is for a walker or
 rider (`core/comfort.py`: `path` 1.0, `residential` 2.4, `secondary` 4.5, with
 a smaller surface factor on top). Ingestion still writes `cost_m`, but nothing routes
-on it since R7 — `route_between_intersections` is hop-shortest, and route drawing
-happens over the pack's own cost columns (`docs/route-design.md`). It was added because
+on it since R7 — route drawing, A→B included, happens over the pack's own cost
+columns (`docs/route-design.md`). It was added because
 minimising raw distance returns road walks — roads are straighter (see
 `docs/fragilities.md` #9, #10). **Every distance shown to a user is summed from
 `distance_m`**, never from a cost. The network ingests
@@ -216,7 +217,7 @@ Defined in [`graph/schema.cypher`](../graph/schema.cypher). Summary:
 
 Neo4j's graph traversal excels at semantic multi-hop queries (Trail → Segment → POI). Route DRAWING left the graph entirely in Phase 12: routes are built at ask time over the exported pack by `shared/routes/` (`docs/route-design.md`), and Neo4j reads the route documents that fall out of it.
 
-What is left in the graph is one A-to-B walk: `/chat`'s RouteIntent snaps two named places to intersections and runs `route_between_intersections`, a bounded `shortestPath` over `(:Intersection)-[:CONNECTS_TO]->(:Intersection)`. It minimises hops, not metres — good enough for "how do I get from Lecco to Abbadia", and the honest ceiling is written here rather than in a comment.
+No A-to-B walk is left in the graph either (`fix/route-on-pack`, 2026-09-29). `/chat`'s RouteIntent used to snap two named places to intersections and run a bounded, hop-minimising `shortestPath`; its places came from the graph's 3,195 POIs, which lack most villages and peaks, so "a route to Canto Alto" almost always answered "nothing matched". An A-to-B ask is now an outing with a named start and a named end, drawn there and back over the pack like every other route.
 
 GDS is no longer on any serving path. R7 deleted `POST /routes` (its only caller) with `route_gds_dijkstra` and `intersection_locations`; `graph_project_routing` / `graph_drop_routing` remain for `scripts.check_graph_connectivity`, which runs WCC to find islands (fragility #9).
 

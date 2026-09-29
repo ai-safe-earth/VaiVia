@@ -4,9 +4,9 @@
 > the reasoning, which are still the record of why the choice went the way it
 > did. What actually shipped is neither option here: routes are DRAWN at ask
 > time over the exported pack by `shared/routes/` (`docs/route-design.md`),
-> and the only A-to-B walk left in Neo4j is `/chat`'s RouteIntent over
-> `route_between_intersections` — shortestPath, no GDS, no comfort weighting.
-> GDS survives for one diagnostic, `scripts.check_graph_connectivity`.
+> A-to-B included since `fix/route-on-pack` retired `RouteIntent` and
+> `route_between_intersections`. GDS survives for one diagnostic,
+> `scripts.check_graph_connectivity`.
 
 Evaluated 2026-08-17 on the Lecco region. **This records an evaluation, not a
 migration.** Nothing was switched over to either engine.
