@@ -204,10 +204,12 @@ compile step owns every number the planner sees. POI kinds to add for this: `chu
    stayed in Neo4j as `route_between_intersections` (bounded `shortestPath`, no GDS), so
    the `Intersection`/`CONNECTS_TO` load stays; `graph_project_routing` /
    `graph_drop_routing` and the plugin stay for `scripts.check_graph_connectivity` only.*
-   *Completed by `fix/route-on-pack` (2026-09-29): `RouteIntent`, `nearest_intersection`
-   and `route_between_intersections` are gone. An A→B ask is an outing with a named start
-   and a named end waypoint, drawn there and back over the pack (`chat/planner.py`
-   `_named_ends`); both names resolve from the pack's own places first, the graph's POIs
+   *Completed by `fix/route-on-pack` (2026-09-29): `nearest_intersection` and
+   `route_between_intersections` are gone. An A→B ask is drawn as an outing with a named
+   start and a named end waypoint, there and back over the pack (`chat/planner.py`
+   `_named_ends`). `RouteIntent` survives only as the model's extraction shape — two
+   names, either absent — which `composer.route_as_outing` converts: removing the kind
+   from the prompt flipped unrelated loop asks from 8/8 to 0/8 outing (measured); both names resolve from the pack's own places first, the graph's POIs
    only as a fallback for a start. A name nothing matches is said in a clarify, never
    swapped for a place of the same kind. One-way (start A, end B, no return) is not drawn:
    it only matters for multi-day, which is not offered. The `Intersection`/`CONNECTS_TO`

@@ -29,13 +29,16 @@ def test_plan_envelope_discriminates_each_subquery():
     assert kinds == [TrailSearchIntent, SemanticThemeIntent, OutingIntent]
 
 
-def test_route_is_no_longer_an_intent():
-    """RouteIntent is retired: an A-to-B ask is an outing with a named end
-    (docs/route-design.md decision 4). A stale "route" kind is refused."""
-    with pytest.raises(ValidationError):
-        PlanEnvelope.model_validate(
-            {"subqueries": [{"kind": "route", "start": "Lecco", "end": "Rifugio"}]}
-        )
+def test_a_route_carries_only_names_either_one_absent():
+    """A route is the model's A-to-B shape: two place names, either absent
+    ("a route to Canto Alto" has no start). No query, no id, no geometry —
+    the composer draws it as an outing over the pack."""
+    envelope = PlanEnvelope.model_validate(
+        {"subqueries": [{"kind": "route", "start": None, "end": "Canto Alto"}]}
+    )
+    route = envelope.subqueries[0]
+    assert route.kind == "route" and route.start is None
+    assert set(type(route).model_fields) == {"kind", "start", "end", "max_distance_m"}
 
 
 def test_outing_discriminates_and_cannot_smuggle_geometry():

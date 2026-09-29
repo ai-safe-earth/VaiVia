@@ -4,7 +4,7 @@
 > the reasoning, which are still the record of why the choice went the way it
 > did. What actually shipped is neither option here: routes are DRAWN at ask
 > time over the exported pack by `shared/routes/` (`docs/route-design.md`),
-> A-to-B included since `fix/route-on-pack` retired `RouteIntent` and
+> A-to-B included since `fix/route-on-pack` retired
 > `route_between_intersections`. GDS survives for one diagnostic,
 > `scripts.check_graph_connectivity`.
 

@@ -217,7 +217,7 @@ Defined in [`graph/schema.cypher`](../graph/schema.cypher). Summary:
 
 Neo4j's graph traversal excels at semantic multi-hop queries (Trail → Segment → POI). Route DRAWING left the graph entirely in Phase 12: routes are built at ask time over the exported pack by `shared/routes/` (`docs/route-design.md`), and Neo4j reads the route documents that fall out of it.
 
-No A-to-B walk is left in the graph either (`fix/route-on-pack`, 2026-09-29). `/chat`'s RouteIntent used to snap two named places to intersections and run a bounded, hop-minimising `shortestPath`; its places came from the graph's 3,195 POIs, which lack most villages and peaks, so "a route to Canto Alto" almost always answered "nothing matched". An A-to-B ask is now an outing with a named start and a named end, drawn there and back over the pack like every other route.
+No A-to-B walk is left in the graph either (`fix/route-on-pack`, 2026-09-29). `/chat`'s RouteIntent used to snap two named places to intersections and run a bounded, hop-minimising `shortestPath`; its places came from the graph's 3,195 POIs, which lack most villages and peaks, so "a route to Canto Alto" almost always answered "nothing matched". An A-to-B ask is now drawn as an outing with a named start and a named end, there and back over the pack like every other route; `RouteIntent` remains only as the names the model extracts.
 
 GDS is no longer on any serving path. R7 deleted `POST /routes` (its only caller) with `route_gds_dijkstra` and `intersection_locations`; `graph_project_routing` / `graph_drop_routing` remain for `scripts.check_graph_connectivity`, which runs WCC to find islands (fragility #9).
 

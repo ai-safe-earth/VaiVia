@@ -15,6 +15,7 @@ from chat.intents import (
     ClarifyIntent,
     Intent,
     OutingIntent,
+    RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
 )
@@ -59,6 +60,80 @@ _MIN_OF_MAX = (
 )
 _MAX_OF_MIN = ("min_difficulty_level", "min_distance_m", "min_elevation_gain_m")
 _FIRST_WINS = ("activity", "season", "region")
+
+
+#: Words too common to prove a place was said ("Lago di Como" is said by
+#: "como", never by "di").
+_PLACE_FILLER = frozenset({"lago", "lake", "monte", "the", "del", "della", "di"})
+
+
+def _said(place: str, message: str) -> bool:
+    """Did the user's own words name this place? Whole value, or any
+    distinctive word of it: "Mandello" says "Mandello del Lario", "the
+    Orobie" says "Orobie", "Lecco station" says "Lecco"."""
+    text = message.lower()
+    value = place.strip().lower()
+    if not value:
+        return True
+    if value in text:
+        return True
+    return any(
+        len(word) >= 4 and word not in _PLACE_FILLER and word in text
+        for word in value.replace("'", " ").split()
+    )
+
+
+def drop_unsaid_places(subqueries: list[Intent], message: str) -> list[Intent]:
+    """A place the message never names is dropped, in Python.
+
+    The prompt forbids carrying a place from an earlier turn into this one
+    ("a bike route of less than 20 km" after "... near Bergamo" has NO
+    region), and the model still does it — measured on golden g32/g34 when
+    the named-place examples moved. A refinement is no exception: its delta
+    carries only what changed, and a place that changed was said. The
+    standing plan keeps its places through apply_delta, never through the
+    model. Named start, named end, area and region all obey it.
+    """
+    out: list[Intent] = []
+    for s in subqueries:
+        if (
+            isinstance(s, TrailSearchIntent)
+            and s.region
+            and not _said(s.region, message)
+        ):
+            s = s.model_copy(update={"region": None})
+        elif isinstance(s, RouteIntent):
+            update = {
+                end: None
+                for end in ("start", "end")
+                if getattr(s, end) and not _said(getattr(s, end), message)
+            }
+            if update:
+                s = s.model_copy(update=update)
+        elif isinstance(s, OutingIntent):
+            update: dict = {}
+            if s.area and not _said(s.area, message):
+                update["area"] = None
+            if s.start.name and not _said(s.start.name, message):
+                start = s.start.model_copy(update={"name": None})
+                if start.mode == "named":
+                    start.mode = "any"
+                update["start"] = start
+            kept = []
+            for w in s.waypoints:
+                if w.name and not _said(w.name, message):
+                    if w.kind is None and w.role in ("end", "pass"):
+                        continue  # a nameless, kindless waypoint says nothing
+                    w = w.model_copy(update={"name": None})
+                kept.append(w)
+            if len(kept) != len(s.waypoints) or any(
+                a is not b for a, b in zip(kept, s.waypoints, strict=True)
+            ):
+                update["waypoints"] = kept
+            if update:
+                s = s.model_copy(update=update)
+        out.append(s)
+    return out
 
 
 def sanitize(intent: TrailSearchIntent) -> TrailSearchIntent:
@@ -225,7 +300,11 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     # subqueries are the model splitting what it should not — the first
     # speaks. (compile.py owns everything downstream of this.)
     outings = [s for s in subqueries if isinstance(s, OutingIntent)]
-    outing = outings[0] if outings else None
+    if not outings:
+        # An A-to-B ask arrives as a route and is drawn as an outing: the
+        # model keeps the kind it reads best, Python decides what runs.
+        outings = [route_as_outing(s) for s in subqueries if isinstance(s, RouteIntent)]
+    outing = _without_start_waypoint(outings[0]) if outings else None
 
     search = merge_searches(searches) if searches else None
     theme = "; ".join(themes) if themes else None
@@ -309,6 +388,70 @@ def _overlay(base, delta):
     return merged
 
 
+#: What the model writes into a route end when the user named none.
+_NO_PLACE = frozenset({"", "named", "here", "any", "unknown", "none", "start"})
+
+
+def route_as_outing(route: RouteIntent) -> OutingIntent:
+    """The A-to-B ask as the outing the pack draws: the start named (or
+    "here"), the end a named waypoint, there and back. No end is a loop from
+    the start; no start lets the planner pick trailheads near the end."""
+    start = (route.start or "").strip()
+    end = (route.end or "").strip()
+    if start.lower() in ("here", "my location", "current location"):
+        spec = {"mode": "here"}
+    elif start.lower() in _NO_PLACE:
+        spec = {"mode": "any"}
+    else:
+        spec = {"mode": "named", "name": start}
+    waypoints = [] if end.lower() in _NO_PLACE else [{"name": end, "role": "end"}]
+    return OutingIntent(
+        activity="hike",
+        start=spec,
+        waypoints=waypoints,
+        shape=None if waypoints else "loop",
+        max_distance_km=(
+            route.max_distance_m / 1000 if route.max_distance_m is not None else None
+        ),
+    )
+
+
+def _without_start_waypoint(outing: OutingIntent) -> OutingIntent:
+    """The named start is never also a waypoint. The model repeats it ("from
+    Lecco to Abbadia" -> a waypoint Lecco beside start Lecco), and a later
+    turn that replaces the start would otherwise keep Lecco as a place to
+    pass (g34)."""
+    start = " ".join((outing.start.name or "").lower().split())
+    if not start:
+        return outing
+    kept = [
+        w
+        for w in outing.waypoints
+        if not (w.name and " ".join(w.name.lower().split()) == start)
+    ]
+    if len(kept) == len(outing.waypoints):
+        return outing
+    return outing.model_copy(update={"waypoints": kept})
+
+
+def _settle_ends(merged: OutingIntent, delta: OutingIntent) -> OutingIntent:
+    """Where a refined outing ends, decided in Python.
+
+    A loop ends where it starts, so a turn that SAYS loop drops the standing
+    end ("to Abbadia", then "a 10 km loop" — g34). A turn that names a new
+    end on a standing loop makes it a there-and-back instead.
+    """
+    waypoints = list(merged.waypoints)
+    shape = merged.shape
+    if delta.shape == "loop":
+        waypoints = [w for w in waypoints if w.role != "end"]
+    elif shape == "loop" and any(w.role == "end" and w.name for w in delta.waypoints):
+        shape = None
+    return _without_start_waypoint(
+        merged.model_copy(update={"waypoints": waypoints, "shape": shape})
+    )
+
+
 def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
     """Merge a refinement turn's delta onto the conversation's standing plan.
 
@@ -329,6 +472,7 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
             if merged.outing is not None
             else delta.outing
         )
+        merged.outing = _settle_ends(merged.outing, delta.outing)
     if delta.search is not None:
         merged.search = (
             _overlay(merged.search, delta.search)

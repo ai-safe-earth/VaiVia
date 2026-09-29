@@ -62,6 +62,7 @@ from chat.composer import (
     ComposedPlan,
     apply_delta,
     compose,
+    drop_unsaid_places,
     standing_dump,
     standing_load,
 )
@@ -224,7 +225,7 @@ async def run_turns(
     kinds: list[str] = []
     for turn in turns:
         result = await client.extract_plan(turn, [], standing=standing_raw)
-        subqueries = result.envelope.subqueries
+        subqueries = drop_unsaid_places(result.envelope.subqueries, turn)
         plan = compose(subqueries)
         kinds = [s.kind for s in subqueries]
         if result.envelope.refine and not plan.is_clarify:

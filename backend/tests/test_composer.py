@@ -14,6 +14,7 @@ from chat.composer import (
 from chat.intents import (
     ClarifyIntent,
     OutingIntent,
+    RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
 )
@@ -441,3 +442,147 @@ def test_outing_delta_overlays_the_standing_ask():
     merged = apply_delta(standing, delta)
     assert merged.outing.max_hours == 2
     assert merged.outing.party == "kids"  # unchanged constraint survives
+
+
+# ── places the message never said (drop_unsaid_places) ──────────────────────
+
+
+def test_a_region_the_message_never_named_is_dropped():
+    """g32: after "... near Bergamo", "a bike route of less than 20 km" names
+    no place — a carried region is the model's, not the walker's."""
+    from chat.composer import drop_unsaid_places
+
+    [s] = drop_unsaid_places(
+        [TrailSearchIntent(activity="mtb", region="Bergamo")],
+        "a bike route of less than 20 km",
+    )
+    assert s.region is None and s.activity == "mtb"
+
+
+def test_carried_outing_places_are_dropped_said_ones_kept():
+    from chat.composer import drop_unsaid_places
+
+    carried = OutingIntent(
+        activity="hike",
+        shape="loop",
+        area="Lecco",
+        start={"mode": "named", "name": "Lecco"},
+        waypoints=[
+            {"name": "Abbadia", "role": "end"},
+            {"kind": "lake", "name": "lake or river", "role": "bathe"},
+        ],
+    )
+    [s] = drop_unsaid_places([carried], "a 10 km loop")
+    assert s.area is None
+    assert s.start.name is None and s.start.mode == "any"
+    assert s.waypoint_names == []
+    assert s.waypoint_kinds == ["lake"]  # the kind stays; only the name goes
+
+    said = OutingIntent(
+        activity="hike",
+        start={"mode": "named", "name": "Lecco"},
+        waypoints=[{"name": "Mandello del Lario", "role": "end"}],
+    )
+    [s] = drop_unsaid_places([said], "how do I get from lecco to Mandello?")
+    assert s.start.name == "Lecco"
+    assert s.waypoint_names == ["Mandello del Lario"]
+
+
+def test_place_words_match_loosely_but_filler_does_not():
+    from chat.composer import _said
+
+    assert _said("the Orobie", "three days in the orobie")
+    assert _said("Lecco station", "from lecco by train")
+    assert not _said("Lago di Como", "a lake walk di sera")
+
+
+def test_refining_to_a_loop_drops_the_standing_end():
+    """g34: "how do I get from Lecco to Abbadia?" then "a 10 km loop" — a
+    loop ends where it starts, so Abbadia cannot stay its end."""
+    standing = ComposedPlan(
+        outing=OutingIntent(
+            activity="hike",
+            start={"mode": "named", "name": "Lecco"},
+            waypoints=[
+                {"name": "Abbadia", "role": "end"},
+                {"kind": "lake", "role": "pass"},
+            ],
+        )
+    )
+    merged = apply_delta(
+        standing,
+        ComposedPlan(
+            outing=OutingIntent(activity="hike", shape="loop", max_distance_km=10)
+        ),
+    )
+    assert merged.outing is not None
+    assert merged.outing.waypoint_names == []
+    assert merged.outing.waypoint_kinds == ["lake"]  # a pass-by stays
+
+
+def test_a_new_end_on_a_standing_loop_makes_it_there_and_back():
+    standing = ComposedPlan(
+        outing=OutingIntent(activity="hike", shape="loop", area="Lecco")
+    )
+    merged = apply_delta(
+        standing,
+        ComposedPlan(
+            outing=OutingIntent(
+                activity="hike",
+                start={"mode": "named", "name": "Abbadia"},
+                waypoints=[
+                    {"name": "Abbadia", "role": "end"},
+                    {"name": "Mandello", "role": "end"},
+                ],
+            )
+        ),
+    )
+    assert merged.outing is not None
+    assert merged.outing.shape is None
+    assert merged.outing.start.name == "Abbadia"
+    assert merged.outing.waypoint_names == ["Mandello"]
+
+
+def test_a_waypoint_repeating_the_start_never_reaches_the_plan():
+    plan = compose(
+        [
+            OutingIntent(
+                activity="hike",
+                start={"mode": "named", "name": "Lecco"},
+                waypoints=[
+                    {"name": "lecco", "role": "pass"},
+                    {"name": "Abbadia", "role": "end"},
+                ],
+            )
+        ]
+    )
+    assert plan.outing is not None
+    assert plan.outing.waypoint_names == ["Abbadia"]
+
+
+def test_a_route_is_drawn_as_an_outing_never_walked_in_the_graph():
+    plan = compose([RouteIntent(start="Ponteranica", end="Canto Alto")])
+    assert plan.outing is not None
+    assert plan.outing.start.mode == "named"
+    assert plan.outing.start.name == "Ponteranica"
+    assert plan.outing.waypoint_names == ["Canto Alto"]
+    assert plan.outing.shape is None  # there and back, the planner's default
+
+
+def test_a_route_with_one_end_missing():
+    to = compose([RouteIntent(end="Canto Alto")]).outing
+    assert to is not None and to.start.mode == "any"
+    assert to.waypoint_names == ["Canto Alto"]
+    frm = compose([RouteIntent(start="Bergamo", end="")]).outing
+    assert frm is not None and frm.start.name == "Bergamo"
+    assert frm.waypoints == [] and frm.shape == "loop"
+
+
+def test_a_stated_outing_wins_over_a_route_in_the_same_turn():
+    plan = compose(
+        [
+            OutingIntent(activity="mtb", shape="loop"),
+            RouteIntent(start="Lecco", end="Abbadia"),
+        ]
+    )
+    assert plan.outing is not None and plan.outing.activity == "mtb"

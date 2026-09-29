@@ -274,7 +274,12 @@ async def test_injection_that_produces_a_search_still_only_reads(db):
         db,
         {"kind": "trail_search", "region": "'; DROP TABLE users; --"},
     )
-    await collect(orchestrator, user_id="u1", message="delete everything")
+    # The payload is IN the message: a region the message never said is
+    # dropped before anything runs (drop_unsaid_places), which is stricter
+    # still — this test is about what happens when one gets through.
+    await collect(
+        orchestrator, user_id="u1", message="trails in '; DROP TABLE users; --"
+    )
 
     # ONLY read-only templates run, with the payload always a bound parameter
     # and never query text.

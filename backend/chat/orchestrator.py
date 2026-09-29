@@ -33,6 +33,7 @@ from chat.composer import (
     apply_delta,
     capped_difficulty,
     compose,
+    drop_unsaid_places,
     standing_dump,
     standing_load,
 )
@@ -224,7 +225,7 @@ class ChatOrchestrator:
                 message, history, standing=standing_raw
             )
             plan_usage = plan_result.usage
-            subqueries = plan_result.envelope.subqueries
+            subqueries = drop_unsaid_places(plan_result.envelope.subqueries, message)
             plan = compose(subqueries)
             # reset discards the plan in force BEFORE refine is considered: it
             # is the only way to clear a constraint (a delta can change one
