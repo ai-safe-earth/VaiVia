@@ -109,6 +109,10 @@ def _strong_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [r for r in rows if r.get("score") is None or r["score"] >= floor]
 
 
+#: What a drawn card carries for the map and the profile, never for prose.
+BULK_CARD_KEYS = frozenset({"geometry", "profile", "spans"})
+
+
 def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
     """The results as the ANSWER model sees them: card lists cut to a prefix.
 
@@ -119,11 +123,12 @@ def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
     view = dict(results)
     for key in ("loops", "trails"):
         if isinstance(view.get(key), list):
-            # Geometry never reaches the answer model (docs/route-design.md:
-            # it receives facts, the assumptions strip and the counts) — a
-            # coordinate list is thousands of tokens the prose cannot use.
+            # Geometry, the profile and the spans never reach the answer
+            # model (docs/route-design.md: it receives facts, the assumptions
+            # strip and the counts) — a coordinate list is thousands of
+            # tokens the prose cannot use.
             view[key] = [
-                {k: v for k, v in row.items() if k != "geometry"}
+                {k: v for k, v in row.items() if k not in BULK_CARD_KEYS}
                 for row in view[key][:ANSWER_RESULT_LIMIT]
             ]
     return view

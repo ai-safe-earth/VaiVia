@@ -456,9 +456,15 @@ describe("the map layer's wiring", () => {
       conversationId: 'conv-1',
     });
 
-    // And the transcript's own card asks it in place, once opened.
+    // "+ info" is the same pick, turn and all — the panel's card is where
+    // the route is judged.
     fireEvent.click(card('a2').querySelector<HTMLElement>('.detail-toggle')!);
-    expect(view.getByLabelText('Bad route')).toBeTruthy();
+    await waitFor(() => expect(onPick).toHaveBeenCalledTimes(2));
+    expect(onPick.mock.calls[1]![1]).toEqual({
+      messageId: 'm1',
+      conversationId: 'conv-1',
+    });
+    expect(view.queryByLabelText('Bad route')).toBeNull();
   });
 
   it('a card of a still-streaming turn picks with no turn (the known gap)', async () => {
@@ -471,19 +477,20 @@ describe("the map layer's wiring", () => {
     expect(onPick.mock.calls[0]![1]).toBeUndefined();
 
     fireEvent.click(card('a2').querySelector<HTMLElement>('.detail-toggle')!);
+    await waitFor(() => expect(onPick).toHaveBeenCalledTimes(2));
+    expect(onPick.mock.calls[1]![1]).toBeUndefined();
     expect(view.queryByLabelText('Bad route')).toBeNull();
   });
 
-  it('"See more" draws the line but does NOT raise the map', async () => {
+  it('"+ info" raises the map exactly as the body tap does', async () => {
     const { onGeometry, onPick, card } = renderPanel();
 
-    const seeMore = card('a1').querySelector<HTMLElement>('.detail-toggle')!;
-    fireEvent.click(seeMore);
+    fireEvent.click(card('a1').querySelector<HTMLElement>('.detail-toggle')!);
 
-    // The same selection the body tap makes — under the transcript, where the
-    // reader still is.
+    // One gesture, one meaning: the profile lives in the map layer's panel,
+    // so asking for it is asking for the map.
     await waitFor(() => expect(lastDrawn(onGeometry)?.selected).toEqual(['a1']));
-    expect(onPick).not.toHaveBeenCalled();
+    await waitFor(() => expect(onPick).toHaveBeenCalledTimes(1));
   });
 
   it('asking brings the map down before the answer starts', () => {

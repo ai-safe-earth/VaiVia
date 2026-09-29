@@ -75,12 +75,25 @@ export interface Loop {
   start_lon: number | null;
   pois: PoiRef[];
   /** DRAWN routes only (Phase 12): the ask's ordinal in this conversation,
-   *  the destination's kind, the surface distribution, and the line itself —
-   *  inline, because a drawn route is in no catalogue to fetch from. */
+   *  the destination's kind, the surface distribution, the line itself, the
+   *  altitude profile and the surface along the way — all inline, because a
+   *  drawn route is in no store to fetch from until it is kept. */
   ordinal?: number;
   destination_kind?: string | null;
   surface?: Record<string, number>;
   geometry?: GeoJSON.LineString;
+  profile?: RouteProfile | null;
+  spans?: RouteSpan[];
+}
+
+/** One stretch of a drawn route in walking order: everything up to `to_m`
+ *  metres from the start is this surface, this highway and this grade. The
+ *  profile's cumulative `distance_m` indexes the same metres. */
+export interface RouteSpan {
+  to_m: number;
+  surface: string | null;
+  highway: string | null;
+  sac: string | null;
 }
 
 /** The altitude profile as the route document carries it: two parallel

@@ -1,36 +1,40 @@
 'use client';
 
-import { useState, type KeyboardEvent } from 'react';
+import type { KeyboardEvent } from 'react';
 
 import { SAC_ORDER } from '@/lib/difficulty';
 import { distance, distanceFigure, elevationFigure } from '@/lib/format';
 import type { LineStatus } from '@/lib/mapTurn';
-import { profileFromDetail } from '@/lib/profile';
+import {
+  type DrawnProfile,
+  sharesFromDistribution,
+  sharesFromSpans,
+} from '@/lib/profile';
 import type { Loop, RouteDetail } from '@/lib/types';
 
 import { Icon } from './brand';
 import { Feedback } from './Feedback';
-import { ElevationProfile } from './MapChrome';
+import { RouteProfile } from './MapChrome';
 import { Sources } from './Sources';
 
 interface Props {
   loop: Loop;
   selected: boolean;
-  /** Absent in the map layer's route panel: that card IS the selection, so
-   *  there is nothing for a tap on it to pick. Without a handler it is not a
-   *  button either — a focusable div that does nothing is worse than plain
-   *  text. */
+  /** The transcript and the saved list: a tap on the body or on "+ info"
+   *  raises the map with this route's profile under it. Absent in the map
+   *  layer's route panel — that card IS the selection, so there is nothing
+   *  for a tap on it to pick, and without a handler it is not a button. */
   onSelect?: (loop: Loop) => void;
-  /** Open on mount. The panel card's tap already asked for the numbers. */
-  defaultOpen?: boolean;
-  /** The document detail, fetched by the parent on first expand: undefined =
-   *  not asked yet / loading, null = route left the catalogue. */
+  /** The map panel's card: open on arrival with the profile, and its toggle
+   *  reads "Less", which lowers the layer. */
+  expanded?: boolean;
+  onClose?: () => void;
+  /** The document detail of a SAVED route, fetched by the parent: undefined
+   *  = not asked yet, null = there is none. A drawn route carries its own
+   *  profile and spans and needs no detail. */
   detail?: RouteDetail | null;
-  /** Fired when the card opens, so the parent can fetch the detail and focus
-   *  the map on this route. */
-  onExpand?: (loop: Loop) => void;
   /** This card's map line: undefined = not asked yet, 'ok' = drawn on
-   *  select, 'missing' = the route left the catalogue (settled), 'error' =
+   *  select, 'missing' = the route is no longer saved (settled), 'error' =
    *  the fetch failed and a click retries. Said on the card, because the
    *  silent alternative was drawing the SIBLINGS under this card's name. */
   line?: LineStatus;
@@ -39,15 +43,14 @@ interface Props {
   favorited?: boolean;
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
   /** The stored turn that offered this route. With both, the open card asks
-   *  whether the route was right — the vote is about (this ask, this route),
-   *  which is the pair an `expect_loops` pin is written from. Absent for a
-   *  saved route or a still-streaming turn: no question was asked of it. */
+   *  whether the route was right — the vote is about (this ask, this route).
+   *  Absent for a saved route or a still-streaming turn. */
   messageId?: string;
   conversationId?: string;
 }
 
-/** sac_scale in words. The scale runs past what a route catalogue should be
- *  offering, so the top band is deliberately blunt. */
+/** sac_scale in words. The scale runs past what a walker should be offered,
+ *  so the top band is deliberately blunt. */
 const SAC_LABEL: Record<string, string> = {
   hiking: 'T1 hiking',
   mountain_hiking: 'T2 mountain',
@@ -57,23 +60,55 @@ const SAC_LABEL: Record<string, string> = {
   difficult_alpine_hiking: 'T6 alpine',
 };
 
+/** Both grades draw on the same six squares: T1..T6 for walking, S0..S5 for
+ *  riding, filled to the rank. */
+const DOTS = 6;
+
 function sacRank(grade: string | null): number {
   return grade ? SAC_ORDER.indexOf(grade) + 1 : 0;
+}
+
+export interface Grade {
+  /** Squares filled, 0..6. Zero with a code says "unknown", never "easy". */
+  rank: number;
+  code: string;
+  title: string;
+}
+
+export function walkGrade(loop: Loop): Grade {
+  const rank = sacRank(loop.sac_scale);
+  if (rank === 0) {
+    return { rank: 0, code: '?', title: 'Walking grade unknown — not graded on enough of its length' };
+  }
+  return { rank, code: `T${rank}`, title: SAC_LABEL[loop.sac_scale!] ?? `T${rank}` };
 }
 
 /** The three-valued bike state — the access conjunction along the walked
  *  sequence, with the WHY in metres when it forbids. `null` is unknown,
  *  which is not yes and must never render as silence. */
-export function bikeState(loop: Loop): string {
-  if (loop.activity === 'mtb' && loop.mtb_scale !== null) return `S${loop.mtb_scale}`;
-  if (loop.mtb_rideable === true) return 'Rideable';
+export function rideGrade(loop: Loop): Grade {
   if (loop.mtb_rideable === false) {
     const blocked = loop.bike_blocked_m;
-    return blocked != null && blocked > 0
-      ? `Not rideable · ${blocked >= 1000 ? `${(blocked / 1000).toFixed(1)} km` : `${Math.round(blocked)} m`} blocked`
-      : 'Not rideable';
+    const why =
+      blocked != null && blocked > 0
+        ? ` · ${blocked >= 1000 ? `${(blocked / 1000).toFixed(1)} km` : `${Math.round(blocked)} m`} blocked`
+        : '';
+    return { rank: 0, code: '✕', title: `Not rideable${why}` };
   }
-  return 'Bike: unknown';
+  if (loop.mtb_scale !== null && loop.mtb_scale !== undefined) {
+    const scale = Number(loop.mtb_scale);
+    if (Number.isFinite(scale)) {
+      return {
+        rank: Math.min(DOTS, Math.max(0, scale) + 1),
+        code: `S${scale}`,
+        title: `Mountain-bike scale S${scale}`,
+      };
+    }
+  }
+  if (loop.mtb_rideable === true) {
+    return { rank: 0, code: '✓', title: 'Rideable end to end, not graded' };
+  }
+  return { rank: 0, code: '?', title: 'Bike access unknown — unknown is not yes' };
 }
 
 /** The exigent warning: only when the hardest metre exceeds the character
@@ -82,30 +117,41 @@ export function exigentWarning(loop: Loop): string | null {
   const character = sacRank(loop.sac_scale);
   const exigent = sacRank(loop.sac_max);
   if (exigent === 0 || exigent <= character) return null;
-  return `${SAC_LABEL[loop.sac_max!].split(' ')[0]} move`;
+  return `${SAC_LABEL[loop.sac_max!]!.split(' ')[0]} move`;
+}
+
+function GradeMark({ label, grade }: { label: string; grade: Grade }) {
+  return (
+    <span className="grade" title={grade.title}>
+      <span className="vv-label">{label}</span>
+      <span className="grade-dots" aria-hidden="true">
+        {Array.from({ length: DOTS }, (_, i) => (
+          <i key={i} className={i < grade.rank ? 'on' : undefined} />
+        ))}
+      </span>
+      <span className="grade-code vv-body-sm">{grade.code}</span>
+    </span>
+  );
 }
 
 export function LoopCard({
   loop,
   selected,
   onSelect,
-  defaultOpen = false,
+  expanded = false,
+  onClose,
   detail,
-  onExpand,
   line,
   favorited = false,
   onToggleFavorite,
   messageId,
   conversationId,
 }: Props) {
-  const [open, setOpen] = useState(defaultOpen);
   const activate = onSelect ? () => onSelect(loop) : undefined;
   const activateByKey = onSelect
     ? (event: KeyboardEvent) => {
-        // The card's own keys only, never a descendant's: Enter on "See more"
-        // and a space typed into the feedback field both bubble to here, and
-        // both used to raise the map — the second one also swallowing the
-        // space, so the answer could not be typed.
+        // The card's own keys only, never a descendant's: Enter on the toggle
+        // and a space typed into the feedback field both bubble to here.
         if (event.target !== event.currentTarget) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -121,11 +167,6 @@ export function LoopCard({
   const heading =
     loop.name ??
     (loop.ref ? `Sentiero ${loop.ref}` : `${distance(loop.distance_m)} ${loop.activity} loop`);
-
-  // The CHARACTER grade — the label the route wears (hardest grade covering
-  // ≥5%). The exigent grade appears beside it only when it is harder, as a
-  // flare-accented warning: the safety fact must never hide inside the label.
-  const character = loop.sac_scale ? (SAC_LABEL[loop.sac_scale] ?? null) : null;
   const warning = exigentWarning(loop);
 
   const shapeLabel =
@@ -150,28 +191,43 @@ export function LoopCard({
       onKeyDown={activateByKey}
     >
       <div className="route-kind-row">
-        <span className="route-kind vv-label">{shapeLabel}</span>
-        {onToggleFavorite && (
-          <button
-            type="button"
-            className="save-toggle"
-            aria-pressed={favorited}
-            aria-label={favorited ? 'Remove from saved routes' : 'Save this route'}
-            title={favorited ? 'Remove from saved routes' : 'Save this route'}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleFavorite(loop, !favorited);
-            }}
-          >
-            <Icon name="saved" />
-          </button>
-        )}
+        <span>
+          <span className="route-kind vv-label">{shapeLabel}</span>
+          {loop.kind === 'drawn' && (
+            <span className="route-origin vv-label">drawn for you</span>
+          )}
+        </span>
+        <span className="route-marks">
+          {loop.car_free && (
+            <span
+              className="train"
+              role="img"
+              aria-label="Reachable by train"
+              title="Reachable by train — the start is a station or a bus stop"
+            >
+              <Icon name="station" />
+            </span>
+          )}
+          {onToggleFavorite && (
+            <button
+              type="button"
+              className="save-toggle"
+              aria-pressed={favorited}
+              aria-label={favorited ? 'Remove from saved routes' : 'Save this route'}
+              title={favorited ? 'Remove from saved routes' : 'Save this route'}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleFavorite(loop, !favorited);
+              }}
+            >
+              <Icon name="saved" />
+            </button>
+          )}
+        </span>
       </div>
 
       {line === 'missing' && (
-        <p className="line-note vv-body-sm">
-          No map line — this route has left the catalogue.
-        </p>
+        <p className="line-note vv-body-sm">No map line — this route is no longer saved.</p>
       )}
       {line === 'error' && (
         <p className="line-note line-note-retry vv-body-sm">
@@ -194,12 +250,10 @@ export function LoopCard({
         )}
       </div>
 
-      {/* Line 2: how it will treat you — a calibrated duration when one
-          exists (none does yet: the slot renders only with a real figure,
-          never an uncalibrated guess), the character grade, the exigent
-          warning, the bike state, and the expand affordance. */}
+      {/* Line 2: how it will treat you — the walking and riding grades as
+          marks, the exigent warning, and the way to the profile. */}
       <div className="route-line2">
-        {character && <span className="vv-body-sm">{character}</span>}
+        <GradeMark label="walk" grade={walkGrade(loop)} />
         {warning && (
           <span
             className="exigent vv-label"
@@ -208,26 +262,27 @@ export function LoopCard({
             ⚠ {warning}
           </span>
         )}
-        <span className="vv-body-sm">{bikeState(loop)}</span>
-        <button
-          type="button"
-          className="detail-toggle"
-          aria-expanded={open}
-          onClick={(event) => {
-            event.stopPropagation();
-            const next = !open;
-            setOpen(next);
-            if (next) onExpand?.(loop);
-          }}
-        >
-          <span>{open ? 'Less' : 'See more'}</span>
-          <span className="sign" aria-hidden="true">
-            {open ? '−' : '+'}
-          </span>
-        </button>
+        <GradeMark label="ride" grade={rideGrade(loop)} />
+        {(onSelect || onClose) && (
+          <button
+            type="button"
+            className="detail-toggle"
+            aria-expanded={expanded}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (expanded) onClose?.();
+              else onSelect?.(loop);
+            }}
+          >
+            <span>{expanded ? 'Less' : 'info'}</span>
+            <span className="sign" aria-hidden="true">
+              {expanded ? '−' : '+'}
+            </span>
+          </button>
+        )}
       </div>
 
-      {open && (
+      {expanded && (
         <LoopDetail
           loop={loop}
           detail={detail}
@@ -239,11 +294,10 @@ export function LoopCard({
   );
 }
 
-/** The expanded half: the figures, the difficulty told whole, the surface
- *  as a distribution, every place with how far off the line it sits, the
- *  quality warnings carried (never filtered), the altitude profile, the
- *  document's real attribution — and the thumbs, because opening a card is
- *  where the route is actually judged. */
+/** The expanded half, in the map layer's panel: the profile with the ground
+ *  under it, the figures, both grades in one line, where it starts, the
+ *  quality notes carried (never filtered), the attribution — and the thumbs,
+ *  because opening a route is where it is actually judged. */
 function LoopDetail({
   loop,
   detail,
@@ -255,37 +309,67 @@ function LoopDetail({
   messageId?: string;
   conversationId?: string;
 }) {
-  const profile = detail ? profileFromDetail(detail) : undefined;
+  const series = loop.profile ?? detail?.profile ?? null;
+  const profile: DrawnProfile | null =
+    series && series.distance_m.length >= 2
+      ? {
+          series,
+          spans: loop.spans,
+          shares: loop.spans
+            ? sharesFromSpans(loop.spans)
+            : sharesFromDistribution(loop.surface ?? detail?.surface?.distribution ?? {}),
+          quality: loop.profile ? 'ok' : (detail?.profile_quality ?? null),
+        }
+      : null;
+  // A saved route's profile is still on its way while the detail is; a drawn
+  // route never fetches one, so it can only be there or honestly absent.
+  const fetching = loop.profile === undefined && detail === undefined;
+
+  const climb = elevationFigure(loop.ascent_m);
   const descent = elevationFigure(loop.descent_m);
-  const extended: { label: string; value: string }[] = [];
-  if (descent) extended.push({ label: 'down', value: `${descent.value} m` });
+  const figures: { label: string; value: string }[] = [];
+  if (climb) figures.push({ label: 'up', value: `${climb.value} m` });
+  if (descent) figures.push({ label: 'down', value: `${descent.value} m` });
   if (loop.highest_m !== null && loop.lowest_m !== null) {
-    extended.push({
+    figures.push({
       label: 'heights',
       value: `${Math.round(loop.lowest_m)}–${Math.round(loop.highest_m)} m`,
     });
   }
-  if (loop.off_road_share !== null) {
-    extended.push({
-      label: 'off-road',
-      value: `${Math.round(loop.off_road_share * 100)}%`,
-    });
-  }
+
+  const walk = walkGrade(loop);
+  const ride = rideGrade(loop);
+  const warning = exigentWarning(loop);
+  const gradedShare = loop.graded_share ?? detail?.difficulty?.graded_share ?? null;
+  const walkWords = loop.sac_scale
+    ? ` ${(SAC_LABEL[loop.sac_scale] ?? '').split(' ').slice(1).join(' ')}`
+    : '';
+  const rideWords =
+    ride.code === '✕'
+      ? ride.title.toLowerCase()
+      : ride.code === '✓'
+        ? 'rideable'
+        : ride.code === '?'
+          ? 'unknown'
+          : ride.code;
   const startName = loop.start_names?.[0] ?? null;
-  const namedPois = loop.pois.filter((poi) => poi.name);
-  const difficulty = detail?.difficulty as
-    | { sac_scale?: string; sac_max?: string; graded_share?: number; rule?: string }
-    | undefined
-    | null;
-  const surfaceRows = surfaceDistribution(detail);
-  const warnings =
-    (detail?.quality as { warnings?: string[] } | undefined | null)?.warnings ?? [];
+  const warnings = detail?.quality?.warnings ?? [];
 
   return (
     <div className="route-detail">
-      {extended.length > 0 && (
+      {profile ? (
+        <RouteProfile profile={profile} />
+      ) : fetching ? (
+        <p className="detail-note vv-body-sm">Fetching the altitude profile…</p>
+      ) : (
+        <p className="detail-note vv-body-sm">
+          No altitude profile for this route — absent is not zero.
+        </p>
+      )}
+
+      {figures.length > 0 && (
         <div className="detail-figures">
-          {extended.map((item) => (
+          {figures.map((item) => (
             <div key={item.label} className="detail-figure">
               <span className="vv-label">{item.label}</span>
               <span className="vv-data">{item.value}</span>
@@ -294,46 +378,20 @@ function LoopDetail({
         </div>
       )}
 
-      {(startName || loop.car_free) && (
-        <div className="detail-block">
-          <span className="vv-label">Starts at</span>
-          <p className="fact vv-body-sm">
-            {startName ?? 'an unnamed trailhead'}
-            {loop.car_free ? ' · reachable by train' : ''}
-          </p>
-        </div>
-      )}
+      <p className="fact vv-body-sm">
+        walk {walk.code}
+        {walkWords}
+        {warning ? `, hardest ${warning}` : ''}
+        {gradedShare !== null ? ` · graded on ${Math.round(gradedShare * 100)}%` : ''}
+        {' · ride '}
+        {rideWords}
+      </p>
 
-      {/* The difficulty block WHOLE: both grades, how much of the route is
-          graded at all, and the rule that produced the number — the rule
-          ships with the figure so nobody has to guess how it was derived. */}
-      {difficulty && (difficulty.sac_scale || difficulty.sac_max) && (
-        <div className="detail-block">
-          <span className="vv-label">Difficulty</span>
-          <p className="fact vv-body-sm">
-            {difficulty.sac_scale
-              ? `character ${SAC_LABEL[difficulty.sac_scale] ?? difficulty.sac_scale}`
-              : 'ungraded character'}
-            {difficulty.sac_max
-              ? ` · hardest metre ${SAC_LABEL[difficulty.sac_max] ?? difficulty.sac_max}`
-              : ''}
-            {typeof difficulty.graded_share === 'number'
-              ? ` · graded on ${Math.round(difficulty.graded_share * 100)}% of its length`
-              : ''}
-          </p>
-          {difficulty.rule && (
-            <p className="detail-note vv-body-sm">{difficulty.rule}</p>
-          )}
-        </div>
-      )}
-
-      {/* "62% unpaved" is a fact; "unpaved" alone is a claim. Untagged length
-          reports as unknown rather than being renormalised away. */}
-      {surfaceRows.length > 0 && (
-        <div className="detail-block">
-          <span className="vv-label">Underfoot</span>
-          <p className="fact vv-body-sm">{surfaceRows.join(' · ')}</p>
-        </div>
+      {startName && (
+        <p className="fact vv-body-sm">
+          Starts at {startName}
+          {loop.car_free ? ' · reachable by train' : ''}
+        </p>
       )}
 
       {loop.continuous === false && loop.pieces !== null && (
@@ -354,72 +412,15 @@ function LoopDetail({
         </div>
       )}
 
-      {/* Places from the DOCUMENT when the detail has arrived — each with how
-          far off the line it sits, which is the fact the card's chip list
-          could never carry. The loop row's unpositioned chips are the
-          fallback while the detail loads. */}
-      {detail?.places?.length ? (
-        <div className="detail-pois">
-          <span className="vv-label">Along the way</span>
-          <div className="poi-list">
-            {detail.places
-              .filter((place) => place.name)
-              .slice(0, 12)
-              .map((place, index) => (
-                <span
-                  className="poi vv-body-sm"
-                  key={`${place.id}-${index}`}
-                  title={`${Math.round(Number(place.offset_m))} m off the line`}
-                >
-                  {String(place.name)}
-                </span>
-              ))}
-          </div>
-        </div>
-      ) : namedPois.length > 0 ? (
-        <div className="detail-pois">
-          <span className="vv-label">Along the way</span>
-          <div className="poi-list">
-            {namedPois.slice(0, 8).map((poi, index) => (
-              <span
-                className="poi vv-body-sm"
-                key={`${poi.name}-${poi.type}-${index}`}
-              >
-                {poi.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {profile ? (
-        <div className="detail-profile">
-          <ElevationProfile profile={profile} quality={detail?.profile_quality} />
-          <div className="profile-labels">
-            <span className="vv-label">start {Math.round(profile.startM)} m</span>
-            <span className="vv-label">max {Math.round(profile.maxM)} m</span>
-            <span className="vv-label">end {Math.round(profile.endM)} m</span>
-          </div>
-        </div>
-      ) : detail === undefined ? (
-        <p className="detail-note vv-body-sm">Fetching the altitude profile…</p>
-      ) : (
-        <p className="detail-note vv-body-sm">
-          No altitude profile for this route — absent is not zero.
-        </p>
-      )}
-
       <Sources id={loop.id} attribution={detail?.attribution} />
 
-      {/* The card body is itself a button, so every click and every typed
-          character in here has to stop at the detail — the save and expand
-          toggles do the same one field up. */}
+      {/* The card body may be a button, so every click and every typed
+          character in here has to stop at the detail. */}
       {messageId && conversationId && (
         <div onClick={(event) => event.stopPropagation()}>
-          {/* Keyed on the turn, as the transcript's own thumbs are: the map
-              panel's card is keyed by route id, so the SAME route offered by
-              two answers reuses this instance — and a vote, with the text
-              typed under it, would carry over to a turn nobody judged. */}
+          {/* Keyed on the turn: the map panel's card is keyed by route id, so
+              the SAME route offered by two answers reuses this instance — and
+              a vote would carry over to a turn nobody judged. */}
           <Feedback
             key={messageId}
             messageId={messageId}
@@ -430,21 +431,4 @@ function LoopDetail({
       )}
     </div>
   );
-}
-
-/** Top surface shares as readable rows, unknown kept visible. Exported for
- *  the tests: the rendering rule, not a re-implementation of it. */
-export function surfaceDistribution(detail: RouteDetail | null | undefined): string[] {
-  const distributionRaw = (
-    detail?.surface as { distribution?: Record<string, number> } | undefined
-  )?.distribution;
-  if (!distributionRaw) return [];
-  return Object.entries(distributionRaw)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 4)
-    .filter(([, share]) => share >= 0.01)
-    .map(
-      ([surface, share]) =>
-        `${Math.round(share * 100)}% ${surface === 'unknown' ? 'untagged' : surface.replace('_', ' ')}`,
-    );
 }

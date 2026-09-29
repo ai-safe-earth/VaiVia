@@ -645,5 +645,32 @@
    "car_free": true
   },
   "pack_run_id": "pack-parity"
+ },
+ {
+  "id": "g64",
+  "question": "an easy half-day walk around Bergamo, starting from the station",
+  "expect": {
+   "outing.start.mode": "station",
+   "outing.area": "Bergamo"
+  },
+  "expect_facts": {
+   "shape": "loop",
+   "car_free": true
+  },
+  "pack_run_id": "pack-parity"
+ },
+ {
+  "id": "g65",
+  "question": "an easy mountain bike loop from Bergamo, about two hours",
+  "expect": {
+   "outing.activity": "mtb",
+   "outing.shape": "loop",
+   "outing.max_hours": 2
+  },
+  "expect_facts": {
+   "shape": "loop",
+   "mtb_rideable": true
+  },
+  "pack_run_id": "pack-parity"
  }
 ]
