@@ -1,8 +1,8 @@
 // Favourite/share persistence for DRAWN routes (docs/route-design.md,
 // "Ask time" step 5): nothing is written while a user merely looks; when
 // they keep a route, its document goes to the store and ONE (:Route) — the
-// same shape the catalogue loader writes, built from the same
-// vaivia_routes.neo4j_rows mapping — lands here. These templates MUTATE,
+// only :Route writer left since R7, its shape the vaivia_routes.neo4j_rows
+// mapping — lands here. These templates MUTATE,
 // so they live outside queries.cypher (whose guard suite forbids writes)
 // and run on the write path (db.run), never through run_named.
 

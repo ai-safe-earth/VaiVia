@@ -8,8 +8,9 @@ the layer that caused it:
                  (needs OPENAI_API_KEY; costs a few cents)
   RETRIEVAL      With --graph, execute each composed plan against the live
                  graph exactly as the orchestrator does and check the expected
-                 trail / catalogue loop is ranked first / retrieved. Needs
-                 Neo4j up, ingestion done, and the embedding job run.
+                 trail is ranked first / retrieved, or a drawn outing's facts
+                 land in band. Needs Neo4j up, ingestion done, the embedding
+                 job run, and a pack for the facts entries.
   ANSWER         With --answers (requires --graph), stream the answer for the
                  executed results and run the code-checkable prompt rules over
                  the RAW model text — before strip_links_stream, because

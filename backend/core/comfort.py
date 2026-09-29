@@ -9,15 +9,16 @@ So CONNECTS_TO carries `cost_m` alongside `distance_m`:
 
     cost_m = distance_m * highway_penalty * surface_penalty
 
-Dijkstra minimises `cost_m`; every distance shown to a user still comes from
-`distance_m`. Conflating the two would quote inflated lengths.
+Nothing minimises `cost_m` today — `route_between_intersections` is
+hop-shortest and reads no weight (docs/route-design.md) — but it stays on the
+edge for a cost-aware walk. Every distance shown to a user comes from
+`distance_m`; conflating the two would quote inflated lengths.
 
 Penalties are ratios of tolerance, not of speed: `secondary: 4.5` means a rider
 would accept about 4.5 km of trail rather than 1 km of that road. They are
 deliberately finite — a path that makes roads infinitely expensive fails to
 route at all in valleys where the only link is a lane. Calibrate against real
-routes rather than intuition; the loop spike prints the surface mix for exactly
-this.
+routes rather than intuition.
 """
 
 # Keyed on the OSM highway tag. Everything ingested by WALKABLE_HIGHWAYS

@@ -33,7 +33,7 @@ COST_COLUMNS = {
     "mtb": ("edge_cost_bike", "edge_cost_bike_rev"),
 }
 
-#: The soft penalty for already-walked edges, as in draw.generate: expensive,
+#: The soft penalty for already-walked edges: expensive,
 #: never illegal — walking back the same valley is sometimes the only way home.
 PENALTY_FACTOR = 3.0
 
@@ -137,10 +137,10 @@ class Network:
         """Cheapest source→target walk as [(edge index, forward)], or None.
 
         `penalised` multiplies both directions of those edges' costs by
-        `factor` (a soft penalty, as in draw.generate). `two_way_only`
+        `factor` (a soft penalty). `two_way_only`
         restricts to edges legal in BOTH directions — what a strict
-        out-and-back needs so the way home is legal (draw.generate's
-        `draw_strict_out_and_back` filter).
+        out-and-back needs so the way home is legal (`draw_strict_out_and_back`'s
+        filter).
         """
         graph, graph_arc = self.graph, self.graph_arc
         if penalised or two_way_only:

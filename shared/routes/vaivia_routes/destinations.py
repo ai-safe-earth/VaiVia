@@ -7,7 +7,7 @@ posture as the scorer: a recalibration is an argument, not a code change.
 
 Named beats unnamed, deliberately and heavily: "to Rifugio Elisa" is an answer
 a person can act on, and 219 of the 240 reachable peaks carry a name — the
-unnamed remainder can wait for the catalogue that has nothing better left.
+unnamed remainder can wait for the ask that has nothing better left.
 
 The crow-flies band is generous by design. Measured wander (walked / crow) on
 real starts ranges 1.4-3.3 in these mountains — a hut across a ridge walks

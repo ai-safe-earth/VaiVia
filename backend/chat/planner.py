@@ -50,8 +50,8 @@ DEFAULT_TARGET_M = {"foot": 10000.0, "mtb": 18000.0}
 #: are never relaxed — they are promises, not preferences.
 RELAX_BAND = 1.5
 
-#: Destination kinds when the ask names none (the catalogue's INTEREST set
-#: does the ranking; this only bounds the pool).
+#: Destination kinds when the ask names none (vaivia_routes.destinations'
+#: INTEREST set does the ranking; this only bounds the pool).
 PLACES_M = 100.0
 
 METRES_PER_DEG_LAT = 111_320.0
@@ -712,8 +712,8 @@ def _terminal(pack: Pack, vertex: int) -> dict:
 
 
 def _card(entry: dict, document: dict, constraints: Constraints) -> dict:
-    """The search_loops card shape, plus the geometry the map needs inline —
-    a drawn route is in no catalogue, so there is nothing to fetch later."""
+    """The route_card shape (graph/queries.cypher), plus the geometry the map
+    needs inline — a drawn route is in no store, so there is nothing to fetch."""
     facts: Assembled = entry["facts"]
     destination: Destination | None = entry["destination"]
     surface = shares(Span(e.surface, e.length_m) for e in entry["walked"])

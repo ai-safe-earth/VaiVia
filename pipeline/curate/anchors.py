@@ -40,7 +40,7 @@ class Verdict(NamedTuple):
 
 
 # A hut, a peak or a lake is somewhere a walk GOES. Classifying them as starts
-# would fill the catalogue with routes beginning at a refuge two hours above the
+# would have the planner draw routes beginning at a refuge two hours above the
 # nearest road.
 DESTINATION_NOT_START = {
     "hut": "a hut is a destination, reached on foot",
@@ -112,14 +112,14 @@ RAIL_FEEDS = frozenset({"trenord"})
 
 
 def start_class(source: str, kind: str, source_id: str) -> str:
-    """What KIND of arrival this place is — the class the route factory
+    """What KIND of arrival this place is — the class the planner
     filters starts by, and the document's terminals will carry.
 
     'station' means rail however it was proven (a station POI or a rail
     GTFS stop; only rail feeds are loaded today, so a gtfs_stop from any
     other feed reads bus_stop by its feed label — the day a basin bus feed
     lands, its stops classify themselves). The class is stored, never
-    derived downstream, so the map legend, the factory and the chat cannot
+    derived downstream, so the map legend, the planner and the chat cannot
     come to describe the same start differently.
     """
     if source == "urban_exit":

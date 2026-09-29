@@ -116,8 +116,7 @@ async def main() -> None:
             if share < 80:
                 print(
                     "\nWARNING: the network is fragmented. Routing between two points "
-                    "in different components is impossible, and loop construction will "
-                    "mostly fail. See docs/fragilities.md #9."
+                    "in different components is impossible. See docs/fragilities.md #9."
                 )
         finally:
             with suppress(Neo4jError):

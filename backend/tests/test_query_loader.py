@@ -21,15 +21,11 @@ EXPECTED = {
     "graph_drop_routing",
     "healthcheck",
     "graph_counts",
-    # The catalogue templates. Absent until 2026-08-21, which meant deleting
-    # the whole loop-search surface would not have failed this test.
+    # The saved-route templates: the favourites 404 check and the hydrate.
     "route_exists",
     "routes_by_ids",
-    # Every
-    # catalogue row, quarantined included, so the graph and the document
-    # store can be compared whole.
-    # The graph's own extent, shared by every script that projects it into
-    # GDS. It lives here rather than as a string in three scripts because
+    # The graph's own extent, for the one script that projects it into GDS
+    # (check_graph_connectivity). It lives here rather than inline because
     # settings.default_bbox kept being used for it instead
     # (docs/fragilities.md #16).
     "graph_extent",

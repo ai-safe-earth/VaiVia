@@ -38,8 +38,7 @@ This document is a candid record of known failure modes, edge cases, and the pra
 
 1. Always add a hop limit: `shortestPath(... -[:CONNECTS_TO*..100]- ...)`.
 2. Use spatial pre-filtering: restrict the starting `(:Intersection)` nodes to those within a bounding box of the start and end POI before running pathfinding.
-3. For production workloads, project a GDS in-memory graph and run `gds.shortestPath.dijkstra`. GDS pathfinding is orders of magnitude faster than Cypher traversal on large graphs.
-4. Pre-compute popular routes as `(:CuratedRoute)` nodes during off-peak hours.
+3. Anything heavier than one bounded A-to-B is not the graph's job: the pack planner draws it (`docs/route-design.md`). GDS runs only in `scripts.check_graph_connectivity`.
 
 ---
 
@@ -113,6 +112,8 @@ Trail-to-segment matching is unaffected: `COMPATIBLE_HIGHWAYS` in `spatial_match
 ---
 
 ## 10. Routing Optimises For Distance, So It Prefers Roads
+
+> **Closed by R7.** `route_gds_dijkstra`, `route_edge_details`, the loop spike and the distance guard test went with `POST /routes`; nothing routes on `cost_m` now, and the pack's cost columns carry the calibration (`docs/route-design.md`). Kept as the record of the measurement.
 
 **The issue:** With the network repaired (#9), `route_gds_dijkstra` weights purely on `distance_m`. Roads are straighter than trails, so they win almost every time. The loop spike now returns loops of the requested length whose surface mix is roughly **83% asphalt** (10 km loop: `asphalt=171` against ~205 edges). A trail app that answers "a 10 km loop" with a road walk is worse than one that answers "no route found" — the failure is now silent and plausible instead of loud.
 
@@ -361,9 +362,9 @@ on 2026-08-22.
 **The rule:** a projection bbox is the **query's** or the **graph's**, never the
 app's configured one.
 
-- The query's: `api/routes/routing.py` derives a box from the two endpoints plus
-  `max_distance_m`, which makes it exact — a route under that cap cannot leave a
-  margin of it around its own endpoints.
+- The query's: `POST /routes` derived a box from its two endpoints plus
+  `max_distance_m`, which made it exact — a route under that cap cannot leave a
+  margin of it around its own endpoints. (Deleted in R7; kept as the pattern.)
 - The graph's: `graph/extent.py::projection_bbox` returns the whole ingested
   extent via the `graph_extent` template, or an explicit `--bbox` when an
   operator deliberately narrows it. Analysis scripts take this branch.
@@ -373,12 +374,11 @@ app's configured one.
 `scripts.export_osm_extract` cuts the GraphHopper extract to, and what
 `scripts.smoke_graph` re-ingests. `backend/core/config.py` says so at the field.
 
-**What stops the fifth copy:** `tests/test_projection_bbox.py` discovers every
-source that mentions `graph_project_routing` and asserts, **by parsing the AST**,
-that none of them reads `settings.bbox` or `settings.default_bbox`. It parses
-rather than greps on purpose — each of these files explains *in prose* why it no
-longer uses that box, and a text search would force the explanation to be deleted
-to make the test pass.
+**What stopped the fifth copy** was `tests/test_projection_bbox.py`, gone with
+`POST /routes` in R7: it discovered every source that mentioned
+`graph_project_routing` and asserted, **by parsing the AST**, that none of them read
+`settings.bbox` or `settings.default_bbox`. Today the one projecting script,
+`scripts.check_graph_connectivity`, reads `graph/extent.py`.
 
 The guard recognises the settings object under all three of its spellings, which
 matters because the fifth copy will not be written the way the fourth one was: a

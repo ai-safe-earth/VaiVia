@@ -129,8 +129,9 @@ The routing graph: intersections are the vertices, and each edge carries the
 segment data needed for cost-based pathfinding. Both directions are
 materialized (unless OSM `oneway`), and each direction carries its own
 `elevation_gain_m`/`elevation_loss_m` — A→B's climb is B→A's descent — so
-routing can cost real climbing effort. This is the graph GDS
-projects for Dijkstra — `(:Segment)` nodes are NOT part of the routing
+routing can cost real climbing effort. This is the graph `route_between_intersections`
+walks (bounded `shortestPath`) and `scripts.check_graph_connectivity` projects —
+`(:Segment)` nodes are NOT part of the routing
 traversal; they exist for trail composition (`COMPOSED_OF`) and POI proximity
 (`PASSES_BY`).
 
@@ -138,12 +139,12 @@ traversal; they exist for trail composition (`COMPOSED_OF`) and POI proximity
 user-visible bug.** `distance_m` is the true length of the edge in metres.
 `cost_m` is that length multiplied by how unpleasant the way is for a walker or
 rider (`core/comfort.py`: `path` 1.0, `residential` 2.4, `secondary` 4.5, with
-a smaller surface factor on top). Routing minimises `cost_m`, because the
-network includes roads for connectivity and minimising raw distance returns
-road walks — roads are straighter (see `docs/fragilities.md` #9, #10). It
-follows that GDS's `totalCost` is a penalised figure in no real unit: **every
-distance shown to a user must be summed from `distance_m` over the resolved
-edges**, which is what `route_edge_details` is for. The network ingests
+a smaller surface factor on top). Ingestion still writes `cost_m`, but nothing routes
+on it since R7 — `route_between_intersections` is hop-shortest, and route drawing
+happens over the pack's own cost columns (`docs/route-design.md`). It was added because
+minimising raw distance returns road walks — roads are straighter (see
+`docs/fragilities.md` #9, #10). **Every distance shown to a user is summed from
+`distance_m`**, never from a cost. The network ingests
 walkable ways only; `motorway`/`trunk`/`primary` are excluded outright rather
 than priced.
 

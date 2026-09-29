@@ -57,7 +57,6 @@ async def test_an_outing_is_drawn_not_searched(db, planner):
     assert card["geometry"]["type"] == "LineString"
     assert results["assumptions"]
     assert "counts" in results
-    # the catalogue was never asked: the pack answered
     # the answer model saw facts, never geometry
     _message, results_json = llm.answer_calls[0]
     assert "geometry" not in json.loads(results_json)["loops"][0]

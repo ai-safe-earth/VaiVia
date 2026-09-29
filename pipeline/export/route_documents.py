@@ -2,14 +2,13 @@
 
 docs/route-document.md is the contract. PostGIS holds the value and answers the
 geometry questions; this turns it into the artefact every reader consumes — the
-API, the Neo4j export, the frontend, and whatever holds photos and comments
-later. None of them redefines a route; they read this.
+API, the frontend, the backend's save path, and whatever holds photos and
+comments later. None of them redefines a route; they read this.
 
 A relation is a MAPPING of ground, and the catalogue stopped publishing it as a
 route on 2026-08-26 (export.document.PUBLISHED_KINDS carries the census that
 decided it). So this module's default is now to WITHDRAW the documents it owns;
-`--publish` writes them anyway, for inspection and QA, and export.neo4j_load
-still refuses to put an unpublished kind in the graph. The relation layer itself
+`--publish` writes them anyway, for inspection and QA only. The relation layer itself
 is untouched: source_map.edge_route still names the network and still feeds
 qa.v_route*.
 
@@ -60,13 +59,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLACES_M = 100.0
 
 # What this emitter produces. `published(KIND)` is False, which is exactly why
-# writing the documents is opt-in below — the default and the loader's gate read
-# the same rule, so they cannot drift into disagreeing about the same document.
+# writing the documents is opt-in below — the rule lives beside the schema
+# (vaivia_routes.document), so no emitter carries its own copy.
 KIND = "osm_route"
 
-# Ownership lives in a manifest, not in a filename glob: both emitters write
-# vv2-*.json since the id cutover, so a glob would take the generated catalogue
-# with it.
+# Ownership lives in a manifest, not in a filename glob: every writer (this
+# emitter, the backend's save path) writes vv2-*.json, so a glob would take
+# another writer's files with it.
 MANIFEST = ".osm_documents.json"
 
 # Attribution is not optional and does not belong only in the frontend footer.
@@ -517,7 +516,7 @@ def withdraw(out: Path) -> int:
     """Remove the documents THIS emitter owns and return how many.
 
     Only what the previous run listed, plus the legacy patterns from before the
-    id cutover. Never a `vv2-*.json` glob — that is the generated catalogue too.
+    id cutover. Never a `vv2-*.json` glob — saved routes share that pattern.
     """
     removed = 0
     manifest = out / MANIFEST
@@ -542,9 +541,9 @@ def main() -> None:
         "--publish",
         action="store_true",
         help=(
-            "write the mapped documents anyway. The catalogue does not serve "
-            f"{KIND!r} (export.document.PUBLISHED_KINDS) and export.neo4j_load "
-            "refuses to load it, so this is for inspection and QA"
+            f"write the mapped documents anyway. {KIND!r} is not a published "
+            "kind (vaivia_routes.document.PUBLISHED_KINDS), so this is for "
+            "inspection and QA only"
         ),
     )
     args = parser.parse_args()
@@ -582,8 +581,8 @@ def main() -> None:
             )
             print(
                 f"withdrew {withdrawn:,} mapped documents from {out}. "
-                f"the catalogue does not publish {KIND!r} "
-                "(export.document.PUBLISHED_KINDS): a relation is a mapping of "
+                f"{KIND!r} is not a published kind "
+                "(vaivia_routes.document.PUBLISHED_KINDS): a relation is a mapping of "
                 "ground, clipped by our bboxes, not a route drawn over our own "
                 "edges. --publish writes them anyway, for inspection."
             )

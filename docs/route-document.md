@@ -34,8 +34,8 @@ The same inversion that made `backend/` stop producing data now applies one leve
         search
 ```
 
-No reader redefines a route. Neo4j holds the document for graph traversal and vector
-search; the API serves it; the frontend renders it; user-generated content keys to its
+No reader redefines a route. Neo4j holds one `(:Route)` per saved route (favourite/share,
+`graph/save_route.cypher`) for hydration; the API serves it; the frontend renders it; user-generated content keys to its
 `id`. If a reader needs a field the document does not have, the field goes **in the
 document**, not into that reader — otherwise two tiers describe a route differently again,
 which is the exact failure this architecture already corrected once.
@@ -116,9 +116,9 @@ document carries, not a second rendering of it.
 
 ## What the catalogue publishes
 
-`export/document.py::PUBLISHED_KINDS` is the rule, and both publishers read that one
-object: the emitter before it writes, `export/neo4j_load.py` before it loads. Today it
-holds **`generated` alone**.
+`vaivia_routes.document.PUBLISHED_KINDS` is the rule, and the emitter reads it before it
+writes (the Neo4j loader that also read it went with R7). Today it holds **`generated`
+alone**.
 
 It once held the mapped OSM relations too — they were the only routes that existed —
 and on 2026-08-26 they were withdrawn. The census that decided it, measured on the 751
@@ -131,8 +131,8 @@ exactly.
 
 Two things this deliberately does **not** do. It does not remove `osm_route` from the
 schema: a mapped document stays a legal artefact, and `--publish` still writes them for
-inspection — the loader's gate, not the emitter's silence, is what keeps them out of the
-graph. And it does not touch the relation layer itself: `source_map.edge_route` still
+inspection — since R7 nothing bulk-loads documents into the graph (only a favourite/share
+writes a `(:Route)`), so the emitter's default is the only gate. And it does not touch the relation layer itself: `source_map.edge_route` still
 gives 10,361 otherwise-nameless edges a name and still feeds `qa.v_route*` in the review
 bundle. A relation is good at saying what a stretch of network is called; it was not good
 at being a route.
@@ -148,7 +148,7 @@ quality gate.
 > amendment to §5 below: the `:fwd` sense comes from canonical geometry (the
 > lexicographic-minimum orientation), never from `edge_id`, which
 > `build_network` reassigns on every rebuild. Ids are minted only by
-> `pipeline/ids.py`; the direction-split emission (§5's second document) is
+> `vaivia_routes/ids.py`; the direction-split emission (§5's second document) is
 > the one staged remainder. The section is preserved as the argument and its
 > measurements.
 

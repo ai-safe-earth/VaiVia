@@ -19,10 +19,10 @@ class Settings(BaseSettings):
     # else: what `ingestion.osm_ingest` fetches when given neither --bbox nor
     # --region, what `scripts.export_osm_extract` cuts the GraphHopper extract
     # to, and what `scripts.smoke_graph` re-ingests. It is NOT a routing or
-    # analysis bound. Anything projecting the graph into GDS derives its own box
-    # -- the query's, in api/routes/routing.py, or the graph's own extent, via
-    # graph/extent.py -- because this one holds 31,514 of the graph's 84,137
-    # intersections now that Bergamo is ingested (docs/fragilities.md #16).
+    # analysis bound. The one GDS projection left (scripts.check_graph_connectivity)
+    # takes the graph's own extent via graph/extent.py, because this one holds
+    # 31,514 of the graph's 84,137 intersections now that Bergamo is ingested
+    # (docs/fragilities.md #16).
     default_bbox: str = "45.8,9.3,46.0,9.6"
     default_region_name: str = "Lecco"
     # Every region the beta covers: "Name:minLat,minLon,maxLat,maxLon;..."
@@ -38,21 +38,17 @@ class Settings(BaseSettings):
     # area features are ingested as a single node (a lake's node sits out on
     # the water, ~400 m from its own shoreline path).
     poi_near_radius_m: float = 500.0
-    # How far a catalogue loop's trailhead may sit from a named place before it
-    # stops counting as "near" it. Generous, because a walker asking for a loop
-    # near a town means the hills above it, not the town square.
-    loop_near_radius_m: float = 8000.0
 
     # Where the route DOCUMENTS live (docs/route-document.md): the canonical
-    # JSON per route the pipeline emits, which carries the geometry and the
-    # profile the graph deliberately does not. Unset -> the geometry endpoint
-    # returns 503, never an empty or invented shape (the semantic-search rule).
+    # JSON per route, written when a drawn route is kept, which carries the
+    # geometry and the profile the graph deliberately does not. Unset -> the
+    # geometry endpoint returns 503, never an empty or invented shape.
     route_documents_dir: str | None = None
 
     # Where the exported PACK lives (docs/route-design.md): the routable
     # network as numpy arrays, one directory per pipeline build. Set -> the
     # backend loads it at startup and draws outings over it in-process.
-    # Unset -> outing asks degrade to the catalogue view (the R3 posture).
+    # Unset -> outing asks are refused in words (dev only; chat/orchestrator.py).
     pack_dir: str | None = None
     # Production refuses to boot without a pack (deploy sets REQUIRE_PACK):
     # an on-demand product with no network is not degraded, it is down.
@@ -106,8 +102,8 @@ class Settings(BaseSettings):
         """(min_lat, min_lon, max_lat, max_lon) — the INGESTION bounds.
 
         Not the bounds of anything that reads the graph. See the note on
-        `default_bbox` above; `tests/test_projection_bbox.py` pins that no GDS
-        projection reads this.
+        `default_bbox` above; graph/extent.py is the only projection bbox
+        source.
         """
         parts = [float(p) for p in self.default_bbox.split(",")]
         if len(parts) != 4:

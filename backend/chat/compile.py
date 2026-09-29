@@ -184,8 +184,8 @@ def compile_outing(
 
     With a pack mounted, coverage is the gazetteer it ships (R5): a covered
     area brings its polygon, an uncovered or unknown one an honest refusal
-    naming what IS covered. The static name set stays as the no-pack
-    fallback."""
+    naming what IS covered. The static name set is the fallback when no
+    gazetteer is supplied."""
     area_entry: dict | None = None
     if intent.area:
         area = intent.area.strip()
@@ -199,7 +199,7 @@ def compile_outing(
                         f"{covered}. Want an outing there instead?"
                     ),
                     suggestions=[
-                        "three days hut to hut in the Orobie",
+                        "a full-day loop in the Orobie",
                         "a loop in the Grigne",
                         "a lakeside ride near Lecco",
                     ],
@@ -211,7 +211,7 @@ def compile_outing(
                     f"{COVERAGE_ANSWER}. Want an outing there instead?"
                 ),
                 suggestions=[
-                    "three days hut to hut in the Orobie",
+                    "a full-day loop in the Orobie",
                     "a loop in the Grigne",
                     "a lakeside ride near Lecco",
                 ],

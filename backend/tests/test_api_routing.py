@@ -5,7 +5,7 @@ deleted `POST /routes` (nothing called it). The A-to-B ask that IS reachable
 runs through /chat, covered in test_chat_orchestrator.
 """
 
-# ── catalogue route geometry (GET /routes/{id}/geojson) ──────────────────────
+# ── saved route geometry (GET /routes/{id}/geojson) ──────────────────────
 
 ROUTE_ID = "vv2-abc123def4567890-fwd"
 
@@ -66,7 +66,7 @@ def test_route_geojson_404s_before_touching_the_filesystem(
 
 
 def test_route_geojson_503s_when_documents_are_not_mounted(client, db, monkeypatch):
-    """A catalogue route whose document store is unconfigured is a degradation,
+    """A saved route whose document store is unconfigured is a degradation,
     never an empty shape — the semantic-search 503 rule."""
     from core.config import get_settings
 
@@ -148,7 +148,7 @@ def test_a_document_wearing_another_id_is_a_visible_failure(
 ):
     """The filename used to be the whole contract: a file at this path was
     served verbatim whatever its id said. A store desynced from the
-    catalogue must fail loudly, never display another route."""
+    graph's saved :Route must fail loudly, never display another route."""
     _documents_dir(
         tmp_path, monkeypatch, {**DOCUMENT, "id": "vv2-5011b0d1e5011b0d-fwd"}
     )
@@ -182,9 +182,8 @@ def test_a_document_from_another_build_is_refused(client, db, tmp_path, monkeypa
 def test_matching_builds_serve_and_a_graph_without_the_field_still_serves(
     client, db, tmp_path, monkeypatch
 ):
-    """Agreement passes; a graph loaded before doc_run_id existed carries
-    null, which is 'nothing to compare', not 'wrong' — the audit script
-    names that state and a reload closes it."""
+    """Agreement passes; a node saved before doc_run_id existed carries
+    null, which is 'nothing to compare', not 'wrong'."""
     _documents_dir(tmp_path, monkeypatch, DOCUMENT)
     db.when("route_exists", [{"id": ROUTE_ID, "doc_run_id": "export-t1"}])
     assert client.get(f"/routes/{ROUTE_ID}/geojson").status_code == 200

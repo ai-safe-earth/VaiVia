@@ -76,7 +76,7 @@ LIMIT 10
 
 ---
 
-## Level 3 — Complex Routing & Multi-Day
+## Level 3 — Routing
 
 ### Route between two POIs under 20 km (shortest path)
 
@@ -102,9 +102,10 @@ WHERE total_m < 20000
 RETURN path, round(total_m / 1000, 2) AS total_km
 ```
 
-For anything beyond small graphs, prefer the GDS Dijkstra pattern below.
+This is the only A-to-B the graph runs (`route_between_intersections`, behind `/chat`'s
+`RouteIntent`); anything heavier is drawn by the pack planner (`docs/route-design.md`).
 
-### Two-day route with a hut at the midpoint
+### Route with a hut at the midpoint
 
 Find trails where a hut POI appears near the halfway distance. This depends on
 `COMPOSED_OF.seq` — distance to the hut is the cumulative length of the
@@ -155,37 +156,12 @@ RETURN DISTINCT t.name, t.difficulty, t.total_distance_m,
 
 ---
 
-## Using Neo4j GDS for Pathfinding
+## GDS is diagnostic only
 
-For large-scale routing, project a GDS in-memory graph and run Dijkstra.
-
-```cypher
-// 1. Create the in-memory projection
-CALL gds.graph.project(
-  'trail-routing',
-  'Intersection',
-  {
-    CONNECTS_TO: {
-      type: 'CONNECTS_TO',
-      orientation: 'UNDIRECTED',
-      properties: ['distance_m']
-    }
-  }
-)
-
-// 2. Run shortest path
-MATCH (source:Intersection {osm_node_id: '12345'}),
-      (target:Intersection {osm_node_id: '67890'})
-CALL gds.shortestPath.dijkstra.stream('trail-routing', {
-  sourceNode: source,
-  targetNode: target,
-  relationshipWeightProperty: 'distance_m'
-})
-YIELD index, sourceNode, targetNode, totalCost, nodeIds, costs
-RETURN
-  [nodeId IN nodeIds | gds.util.asNode(nodeId).osm_node_id] AS path_node_ids,
-  totalCost AS total_distance_m
-```
+No serving path projects the graph (R7). The one GDS call left is the connected-components
+check in `scripts.check_graph_connectivity`, over `graph_project_routing` /
+`graph_drop_routing`; route drawing happens over the exported pack
+(`docs/route-design.md`).
 
 ---
 
