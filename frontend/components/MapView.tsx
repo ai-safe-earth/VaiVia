@@ -9,6 +9,13 @@ import { useEffect, useRef } from 'react';
 
 import { focusedRouteId, noteOf } from '@/lib/mapTurn';
 
+// maplibre-gl 6 loads its worker as a module URL, which the bundler cannot
+// emit whole: without this the worker fails to load and every GeoJSON line —
+// the route — silently does not draw (raster tiles need no worker, so the map
+// itself looks fine). scripts/copy-maplibre-worker.mjs puts both files here
+// before every dev and build.
+maplibregl.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
+
 const LECCO: [number, number] = [9.39, 45.86];
 
 /**
