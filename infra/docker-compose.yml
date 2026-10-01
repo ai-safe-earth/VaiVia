@@ -122,8 +122,10 @@ services:
       timeout: 5s
       retries: 10
 
-  # backend and gateway services are added when their Dockerfiles land
-  # (Phases 2 and 3 in docs/plan.md).
+  # The app services (backend, gateway, jobs) run here only in production:
+  # their images build from backend/, gateway/ and pipeline/Dockerfile, and
+  # infra/compose.prod.yml adds them (docs/plan.md, Phase 9 D2). In
+  # development they run on the host (`uv run uvicorn`, `npm run dev`).
 
 networks:
   internal:
