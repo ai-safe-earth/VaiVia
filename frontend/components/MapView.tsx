@@ -2,7 +2,9 @@
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
+// A namespace import: maplibre-gl 6 ships ES modules with no default export.
+import * as maplibregl from 'maplibre-gl';
+import type { Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 
 import { focusedRouteId, noteOf } from '@/lib/mapTurn';
