@@ -93,3 +93,7 @@ infra/neo4j/plugins/
 
 # Browser-automation debris (playwright MCP)
 .playwright-mcp/
+frontend/public/maplibre/
+
+# Claude Code per-session flags (quick-fix mode)
+.claude/state/

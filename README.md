@@ -190,8 +190,7 @@ VaiVia/
 ├── frontend/               # Next.js + MapLibre: chat, history, map, Playwright e2e
 ├── infra/                  # docker-compose, Supabase migrations
 ├── docs/                   # architecture, data sources, query examples, fragilities, plan
-├── CLAUDE.md               # the rules a contributor is most likely to break by accident
-└── handoff.md              # current state, verification, blockers
+└── CLAUDE.md               # the rules a contributor is most likely to break by accident
 ```
 
 ---
@@ -292,8 +291,8 @@ hardening) is active. What remains is deploy plumbing — Caddy TLS, a VPS deplo
 script, Neo4j and Postgres backup cron, an uptime check against `/healthz` — and
 a set of credential rotations that must happen before anything is deployed.
 
-[`handoff.md`](handoff.md) is the authoritative current state: what is built,
-how far each piece is verified, and what blocks progress.
+[`docs/ROADMAP.md`](docs/ROADMAP.md) is the current state: the roadmap steps and
+the status of every plan in `docs/plans/`.
 
 ---
 
