@@ -93,3 +93,6 @@ infra/neo4j/plugins/
 
 # Browser-automation debris (playwright MCP)
 .playwright-mcp/
+
+# The frontend's static export (next build with output: 'export').
+frontend/out/

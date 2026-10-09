@@ -1,7 +1,9 @@
 """Environment-driven settings shared by ingestion, scripts, and the API."""
 
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -59,9 +61,14 @@ class Settings(BaseSettings):
 
     log_level: str = "info"
 
+    # Which environment this process is. The production overlay sets it
+    # (infra/compose.prod.yml), so a setting that is only safe in development
+    # can refuse to boot there instead of being one forgotten variable away.
+    vaivia_env: Literal["development", "production"] = "development"
+
     # The backend is not public: every request must carry this shared secret in
     # the X-Gateway-Secret header, proving it came through the Fastify gateway.
-    # Empty disables the check — dev/test only, never in a deployed environment.
+    # Empty disables the check — dev/test only; production refuses to boot.
     gateway_shared_secret: str = ""
 
     # Routing guardrails
@@ -78,6 +85,19 @@ class Settings(BaseSettings):
 
     # Supabase Postgres (chat history, ledger, quotas)
     database_url: str = ""
+
+    @model_validator(mode="after")
+    def _production_needs_the_gateway_secret(self) -> "Settings":
+        # An empty secret silently switches the gateway check off
+        # (api/middleware.py). Failing to boot is the only refusal a
+        # misconfigured deploy cannot ignore — the gateway does the same for
+        # its own switches (gateway/src/config.ts).
+        if self.vaivia_env == "production" and not self.gateway_shared_secret:
+            raise ValueError(
+                "GATEWAY_SHARED_SECRET must be set when VAIVIA_ENV=production — "
+                "refusing to start a backend any caller could reach"
+            )
+        return self
 
     @property
     def region_list(self) -> list[tuple[str, tuple[float, float, float, float]]]:
