@@ -20,7 +20,7 @@ def test_derived_from_postgis_vars(monkeypatch, tmp_path) -> None:
 
 def test_regions_match_backend() -> None:
     # The pipeline and backend must agree on what the two provinces are; a
-    # drifted bbox silently builds a catalogue for a different place.
+    # drifted bbox silently builds a pack for a different place.
     assert core.REGIONS["Lecco"] == (45.8, 9.3, 46.0, 9.6)
     assert core.REGIONS["Bergamo"] == (45.68, 9.55, 45.92, 9.85)
 

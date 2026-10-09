@@ -8,8 +8,9 @@ the layer that caused it:
                  (needs OPENAI_API_KEY; costs a few cents)
   RETRIEVAL      With --graph, execute each composed plan against the live
                  graph exactly as the orchestrator does and check the expected
-                 trail / catalogue loop is ranked first / retrieved. Needs
-                 Neo4j up, ingestion done, and the embedding job run.
+                 trail is ranked first / retrieved, or a drawn outing's facts
+                 land in band. Needs Neo4j up, ingestion done, the embedding
+                 job run, and a pack for the facts entries.
   ANSWER         With --answers (requires --graph), stream the answer for the
                  executed results and run the code-checkable prompt rules over
                  the RAW model text — before strip_links_stream, because
@@ -35,10 +36,10 @@ trend is worse than a gap in it. Use it to read one failure again without
 paying for the other forty-nine.
 
 Dataset: fixtures/golden_questions.json. Expectations address the COMPOSED
-plan ("search.<field>", "loop.<field>", "theme", "routes", "clarify");
-"expect_trails" names the trail ids retrieval must surface, "expect_loops"
-the catalogue route ids (geometry-stable vv2-…, never names — names are
-rewritten every name_routes run); first id = must rank first. An entry with
+plan ("search.<field>", "outing.<field>", "theme", "clarify");
+"expect_trails" names the trail ids retrieval must surface; first id = must
+rank first. A DRAWN outing pins no ids — its ids are minted per draw — so it
+is graded by "expect_facts" bands against the pack named in "pack_run_id". An entry with
 "turns" instead of "question" is a CONVERSATION: each turn runs through the
 same extract -> compose -> apply_delta loop the orchestrator uses, the
 standing plan threading between turns, and the expectation addresses the
@@ -61,6 +62,7 @@ from chat.composer import (
     ComposedPlan,
     apply_delta,
     compose,
+    drop_unsaid_places,
     standing_dump,
     standing_load,
 )
@@ -144,21 +146,27 @@ def check_plan(expected: dict[str, Any], plan: ComposedPlan) -> list[str]:
         if key == "theme":
             if bool(plan.theme) != want:
                 problems.append(f"theme: want present={want}, got {plan.theme!r}")
-        elif key == "routes":
-            if len(plan.routes) != want:
-                problems.append(f"routes: want {want}, got {len(plan.routes)}")
-        elif key.startswith(("search.", "loop.", "outing.")):
+        elif key.startswith(("search.", "outing.")):
             prefix, field = key.split(".", 1)
-            holder = {
-                "search": plan.search,
-                "loop": plan.loop,
-                "outing": plan.outing,
-            }[prefix]
+            holder = {"search": plan.search, "outing": plan.outing}[prefix]
             # Dotted tails walk nested models: "outing.start.mode".
             got = holder
             for part in field.split("."):
                 got = getattr(got, part, None) if got is not None else None
-            if isinstance(want, list):
+            if key.endswith(("name", "names")):
+                # Place names are the user's words: "Mandello" asked, the
+                # model may write "Mandello del Lario" — contained, any case.
+                gots = [got] if isinstance(got, str) or got is None else got
+                if want is None:
+                    ok = not got
+                else:
+                    wants = want if isinstance(want, list) else [want]
+                    ok = all(
+                        any(w.lower() in (g or "").lower() for g in gots) for w in wants
+                    )
+                if not ok:
+                    problems.append(f"{key}: want {want}, got {got}")
+            elif isinstance(want, list):
                 if not set(want) <= set(got or []):
                     problems.append(f"{key}: want superset of {want}, got {got}")
             elif isinstance(want, dict) and want.keys() & {"lt", "lte", "gt"}:
@@ -217,7 +225,7 @@ async def run_turns(
     kinds: list[str] = []
     for turn in turns:
         result = await client.extract_plan(turn, [], standing=standing_raw)
-        subqueries = result.envelope.subqueries
+        subqueries = drop_unsaid_places(result.envelope.subqueries, turn)
         plan = compose(subqueries)
         kinds = [s.kind for s in subqueries]
         if result.envelope.refine and not plan.is_clarify:
@@ -230,7 +238,7 @@ async def run_turns(
 
 
 def log_run(summary: dict[str, Any]) -> None:
-    """One JSON line per run, appended: the trend the handoff prose cannot hold."""
+    """One JSON line per run, appended: the trend prose notes cannot hold."""
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -314,7 +322,6 @@ async def main() -> None:
                 print(f"         {problem}")
 
             expected_trails = entry.get("expect_trails") or []
-            expected_loops = entry.get("expect_loops") or []
             expected_facts = entry.get("expect_facts") or {}
             if expected_facts and args.graph:
                 if plan.outing is None:
@@ -338,9 +345,7 @@ async def main() -> None:
                         f"{entry.get('pack_run_id')!r}, loaded {planner.run_id!r}"
                     )
                     expected_facts = {}
-            wants_execution = (
-                expected_trails or expected_loops or expected_facts or args.answers
-            )
+            wants_execution = expected_trails or expected_facts or args.answers
             if not (args.graph and wants_execution and not plan.is_clarify):
                 continue
 
@@ -356,10 +361,7 @@ async def main() -> None:
                     print(f"         {problem}")
                 if facts_problems:
                     failed.setdefault(entry["id"], []).extend(facts_problems)
-            for expected, key in (
-                (expected_trails, "trails"),
-                (expected_loops, "loops"),
-            ):
+            for expected, key in ((expected_trails, "trails"),):
                 if not expected:
                     continue
                 retrieved = [r["id"] for r in results.get(key) or []]

@@ -696,7 +696,7 @@ def main() -> None:
             conn.execute("TRUNCATE catalogue.route_edge, catalogue.route")
             print(
                 f"cleared {routes:,} generated routes — they walked the "
-                "pre-repair edges. Re-run `python -m draw.generate`."
+                "pre-repair edges. Re-export the pack."
             )
 
         # Places hold vertex_ids too. A repair welds vertices together and

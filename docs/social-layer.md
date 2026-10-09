@@ -7,12 +7,12 @@ feature is wanted, written now because one of its requirements lands on route ge
 ## The requirement it imposes today
 
 **A route id must be stable across rebuilds.** A comment keys to `route.id`. If the
-pipeline regenerates its catalogue and route ids change, every comment, photo and like
+network is rebuilt and route ids change, every comment, photo and like
 orphans silently — the rows still exist, they just point at nothing, and nobody notices
 until a user asks where their photo went.
 
-This is not a Mongo concern. It is a constraint on `pipeline/draw/`, which has not been
-written yet, and it is the reason this document exists now rather than later:
+This is not a Mongo concern. It is a constraint on the id mint (`vaivia_routes/ids.py`),
+and it is the reason this document exists now rather than later:
 
 - `osm-relation-<id>` is already stable — it is OSM's identity, not ours.
 - A **generated** route must derive its id from something that survives a rebuild: its
@@ -173,6 +173,6 @@ owner chose Supabase for exactly the reasons the trade-off paragraph above names
 This does not pre-empt the reaction collection: a public like — counted, displayed,
 composed with photos and comments — remains this document's design, still waiting to be
 specified. What favorites did inherit from here is the id discipline: they key on
-`route.id` alone, which is why a favorite survives the catalogue being replaced
-wholesale per export, and why the API reports a vanished route as `missing` instead of
+`route.id` alone, which is why a favorite survives a network rebuild (the id is minted
+from geometry, never from a vertex), and why the API reports a vanished route as `missing` instead of
 silently dropping the row.

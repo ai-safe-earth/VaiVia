@@ -184,8 +184,8 @@ def compile_outing(
 
     With a pack mounted, coverage is the gazetteer it ships (R5): a covered
     area brings its polygon, an uncovered or unknown one an honest refusal
-    naming what IS covered. The static name set stays as the no-pack
-    fallback."""
+    naming what IS covered. The static name set is the fallback when no
+    gazetteer is supplied."""
     area_entry: dict | None = None
     if intent.area:
         area = intent.area.strip()
@@ -199,7 +199,7 @@ def compile_outing(
                         f"{covered}. Want an outing there instead?"
                     ),
                     suggestions=[
-                        "three days hut to hut in the Orobie",
+                        "a full-day loop in the Orobie",
                         "a loop in the Grigne",
                         "a lakeside ride near Lecco",
                     ],
@@ -211,7 +211,7 @@ def compile_outing(
                     f"{COVERAGE_ANSWER}. Want an outing there instead?"
                 ),
                 suggestions=[
-                    "three days hut to hut in the Orobie",
+                    "a full-day loop in the Orobie",
                     "a loop in the Grigne",
                     "a lakeside ride near Lecco",
                 ],
@@ -278,7 +278,13 @@ def compile_outing(
             f"(at most {SURFACE_SHARE_CAP:.0%} of the way)"
         )
 
+    start_key = " ".join((intent.start.name or "").lower().split())
     for w in intent.waypoints:
+        # The model sometimes repeats the named START as an end waypoint
+        # ("from Ponteranica to Canto Alto" -> ends Ponteranica AND Canto
+        # Alto). The start is where the outing begins, never where it goes.
+        if w.name and start_key and " ".join(w.name.lower().split()) == start_key:
+            continue
         # A role with a semantic set (bathe/eat/sleep) UNIONS a stated kind
         # rather than being replaced by it: "a lake or river to bathe"
         # arriving as kind=bathing_water must not narrow the ask to the one

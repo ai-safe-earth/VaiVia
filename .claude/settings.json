@@ -34,7 +34,7 @@
       "Read(**/*.lock)"
     ]
   },
-  "hooks": { 
+  "hooks": {
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
@@ -47,9 +47,40 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/roadmap-status.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/quick-mode.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/plan-check.sh"
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
     "evals-skills@hamelsmu-evals-skills": true
-  }
+  },
+  "plansDirectory": "./docs/plans"
 }

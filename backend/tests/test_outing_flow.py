@@ -55,13 +55,19 @@ async def test_an_outing_is_drawn_not_searched(db, planner):
     assert card["id"].startswith("vv2-")
     assert card["ordinal"] == 1
     assert card["geometry"]["type"] == "LineString"
+    # The card carries its own profile and surface spans: /routes/{id}/detail
+    # answers 404 until the route is kept, so the map panel reads from here.
+    profile = card["profile"]
+    assert len(profile["distance_m"]) == len(profile["elevation_m"]) >= 2
+    spans = card["spans"]
+    assert spans and abs(spans[-1]["to_m"] - card["distance_m"]) < 1.0
+    assert all(spans[i]["to_m"] < spans[i + 1]["to_m"] for i in range(len(spans) - 1))
     assert results["assumptions"]
     assert "counts" in results
-    # the catalogue was never asked: the pack answered
-    assert not [c for c in db.calls if c[0] == "search_loops"]
-    # the answer model saw facts, never geometry
+    # the answer model saw facts, never geometry, profile or spans
     _message, results_json = llm.answer_calls[0]
-    assert "geometry" not in json.loads(results_json)["loops"][0]
+    seen = json.loads(results_json)["loops"][0]
+    assert not {"geometry", "profile", "spans"} & seen.keys()
 
 
 async def test_a_chip_redraws_with_no_model_call(db, planner):
@@ -121,12 +127,64 @@ async def test_uncovered_area_clarifies_before_anything_runs(db, planner):
     assert "Tuscany" in "".join(tokens)
 
 
-async def test_without_a_pack_the_catalogue_still_answers(db):
-    db.when("search_loops", [])
+async def test_without_a_pack_the_turn_says_so_rather_than_answering_empty(db):
+    """R7 retired the catalogue, so a missing pack has nothing behind it.
+
+    An empty result list would read as "no such route exists", which is a lie
+    about the network; the turn refuses in words instead. Production never
+    reaches this — REQUIRE_PACK refuses to boot without a pack.
+    """
     orchestrator, _llm, _ = build(db, OUTING, planner=None)
     events = await collect(
         orchestrator, user_id="u1", message="a two hour loop from here", near=NEAR
     )
     results = results_of(events)
     assert "drawn" not in results
-    assert [c for c in db.calls if c[0] == "search_loops"]
+    assert "not loaded" in results["clarification"]
+    assert db.calls == []
+
+
+TO_A_PEAK = {
+    "kind": "outing",
+    "activity": "hike",
+    "start": {"mode": "named", "name": "Lecco"},
+    "waypoints": [{"kind": None, "name": "Colle Santo Stefano", "role": "end"}],
+}
+
+
+async def test_an_a_to_b_ask_is_drawn_there_and_back_over_the_pack(db, planner):
+    """RouteIntent is retired: "from Lecco to Colle Santo Stefano" is an
+    outing with a named start and a named end, and both names resolve from
+    the pack's own places — the graph's POI list is never asked."""
+    orchestrator, _llm, _ = build(db, TO_A_PEAK, planner)
+    events = await collect(
+        orchestrator, user_id="u1", message="from Lecco to Colle Santo Stefano"
+    )
+    results = results_of(events)
+    assert results.get("drawn") is True, results.get("clarification")
+    assert results["loops"]
+    for card in results["loops"]:
+        assert card["destination_name"] == "Colle Santo Stefano"
+        assert card["shape"] == "out_and_back"
+    assert db.calls == []  # names resolved in the pack, no graph lookup
+
+
+async def test_an_unknown_start_is_said_not_swapped(db, planner):
+    outing = dict(TO_A_PEAK, start={"mode": "named", "name": "Atlantis"})
+    orchestrator, llm, _ = build(db, outing, planner)
+    events = await collect(orchestrator, user_id="u1", message="from Atlantis")
+    results = results_of(events)
+    assert "Atlantis" in results["clarification"]
+    assert "loops" not in results
+    assert llm.answer_calls == []
+
+
+async def test_an_unknown_destination_is_said_not_swapped(db, planner):
+    outing = dict(
+        TO_A_PEAK, waypoints=[{"kind": None, "name": "Parco dei Colli", "role": "end"}]
+    )
+    orchestrator, _llm, _ = build(db, outing, planner)
+    events = await collect(orchestrator, user_id="u1", message="to Parco dei Colli")
+    results = results_of(events)
+    assert "Parco dei Colli" in results["clarification"]
+    assert "loops" not in results

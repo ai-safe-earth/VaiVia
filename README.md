@@ -2,7 +2,7 @@
 
 **Ask for a trail in plain language; get an answer grounded in a real graph of the mountains.**
 
-> *"Find a 2-day mountain bike route near Lake Como with a place to sleep."*
+> *"A mountain bike loop near Lake Como, about three hours, with a hut to eat at."*
 > *"Easy trail for kids that passes a swimming spot."*
 > *"Something scenic and shaded in Bergamo, under 15 km, no exposed sections in spring."*
 
@@ -41,7 +41,7 @@ separation is what lets one query reason over both:
 |---|---|
 | Simple (1–2 hops) | *"Show me all MTB trails near Lecco"* |
 | Compound (2–3 hops) | *"Easy trail for kids that passes a swimming spot"* |
-| Complex (4+ hops) | *"2-day loop with a mountain hut at the halfway point"* |
+| Complex (4+ hops) | *"A loop with a mountain hut at the halfway point"* |
 
 Coverage today: **Lecco** and **Bergamo**, ingested from live Overpass —
 ~41,700 segments, ~83,300 routing edges.
@@ -65,7 +65,8 @@ internal; the backend trusts only a shared-secret hop and never parses a token.
 ### 2. The LLM never sees or writes Cypher
 
 The model's only structured output is a plan of validated atomic subqueries
-(`TrailSearchIntent | RouteIntent | SemanticThemeIntent | ClarifyIntent`).
+(`TrailSearchIntent | OutingIntent | RouteIntent | SemanticThemeIntent |
+ClarifyIntent`; a route is two place names, drawn as an outing).
 Python — `backend/chat/composer.py`, not the model — merges them tightest-wins
 and maps the result onto named, read-only, parameterized templates in
 `backend/graph/queries.cypher`. No field in the intent schema can carry a query,
@@ -189,8 +190,7 @@ VaiVia/
 ├── frontend/               # Next.js + MapLibre: chat, history, map, Playwright e2e
 ├── infra/                  # docker-compose, Supabase migrations
 ├── docs/                   # architecture, data sources, query examples, fragilities, plan
-├── CLAUDE.md               # the rules a contributor is most likely to break by accident
-└── handoff.md              # current state, verification, blockers
+└── CLAUDE.md               # the rules a contributor is most likely to break by accident
 ```
 
 ---
@@ -217,10 +217,10 @@ unordered `sum(s.length)` gives the wrong answer.
 (:Intersection)-[:CONNECTS_TO {distance, elevation_change, osm_way_id, surface, highway_type}]->(:Intersection)
 ```
 
-Segments carry edge data but are **not** routing vertices. Real routing uses GDS
-Dijkstra over an Intersection/`CONNECTS_TO` projection, with `shortestPath` as a
-fallback when GDS is absent. Traversals are always bounded and spatially
-pre-filtered.
+Segments carry edge data but are **not** routing vertices. Route drawing left the
+graph (`docs/route-design.md`): outings are drawn at ask time over the exported pack,
+and the only A-to-B left in Neo4j is `/chat`'s bounded `shortestPath` over
+`CONNECTS_TO`, no GDS. Traversals are always bounded and spatially pre-filtered.
 
 ### Graph model at a glance
 
@@ -291,8 +291,8 @@ hardening) is active. What remains is deploy plumbing — Caddy TLS, a VPS deplo
 script, Neo4j and Postgres backup cron, an uptime check against `/healthz` — and
 a set of credential rotations that must happen before anything is deployed.
 
-[`handoff.md`](handoff.md) is the authoritative current state: what is built,
-how far each piece is verified, and what blocks progress.
+[`docs/ROADMAP.md`](docs/ROADMAP.md) is the current state: the roadmap steps and
+the status of every plan in `docs/plans/`.
 
 ---
 

@@ -9,7 +9,7 @@ import pytest
 from chat.compile import compile_outing
 from chat.intents import ClarifyIntent, OutingIntent, StartSpec
 from chat.pack_state import load_planner
-from chat.planner import plan_outing
+from chat.planner import find_places, plan_outing
 
 FIXTURE = (
     Path(__file__).resolve().parents[2]
@@ -161,3 +161,65 @@ def test_station_mode_with_no_station_in_tile_clarifies(state):
         assert "start" in result.clarify.question.lower()
     else:  # the tile surprised us with a station — then it must be one
         assert result.routes
+
+
+def test_place_names_resolve_exact_then_contained(state):
+    pack = state.pack
+    names = [str(pack["place_name"][i]) for i in find_places(pack, "pizzetti")]
+    assert names[0] == "Pizzetti"  # case-insensitive exact match
+    contained = [str(pack["place_name"][i]) for i in find_places(pack, "Santo Stefano")]
+    assert contained == ["Colle Santo Stefano"]
+    assert find_places(pack, "   ") == []
+    assert find_places(pack, "Atlantis") == []
+
+
+def test_a_named_destination_is_the_destination(state):
+    """ "to Colle Santo Stefano" goes THERE and back — not to whichever peak
+    ranks best near the start."""
+    c = constraints(waypoints=[{"name": "Colle Santo Stefano", "role": "end"}])
+    result = plan_outing(state, c, ANCHOR)
+    assert result.clarify is None, result.counts
+    assert result.routes
+    for r in result.routes:
+        assert r["card"]["destination_name"] == "Colle Santo Stefano"
+        assert r["card"]["shape"] == "out_and_back"
+    # No "aiming for ~10 km": a named end is as long as it is.
+    assert not any("aiming for" in a for a in result.assumptions)
+
+
+def test_a_named_destination_with_no_start_starts_near_it(state):
+    c = constraints(waypoints=[{"name": "Colle Santo Stefano", "role": "end"}])
+    result = plan_outing(state, c, None)
+    assert result.clarify is None, result.counts
+    assert result.routes
+    assert any("starting near Colle Santo Stefano" in a for a in result.assumptions)
+
+
+def test_an_unknown_destination_clarifies_with_its_name(state):
+    c = constraints(waypoints=[{"name": "Atlantis", "role": "end"}])
+    result = plan_outing(state, c, ANCHOR)
+    assert result.routes == []
+    assert result.clarify is not None and "Atlantis" in result.clarify.question
+
+
+def test_station_words_around_a_name_still_resolve(state):
+    pack = state.pack
+    found = [str(pack["place_name"][i]) for i in find_places(pack, "Lecco station")]
+    assert found and found[0] == "Lecco"
+
+
+def test_a_described_bathing_spot_stays_a_kind_lookup(state):
+    """g62: the model writes "lake or river" into `name` on a bathe
+    waypoint. That is a description, not a place — it must not refuse."""
+    c = constraints(
+        shape="out_and_back",
+        waypoints=[{"kind": "lake", "name": "lake or river", "role": "bathe"}],
+    )
+    result = plan_outing(state, c, ANCHOR)
+    assert not (result.clarify and "lake or river" in result.clarify.question)
+
+
+def test_an_unplaced_end_with_a_kind_falls_back_to_the_kind(state):
+    c = constraints(waypoints=[{"kind": "peak", "name": "a nice peak", "role": "end"}])
+    result = plan_outing(state, c, ANCHOR)
+    assert not (result.clarify and "a nice peak" in result.clarify.question)

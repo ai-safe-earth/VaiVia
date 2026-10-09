@@ -1,13 +1,13 @@
 # VaiVia geodata pipeline
 
-Sources → PostGIS → **route documents (JSON + map)** → (the API, Neo4j, the frontend).
+Sources → PostGIS → **route documents (JSON + map)** → (the API, the frontend).
 
 **The route document is the product; this database is the working store that holds the
 value** (`docs/route-document.md`). Curated geometry, elevation, routes and places live in
 PostGIS and `export/route_documents.py` emits one structured JSON + map per route — that is
 what everything downstream reads. Curated routes, POIs and starts live in PostGIS
-(`vaivia-postgis` in `infra/docker-compose.yml`); the tile server, the dashboard, QGIS and
-the Neo4j export are all readers of it. `backend/` consumes the export; it no longer
+(`vaivia-postgis` in `infra/docker-compose.yml`); the tile server, the dashboard and QGIS
+are all readers of it. `backend/` consumes the export; it no longer
 produces the data.
 
 Read first:
@@ -22,10 +22,10 @@ Read first:
 sources/    acquire (Geofabrik PBF, GLO-30 tiles, GTFS, CLC+, REL, Infomont)
 load/       into staging_* tables
 topology/   noding, metadata propagation, QA detectors and automated repairs
-draw/       loop generation over the network (pgRouting), sequence assembly
+draw/       divergence.py only — drawing lives in shared/routes/vaivia_routes
 curate/     route join (edge_route), DEM sampling (elevation), place snapping (place)
 schemas/    the route document contract, read by every downstream tier
-export/     to Neo4j
+export/     route documents, the pack, the parity asks, the review bundle
 sql/        migrations, applied in filename order by migrate.py
 tests/      pure-function tests (no database in the loop)
 ```
@@ -81,7 +81,7 @@ Ready-made layers, latest run only — add these by name rather than filtering b
 | `qa.v_route_coverage` | how much of each relation the network holds; `matched_fraction` near 0 is a route clipped away by the region bboxes |
 | `qa.v_elevation` | every edge with ascent, descent and **gradient** — style the network by steepness |
 | `qa.v_route_elevation` | the 752 routes with climb, lowest and highest point |
-| `qa.v_draw` | **the generated catalogue**: loops from real starts, with score, off-road, retrace, MTB — all as classes |
+| `qa.v_draw` | **the parity oracle** (`catalogue.route`, the retired pre-drawn routes the pack engine is checked against): loops from real starts, with score, off-road, retrace, MTB — all as classes |
 | `qa.v_place` | every snapped POI, settlement and stop, with `distance_m` and the start verdict |
 | `qa.v_place_link` | **the layer for judging a snap**: a line from each place to the vertex it attached to — sort by `distance_m` descending |
 | `qa.v_start` | where a walk can begin: one point per vertex, with what makes it a start |
@@ -133,19 +133,13 @@ was wrong before it was right.
 examples in QGIS at each candidate distance — see `docs/metadata-rules.md`, which records
 why 2 m and not 5.
 
-## Generating routes
+## The parity oracle
 
-```bash
-uv run python -m draw.generate --dry-run           # which starts, how many asks
-uv run python -m draw.generate --starts 12         # the catalogue (~2 min)
-uv run python -m draw.emit                         # route documents for it
-```
-
-anchor × distance × seed → pgRouting draws the loop over our own edges, assembly reads
-the walked sequence (direction explicit — a reversed edge swaps ascent and descent),
-score is descriptive and never a filter. Layer: `qa.v_draw`, coloured by
-`offroad_class` / `climb_class` / `mtb_class`. Route ids derive from geometry so they
-survive rebuilds; build and repair clear the catalogue like every derived table.
+Routes are no longer pre-generated: the backend draws them at ask time over the pack
+(`docs/route-design.md`). `catalogue.route` stays as the oracle the pack engine is checked
+against — the 627 asks it replays are committed in
+`shared/routes/tests/fixtures/parity_asks.json` (dumped by `export.parity`). Layer:
+`qa.v_draw`, coloured by `offroad_class` / `climb_class` / `mtb_class`.
 
 ## The product: route documents
 
@@ -164,35 +158,22 @@ it in the test suite: a contract nothing checks is a comment. `docs/route-docume
 the repo root) has the reasoning behind each field, including why **duration is
 deliberately absent** and why attribution travels inside the document.
 
-**The catalogue publishes `generated` routes only** (`export/document.py::PUBLISHED_KINDS`,
-the one object both the emitter and `export.neo4j_load` read). The 751 mapped OSM
+**Only `generated` routes are published** (`vaivia_routes.document.PUBLISHED_KINDS`, read
+by the emitter). The 751 mapped OSM
 relations were withdrawn on 2026-08-26: 187 carried a quality warning, 56 were under
 500 m, 131 came out in more than one piece and 27 matched under 20% of their member ways,
 because a relation is a mapping of ground and our bboxes clip it. So this module's default
-is now to WITHDRAW the documents it owns; `--publish` writes them for inspection and the
-loader still refuses to put them in the graph. `source_map.edge_route` is untouched — the
+is now to WITHDRAW the documents it owns; `--publish` writes them for inspection only.
+`source_map.edge_route` is untouched — the
 relations still name the network and still feed `qa.v_route*`. Reasoning in
 `docs/route-document.md`.
 
-## The Neo4j export — the inversion
+## Neo4j
 
-```bash
-uv run python -m export.neo4j_load --dry-run    # what would load
-uv run python -m export.neo4j_load              # the catalogue into Neo4j (~1 min)
-```
-
-Neo4j is a **reader** of the route documents: this loads what the app selects on —
-identity, measures, both difficulty grades, the MTB verdict, `(:Route)-[:PASSES]->(:Place)`
-and `(:Route)-[:STARTS_AT]->(:Start)` — and deliberately **not** the geometry or the
-profile, which stay canonical in the document, fetched by `route_id`. The export owns
-`:Route`, `:Place`, `:Start` and replaces them wholesale; the backend's Trail/Segment
-graph is untouched. Cypher lives in `export/catalogue.cypher` as named templates run with
-parameters only.
-
-The end-of-run smoke test is the product's own query shape — clean routes in a distance
-band passing a peak — and it filters on `warnings = 0`, because its first run without
-that filter surfaced 0.0 km fragments wearing famous names: the quality block is not
-decoration.
+Neo4j no longer takes a bulk load (R7). A route reaches the graph only when a user keeps
+it: the backend writes its document and one `(:Route)` through `vaivia_routes.neo4j_rows`
+(`backend/graph/save_route.cypher`). Places and the trail graph come from the backend's own
+ingestion.
 
 ## Exporting the pack
 

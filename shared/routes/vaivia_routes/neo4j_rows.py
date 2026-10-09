@@ -1,9 +1,9 @@
-"""Route document -> the rows the Neo4j catalogue loader UNWINDs.
+"""Route document -> the rows graph/save_route.cypher UNWINDs.
 
-Shared by the pipeline's bulk loader (export/neo4j_load.py) and the
-backend's favourite/share save path (chat/save_route.py), because a route
-a user keeps must land in the graph EXACTLY as a catalogue route would —
-one mapping, two writers (docs/route-design.md, "Ask time" step 5).
+Read by the backend's favourite/share save path (chat/save_route.py). It was
+written for two writers — the pipeline's bulk loader went with the catalogue
+(R7) — and stays the one mapping, so a kept route lands in the graph exactly
+as every reader expects (docs/route-design.md, "Ask time" step 5).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def mtb_rank(grade: str | None) -> int | None:
 
 
 def document_rows(document: dict) -> dict[str, Any]:
-    """One document -> the rows the loader UNWINDs. Pure, tested.
+    """One document -> the rows save_route.cypher UNWINDs. Pure, tested.
 
     Selection properties only. `None` values are kept (SET writes null, which
     in Neo4j removes the property — absent is not zero, in graph form).
@@ -82,7 +82,7 @@ def document_rows(document: dict) -> dict[str, Any]:
             "bbox": document["bbox"],
             # The cross-layer contract fields (docs/route-document.md): the
             # API compares these against the document it serves, so a :Route
-            # from export N wearing a file from export N-1 fails visibly
+            # from build N wearing a file from build N-1 fails visibly
             # instead of serving another build's shape under this id.
             "schema_version": document["schema_version"],
             "doc_run_id": document.get("provenance", {}).get("run_id"),

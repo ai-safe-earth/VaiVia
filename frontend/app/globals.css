@@ -7,7 +7,9 @@
  * MapLibre paint properties cannot take a CSS variable.
  *
  * Three rules the layout depends on: square corners everywhere, no box-shadow,
- * and separation by 1px hairline rather than by surface colour.
+ * and three surfaces only — the chrome (header, composer) on --vv-panel, the
+ * conversation on --vv-chat, the map on --vv-map — with 1px hairlines doing
+ * every other separation (amendment 2026-09-25, BRAND-SPEC §4).
  */
 
 * {
@@ -71,10 +73,9 @@ body {
   align-items: center;
 }
 
-/* Everything between the header and the credit. The positioning context the
-   map layer is absolute against, and the flex column that BOUNDS the
-   transcript: without it .chat grows with the conversation and the composer
-   walks off the bottom of the screen. */
+/* Everything between the header and the credit: the flex column that BOUNDS
+   the transcript. Without it .chat grows with the conversation and the
+   composer walks off the bottom of the screen. */
 
 .stage {
   position: relative;
@@ -82,16 +83,10 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  /* The closed map layer is translated a full height DOWN, and an absolutely
-     positioned child that sticks out counts as scrollable overflow: without
-     this the document grew to ~1013px on a 640px screen and scrolled the
-     header off the top. `clip`, not `hidden`: hidden still makes this a
-     SCROLL CONTAINER, so the transcript's scrollIntoView scrolled the stage
-     itself and dragged the whole conversation up by 427px. clip cannot be
-     scrolled at all, which leaves .messages the only scroller — as intended. */
+  /* `clip`, not `hidden`: hidden makes this a SCROLL CONTAINER, and the
+     transcript's scrollIntoView then scrolls the stage itself. clip cannot be
+     scrolled at all, which leaves .messages the only scroller. */
   overflow: clip;
-  /* The composer's own height, so the map layer can stop just above it. */
-  --vv-composer-h: 52px;
 }
 
 .chat {
@@ -107,6 +102,7 @@ body {
 .app-header {
   flex: none;
   height: 54px;
+  background: var(--vv-panel);
   display: flex;
   align-items: center;
   gap: var(--vv-s2);
@@ -181,6 +177,7 @@ body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  background: var(--vv-chat);
 }
 
 .turn {
@@ -306,8 +303,8 @@ body {
 /* ── Route card ───────────────────────────────────────────────────────────
    An inset block inside the assistant turn: its own hairline frame and a gap
    to the next card, so each route is unmistakably one thing. No radius. The
-   3px left edge marks the route drawn on the map — transparent when it is not,
-   so picking one never shifts the layout. */
+   3px left edge marks an open card — transparent when closed, so opening one
+   never shifts the layout. */
 
 .route-card {
   border: 1px solid var(--vv-line);
@@ -335,13 +332,18 @@ body {
   color: var(--vv-lime);
 }
 
-.route-card[aria-pressed='true'] {
+.route-card[data-open] {
   border-left-color: var(--vv-lime);
+  cursor: default;
 }
 
-/* Which kind of outing the card is — "Loop", "Out & back", "Named trail" —
-   so a mixed answer stays legible without reading the numbers. The row also
-   carries the bookmark, muted until saved. */
+.route-card[data-open]:hover .route-name {
+  color: inherit;
+}
+
+/* Where the route starts and ends — "start A · end B" — and, on an open
+   card, the close button before it. The row also carries the bookmark,
+   muted until saved. */
 .route-kind-row {
   display: flex;
   align-items: center;
@@ -355,7 +357,33 @@ body {
 }
 
 .route-kind-row .route-kind {
+  display: inline;
   padding: 0;
+}
+
+.route-kind-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vv-s2);
+  min-width: 0;
+}
+
+/* The only way an open card closes: top-left, square, hairline. */
+.card-close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--vv-line);
+  background: transparent;
+  color: var(--vv-text);
+  font: 400 12px/1 var(--vv-sans);
+  cursor: pointer;
+}
+
+.card-close:hover {
+  border-color: var(--vv-lime);
+  color: var(--vv-lime);
 }
 
 .route-kind-row + .route-name,
@@ -531,10 +559,6 @@ body {
   margin-top: var(--vv-s1);
 }
 
-.detail-profile .profile {
-  height: 56px;
-}
-
 .profile-caveat {
   margin: var(--vv-s2) 0 0;
   color: var(--vv-flare);
@@ -565,8 +589,9 @@ body {
 
 .route-line2 {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--vv-s3);
+  gap: var(--vv-s2) var(--vv-s3);
   margin: 0 0 var(--vv-s2);
   color: var(--vv-muted);
 }
@@ -579,6 +604,49 @@ body {
 /* The exigent warning wears the flare: a safety fact, not a mood. */
 .exigent {
   color: var(--vv-flare);
+  white-space: nowrap;
+}
+
+/* The two grades as marks: six squares filled to the rank, the code beside.
+   Squares, not dots — the brand has no circles. Hollow with a "?" is unknown,
+   which is not easy. */
+.grade {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vv-s1);
+  white-space: nowrap;
+}
+
+.grade-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.grade-dots i {
+  width: 5px;
+  height: 5px;
+  background: var(--vv-line);
+}
+
+.grade-dots i.on {
+  background: var(--vv-text);
+}
+
+.grade-code {
+  color: var(--vv-text);
+}
+
+/* The kind row's right-hand marks: the train icon when the start is a
+   station or a bus stop, then the bookmark. */
+.route-marks {
+  display: flex;
+  align-items: center;
+  gap: var(--vv-s2);
+}
+
+.route-marks .train {
+  display: inline-flex;
+  color: var(--vv-muted);
 }
 
 .detail-block {
@@ -586,7 +654,7 @@ body {
 }
 
 /* A card whose map line could not be fetched says so on the card. Flare for
-   the retryable failure, muted for the settled "left the catalogue". */
+   the retryable failure, muted for the settled "no longer saved". */
 .line-note {
   margin: 0 0 var(--vv-s2);
   color: var(--vv-muted);
@@ -814,6 +882,7 @@ body {
 .composer {
   flex: none;
   display: flex;
+  background: var(--vv-panel);
   /* The map layer stops above the composer by this height — it is a
      measurement, so pin it rather than leaving it to the Ask button's
      padding. */
@@ -892,120 +961,114 @@ body {
   cursor: not-allowed;
 }
 
-/* ── Data credit ──────────────────────────────────────────────────────────
-   ODbL attribution for the OSM data behind every answer. Always on screen and
-   never behind a toggle: flex:none keeps it as the conversation grows. */
+/* ── Card map ────────────────────────────────────────────────────────────
+   An open card's own map, at the head of its detail: a fixed height so a
+   card never grows with its tiles, the card's panel ground behind it. */
 
-.data-credit {
-  flex: none;
-  padding: var(--vv-s2) var(--vv-s7);
-  border-top: 1px solid var(--vv-line);
-}
-
-.data-credit a {
-  color: var(--vv-muted);
-}
-
-.data-credit a:hover {
-  color: var(--vv-text);
-}
-
-/* ── Map layer ───────────────────────────────────────────────────────────
-   The map over the conversation, stopping above the composer so a question can
-   be asked without putting it away. Closed it is translated out and made
-   invisible rather than unmounted: MapLibre keeps its camera and its tiles,
-   and visibility takes it out of the tab order and the a11y tree while it is
-   away. No shadow and no radius (BRAND-SPEC §4): the hairline and the
-   ground-to-map step are the whole affordance. */
-
-.map-layer {
-  position: absolute;
-  inset: 0 0 var(--vv-composer-h) 0;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--vv-map);
-  border-top: 1px solid var(--vv-line);
-  transform: translateY(100%);
-  visibility: hidden;
-  /* Hiding waits for the slide to finish; showing must not wait for it. */
-  transition:
-    transform 200ms ease,
-    visibility 0s 200ms;
-}
-
-[data-view='map'] .map-layer {
-  transform: translateY(0);
-  visibility: visible;
-  transition: transform 200ms ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .map-layer,
-  [data-view='map'] .map-layer {
-    transition: none;
-  }
-}
-
-.map-canvas {
+.card-map {
   position: relative;
-  flex: 1;
-  min-height: 0;
+  height: 240px;
+  margin: 0 calc(-1 * var(--vv-s7)) var(--vv-s3);
+  background: var(--vv-map);
+  border-bottom: 1px solid var(--vv-line);
 }
 
-/* The way back, said in words. Top-LEFT: the nav control owns top-right, and
-   the label is the point — the header icon was the only exit and nobody read
-   a zigzag as "back". Solid ground under it, because it sits over tiles. */
-.map-back {
+/* The route profile: an SVG that fills the card's width, the curve in lime
+   over a faint fill, the ground it runs over as a band beneath it — data
+   encoding, not accent (tokens.css). The hover line names the metre. */
+.profile {
+  position: relative;
+  padding-top: var(--vv-s5);
+}
+
+.profile svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.profile .curve {
+  fill: none;
+  stroke: var(--vv-lime);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile .area {
+  fill: var(--vv-lime);
+  opacity: 0.12;
+}
+
+.profile .hatch {
+  fill: var(--vv-muted);
+}
+
+.profile .hover line {
+  stroke: var(--vv-text);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile .hover circle {
+  fill: var(--vv-ground);
+  stroke: var(--vv-text);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile-tip {
   position: absolute;
-  top: var(--vv-s3);
-  left: var(--vv-s3);
-  z-index: 2;
-  padding: var(--vv-s3) var(--vv-s5);
+  top: 0;
+  transform: translateX(-50%);
+  padding: 2px var(--vv-s2);
   border: 1px solid var(--vv-line);
   background: var(--vv-ground);
   color: var(--vv-text);
-  font: 400 9.5px/1 var(--vv-sans);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  cursor: pointer;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
-.map-back:hover {
-  border-color: var(--vv-lime);
-  color: var(--vv-lime);
-}
-
-/* The picked route's card, under the canvas and under the map's own
-   attribution row — never over either. Fixed share of the layer and scrolls:
-   a card that grew with its detail would push the map to a sliver. */
-
-.route-panel {
-  flex: none;
-  max-height: 45%;
-  overflow-y: auto;
-  border-top: 1px solid var(--vv-line);
-  background: var(--vv-ground);
-}
-
-.profile {
+.profile-legend {
   display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 46px;
-}
-
-.profile i {
-  flex: 1;
-  background: var(--vv-lime);
-}
-
-.profile-labels {
-  display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--vv-s4);
-  margin-top: var(--vv-s2);
+  margin: var(--vv-s2) 0 var(--vv-s3);
+  color: var(--vv-muted);
+}
+
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vv-s1);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+}
+
+.surface-paved {
+  fill: var(--vv-surface-paved);
+  background: var(--vv-surface-paved);
+}
+
+.surface-gravel {
+  fill: var(--vv-surface-gravel);
+  background: var(--vv-surface-gravel);
+}
+
+.surface-ground {
+  fill: var(--vv-surface-ground);
+  background: var(--vv-surface-ground);
+}
+
+.swatch.surface-untagged {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--vv-muted) 0 2px,
+    transparent 2px 4px
+  );
 }
 
 /* A ground block with a hairline, not bare text: the basemap underneath is
@@ -1023,24 +1086,24 @@ body {
   pointer-events: none;
 }
 
-/* MapLibre chrome, brought onto the dark ground. Scoped under .map-layer
+/* MapLibre chrome, brought onto the dark ground. Scoped under .card-map
    because maplibre-gl.css is imported by the component and lands after this
    file — at equal specificity its own white pill would win. The attribution
    becomes the last full-width row of the map above a hairline, as the spec
    asks — not a corner pill. */
 
-.map-layer .maplibregl-ctrl-bottom-right {
+.card-map .maplibregl-ctrl-bottom-right {
   left: 0;
   width: 100%;
 }
 
-.map-layer .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+.card-map .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
   margin: 0;
 }
 
 /* Their own rule is .maplibregl-ctrl.maplibregl-ctrl-attrib, so match both
    classes or the white pill keeps its background and padding. */
-.map-layer .maplibregl-ctrl.maplibregl-ctrl-attrib {
+.card-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
   width: 100%;
   padding: var(--vv-s1) var(--vv-s6);
   border-radius: 0;
@@ -1050,32 +1113,32 @@ body {
   font: 400 12px/1.5 var(--vv-sans);
 }
 
-.map-layer .maplibregl-ctrl-attrib a {
+.card-map .maplibregl-ctrl-attrib a {
   color: var(--vv-muted);
 }
 
-.map-layer .maplibregl-ctrl-attrib a:hover {
+.card-map .maplibregl-ctrl-attrib a:hover {
   color: var(--vv-text);
 }
 
 /* :not(:empty) matches their own selector, which carries the drop shadow. */
-.map-layer .maplibregl-ctrl-group,
-.map-layer .maplibregl-ctrl-group:not(:empty) {
+.card-map .maplibregl-ctrl-group,
+.card-map .maplibregl-ctrl-group:not(:empty) {
   background: var(--vv-ground);
   border: 1px solid var(--vv-line);
   border-radius: 0;
   box-shadow: none;
 }
 
-.map-layer .maplibregl-ctrl-group button {
+.card-map .maplibregl-ctrl-group button {
   background: transparent;
 }
 
-.map-layer .maplibregl-ctrl-group button + button {
+.card-map .maplibregl-ctrl-group button + button {
   border-top: 1px solid var(--vv-line);
 }
 
-.map-layer .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+.card-map .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
   filter: invert(1);
 }
 

@@ -117,73 +117,44 @@ test.describe('VaiVia smoke', () => {
     await input.fill('a loop hike past a peak, 8 to 16 km, nothing harder than T3');
     await input.press('Enter');
 
-    // A real streamed answer selected from the catalogue. The route that comes
-    // back is whichever scores best on the day, so this pins the shape — a
-    // card with a name and a distance — not one route's name.
-    // Scoped to the transcript: the map layer's route panel renders the SAME
-    // card component with the same class and the same data-route-id, so an
-    // unscoped .first() re-resolves to the panel after the first click.
+    // A real streamed answer. The route that comes back is whichever scores
+    // best on the day, so this pins the shape — a card with a name and a
+    // distance — not one route's name.
     const card = page.locator('.messages .route-card').first();
     await expect(card).toBeVisible({ timeout: 45_000 });
     await expect(card.locator('.route-name')).not.toBeEmpty();
     await expect(card.getByText('km')).toBeVisible();
 
-    // Selecting it draws THAT route's geometry on the map — asserted by id,
-    // not by the empty-state text disappearing: the "any card shows any map"
-    // defect drew a different answer's routes and still passed that check.
-    // MapView surfaces the focused route id as a data attribute for exactly
-    // this assertion.
+    // A tap opens the card in place (owner decision 2026-09-29): its own map,
+    // drawing THAT route — asserted by id, since MapView surfaces the drawn
+    // route as a data attribute for exactly this — and its profile.
     const clickedId = await card.getAttribute('data-route-id');
-    const layer = page.locator('.map-layer');
     await card.click();
-    await expect(layer).toBeVisible();
-    await expect(page.locator('.map-empty')).toBeHidden();
-    await expect(page.locator('[data-selected-route]')).toHaveAttribute(
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await expect(card.locator('[data-selected-route]')).toHaveAttribute(
       'data-selected-route',
       clickedId!,
     );
-
-    // The panel under the canvas is the same card, for the route that was
-    // tapped, opened on arrival — the tap WAS the ask for its numbers.
-    const panelCard = page.locator('.route-panel .route-card');
-    await expect(panelCard).toHaveAttribute('data-route-id', clickedId!);
-    await expect(panelCard.locator('.route-detail .profile i').first()).toBeVisible({
+    await expect(card.locator('.route-detail .profile svg')).toBeVisible({
       timeout: 10_000,
     });
 
-    // The canvas was resized to the layer's box as it opened: a fitBounds
-    // computed against the old box is the defect this pins.
-    const [canvasWidth, boxWidth] = await page.evaluate(() => [
-      document.querySelector('.maplibregl-canvas')?.clientWidth ?? -1,
-      document.querySelector('.map-canvas')?.clientWidth ?? -2,
+    // The canvas fills the card's map box: a fitBounds computed against
+    // another box is the defect this pins.
+    const [canvasWidth, boxWidth] = await card.evaluate((el) => [
+      el.querySelector('.maplibregl-canvas')?.clientWidth ?? -1,
+      el.querySelector('.card-map')?.clientWidth ?? -2,
     ]);
     expect(canvasWidth).toBe(boxWidth);
 
-    // ODbL is on screen in BOTH states, never behind a toggle (BRAND-SPEC
-    // §12): the app's own credit row, and the map's attribution while the map
-    // is up.
-    await expect(page.locator('.maplibregl-ctrl-attrib')).toBeVisible();
-    await expect(page.locator('.data-credit')).toBeVisible();
+    // ODbL is on screen with the map: the map's own attribution row.
+    await expect(card.locator('.maplibregl-ctrl-attrib')).toBeVisible();
 
-    // The way back a finger can find: a labelled button on the layer itself
-    // (owner decision 2026-09-08 — Escape and Back were the only exits and
-    // neither is discoverable on a phone).
-    await page.locator('.map-back').click();
-    await expect(layer).toBeHidden();
-    await card.click();
-    await expect(layer).toBeVisible();
-
-    // The map is a layer over the conversation, not a page. Escape lowers it,
-    // the card stays picked underneath, and the browser's Back lowers it too —
-    // which is what makes Android's back gesture do the obvious thing.
-    await page.keyboard.press('Escape');
-    await expect(layer).toBeHidden();
-    await expect(page.locator('.data-credit')).toBeVisible();
-    await expect(card).toHaveAttribute('aria-pressed', 'true');
-    await card.click();
-    await expect(layer).toBeVisible();
-    await page.goBack();
-    await expect(layer).toBeHidden();
+    // A tap on the open card does nothing; only its close button closes it.
+    await card.locator('.route-name').click();
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await card.getByRole('button', { name: 'Close' }).click();
+    await expect(card).not.toHaveAttribute('data-open', 'true');
 
     // The answer prose carries no links (fragilities.md #14): the model used
     // to invent trailforks.com links onto OSM-derived routes, and the strip
@@ -193,19 +164,14 @@ test.describe('VaiVia smoke', () => {
     const answer = await page.locator('.turn-assistant').last().innerText();
     expect(answer).not.toMatch(/https?:\/\/|]\(|trailforks/i);
 
-    // Every card says which kind of outing it is (owner rule 2026-08-21) —
-    // and since the catalogue reload, never the pre-1.2 'Named route'.
-    const kind = await card.locator('.route-kind').innerText();
-    expect(['LOOP', 'OUT & BACK', 'LINEAR']).toContain(kind.toUpperCase());
+    // Every card says where it starts and ends (owner rule 2026-09-29).
+    const ends = await card.locator('.route-kind').innerText();
+    expect(ends.toLowerCase()).toMatch(/^start .+/);
 
-    // The transcript's own card still expands in place — "See more" draws the
-    // line but leaves the reader where they are, and never raises the map.
+    // "+ info" is the body tap by another name.
     await card.locator('.detail-toggle').click();
-    await expect(layer).toBeHidden();
-    await expect(card.locator('.route-detail')).toBeVisible();
-    await expect(card.locator('.route-detail .profile i').first()).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await card.getByRole('button', { name: 'Close' }).click();
 
     // When the search found more than the prose narrates, the fold offers
     // the rest five at a time. Not every ask overflows, so this is
@@ -224,9 +190,8 @@ test.describe('VaiVia smoke', () => {
     // The feedback loop, end to end: thumbs render once the turn is stored
     // (messageId arrives on `done`), a downvote asks what could be improved,
     // and the comment posts through the gateway into message_feedback.
-    // Scoped to .messages: an open card asks the same question about its own
-    // route, and the map panel's card — still mounted, just lowered — would
-    // otherwise be the last .feedback in the document.
+    // Scoped to the turn's own thumbs: an open card asks the same question
+    // about its own route.
     const feedback = page
       .locator('.messages .feedback')
       .filter({ has: page.getByLabel('Bad answer') })
@@ -254,11 +219,10 @@ test.describe('VaiVia smoke', () => {
     await page.getByRole('button', { name: 'Saved routes', exact: true }).click();
     const savedCard = page.locator('.favorites-view .route-card').first();
     await expect(savedCard).toBeVisible({ timeout: 10_000 });
-    // A saved card raises the map the same way a chat card does; Escape puts
-    // it back and the bookmark is reachable again.
+    // A saved card opens in place the same way a chat card does.
     await savedCard.click();
-    await expect(layer).toBeVisible();
-    await page.keyboard.press('Escape');
+    await expect(savedCard.locator('.card-map')).toBeVisible();
+    await savedCard.getByRole('button', { name: 'Close' }).click();
     await savedCard.getByLabel('Remove from saved routes').click();
     // The card stays until the list reloads (an accidental tap is undoable),
     // but the bookmark must read unsaved at once.

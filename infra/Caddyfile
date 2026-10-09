@@ -1,0 +1,18 @@
+# The front door on a server with a domain (profile `caddy`, infra/compose.prod.yml).
+# SITE_ADDRESS is api.<domain> in production — Caddy fetches and renews the
+# certificate itself — or `localhost` for a laptop check (Caddy's local CA).
+# Only the gateway is behind it: the frontend is on Cloudflare Pages.
+
+{$SITE_ADDRESS} {
+	# No `encode`: compression can hold SSE chunks back, and the gateway's
+	# answers are small JSON anyway.
+	reverse_proxy gateway:3001 {
+		# /chat is SSE: never buffer, or the answer arrives all at once.
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

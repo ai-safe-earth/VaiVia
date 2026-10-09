@@ -35,9 +35,9 @@ from typing import Any, NamedTuple
 # minor version per the schema's own rule.
 SCHEMA_VERSION = "2.1"
 
-# The kinds of route the catalogue PUBLISHES. A mapped OSM relation is a legal
-# document — the schema still accepts kind='osm_route' — and it is not one the
-# catalogue serves: of the 751 emitted on 2026-08-25, 187 carried warnings, 56
+# The kinds of route we PUBLISH. A mapped OSM relation is a legal
+# document — the schema still accepts kind='osm_route' — and it is not one we
+# serve: of the 751 emitted on 2026-08-25, 187 carried warnings, 56
 # were under 500 m, 131 came out in more than one piece, and 27 matched under
 # 20% of their member ways (BI-12 matches 2 of its 646). A relation is a
 # MAPPING of ground, clipped by our bboxes; a route is something drawn over our
@@ -50,11 +50,10 @@ PUBLISHED_KINDS = frozenset({"generated"})
 
 
 def published(kind: str) -> bool:
-    """Is a document of this kind part of the served catalogue?
+    """Is a document of this kind one we publish?
 
-    Both publishers consult this — export/route_documents.py before it writes,
-    export/neo4j_load.py before it loads — so the two cannot drift into
-    different answers about the same document.
+    export/route_documents.py consults this before it writes; the rule lives
+    here, beside the schema, so no emitter carries its own copy.
     """
     return kind in PUBLISHED_KINDS
 
@@ -172,9 +171,8 @@ def surface_class(dominant_surface: str | None) -> str:
 
 
 def sibling_route_id(route_id: str) -> str | None:
-    """The other direction's id (delegates to pipeline/ids.py at the seam
-    where both modules must agree; re-exported here so document assembly
-    has one import)."""
+    """The other direction's id (delegates to vaivia_routes.ids; re-exported
+    here so document assembly has one import)."""
     from vaivia_routes.ids import sibling_id
 
     return sibling_id(route_id)

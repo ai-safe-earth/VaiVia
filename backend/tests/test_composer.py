@@ -1,11 +1,9 @@
 """Composer: atomic subqueries merge deterministically, and thin plans clarify."""
 
 from chat.composer import (
-    MAX_ROUTES,
     MAX_SUBQUERIES,
     ComposedPlan,
     apply_delta,
-    catalogue_view,
     compose,
     has_constraints,
     merge_searches,
@@ -15,7 +13,7 @@ from chat.composer import (
 )
 from chat.intents import (
     ClarifyIntent,
-    LoopSearchIntent,
+    OutingIntent,
     RouteIntent,
     SemanticThemeIntent,
     TrailSearchIntent,
@@ -27,7 +25,7 @@ def test_single_search_passes_through():
     assert not plan.is_clarify
     assert plan.search is not None and plan.search.activity == "mtb"
     assert plan.theme is None
-    assert plan.routes == []
+    assert plan.outing is None
 
 
 def test_merge_takes_the_tightest_bound_of_each_constraint():
@@ -75,7 +73,7 @@ def test_any_clarify_poisons_the_plan():
     assert plan.is_clarify
     assert plan.clarify is not None
     assert plan.clarify.suggestions == ["near Lecco"]
-    assert plan.search is None and plan.routes == []
+    assert plan.search is None and plan.outing is None
 
 
 def test_empty_plan_clarifies_with_suggestions():
@@ -100,10 +98,30 @@ def test_blank_theme_is_not_actionable():
     assert plan.is_clarify
 
 
-def test_routes_are_kept_in_order_and_capped():
-    routes = [RouteIntent(start=f"a{i}", end=f"b{i}") for i in range(4)]
-    plan = compose(list(routes))
-    assert [r.start for r in plan.routes] == ["a0", "a1"][:MAX_ROUTES]
+def test_an_a_to_b_ask_is_an_outing_with_a_named_end():
+    """RouteIntent is retired: "from Ponteranica to Canto Alto" is an outing
+    whose start is named and whose end is a named waypoint, drawn over the
+    pack (docs/route-design.md decision 4)."""
+    outing = OutingIntent(
+        activity="hike",
+        start={"mode": "named", "name": "Ponteranica"},
+        waypoints=[{"name": "Canto Alto", "role": "end"}],
+    )
+    plan = compose([outing])
+    assert not plan.is_clarify
+    assert plan.outing is not None
+    assert plan.outing.start.name == "Ponteranica"
+    assert plan.outing.waypoint_names == ["Canto Alto"]
+
+
+def test_the_first_outing_speaks():
+    plan = compose(
+        [
+            OutingIntent(activity="hike", waypoints=[{"name": "a", "role": "end"}]),
+            OutingIntent(activity="hike", waypoints=[{"name": "b", "role": "end"}]),
+        ]
+    )
+    assert plan.outing is not None and plan.outing.waypoint_names == ["a"]
 
 
 def test_a_clarify_past_the_cap_still_poisons_the_plan():
@@ -117,24 +135,22 @@ def test_a_clarify_past_the_cap_still_poisons_the_plan():
     subqueries = [
         TrailSearchIntent(activity="mtb"),
         SemanticThemeIntent(text="ridge"),
-        RouteIntent(start="a", end="b"),
-        RouteIntent(start="c", end="d"),
+        OutingIntent(activity="hike"),
+        OutingIntent(activity="mtb"),
         ClarifyIntent(question="?"),  # fifth: past MAX_SUBQUERIES, still heard
     ]
     assert len(subqueries) == MAX_SUBQUERIES + 1
     plan = compose(subqueries)
     assert plan.is_clarify
-    assert plan.search is None and not plan.routes and plan.theme is None
+    assert plan.search is None and plan.outing is None and plan.theme is None
 
 
 def test_runnable_subqueries_beyond_the_cap_are_dropped():
-    routes = [
-        RouteIntent(start=f"a{i}", end=f"b{i}") for i in range(MAX_SUBQUERIES + 2)
-    ]
-    plan = compose([TrailSearchIntent(activity="mtb"), *routes])
+    themes = [SemanticThemeIntent(text=f"t{i}") for i in range(MAX_SUBQUERIES + 2)]
+    plan = compose([TrailSearchIntent(activity="mtb"), *themes])
     assert not plan.is_clarify
-    # The trail search plus MAX_SUBQUERIES - 1 routes, themselves capped again.
-    assert len(plan.routes) <= MAX_ROUTES
+    # The trail search plus MAX_SUBQUERIES - 1 themes; the rest never run.
+    assert plan.theme == "; ".join(f"t{i}" for i in range(MAX_SUBQUERIES - 1))
 
 
 def test_zero_bounds_are_dropped_as_vacuous():
@@ -181,7 +197,7 @@ def test_named_activities_are_left_alone():
 
 def test_mixed_only_search_is_not_actionable():
     """Dropping the sole filter leaves nothing to search on, so ask rather
-    than return the whole catalogue."""
+    than return every trail we have."""
     assert compose([TrailSearchIntent(activity="mixed")]).is_clarify
 
 
@@ -204,82 +220,18 @@ def test_has_constraints_sees_every_field():
     assert has_constraints(TrailSearchIntent(surface_exclusions=["asphalt"]))
 
 
-# ── A trail ask is posed to the catalogue too — when it can be ──────────────
-
-
-def test_catalogue_view_maps_the_shared_constraints():
-    view = catalogue_view(
-        TrailSearchIntent(
-            activity="hike",
-            min_distance_m=8000,
-            max_distance_m=16000,
-            max_difficulty_level=3,
-            max_elevation_gain_m=1200,
-            poi_types=["peak"],
-            region="Bergamo",
-        )
-    )
-    assert view is not None
-    assert view.activity == "hike"
-    assert view.min_distance_m == 8000
-    assert view.max_distance_m == 16000
-    assert view.max_difficulty_level == 3
-    assert view.max_ascent_m == 1200
-    assert view.poi_types == ["peak"]
-    assert view.near == "Bergamo"
-
-
-def test_catalogue_view_refuses_what_the_catalogue_cannot_honour():
-    """A constraint the catalogue cannot express must kill the view, not be
-    dropped: routes that silently ignore a stated season or hazard would be
-    a lie shaped like a result."""
-    cases = [
-        TrailSearchIntent(activity="hike", season="winter"),
-        TrailSearchIntent(activity="hike", exclude_hazards=["ice"]),
-        TrailSearchIntent(activity="hike", surface_exclusions=["asphalt"]),
-        # The template carries ceilings only.
-        TrailSearchIntent(activity="hike", min_difficulty_level=2),
-        TrailSearchIntent(activity="hike", min_elevation_gain_m=500),
-    ]
-    for search in cases:
-        assert catalogue_view(search) is None, search
-
-
-def test_catalogue_view_drops_duration_like_the_explicit_loop_path():
-    """The ratified duration rule (2026-08-21): the catalogue carries no
-    duration until DIN 33466 is calibrated, and dropping the filter loudly
-    beats refusing to answer -- the explicit loop path already drops it, so
-    the derived view must too, or "a two hour hike" never sees the
-    catalogue at all."""
-    view = catalogue_view(TrailSearchIntent(activity="hike", max_duration_min=120))
-    assert view is not None
-    assert view.max_duration_min is None
-
-
-def test_catalogue_view_family_friendly_caps_the_ceiling_at_one():
-    view = catalogue_view(TrailSearchIntent(family_friendly=True, max_distance_m=5000))
-    assert view is not None and view.max_difficulty_level == 1
-    view = catalogue_view(
-        TrailSearchIntent(family_friendly=True, max_difficulty_level=3)
-    )
-    assert view is not None and view.max_difficulty_level == 1
+# ── Shared rules the orchestrator leans on ──────────────────────────────────
 
 
 def test_the_family_cap_is_one_rule_both_paths_call():
-    """The trail search and the catalogue view both promise the same thing
-    about children, so they ask the same function rather than each spelling
-    the arithmetic out."""
+    """One rule, one function: the orchestrator's difficulty cap for children
+    is spelled once rather than re-derived by each caller."""
     from chat.composer import capped_difficulty
 
     assert capped_difficulty(3, True) == 1
     assert capped_difficulty(None, True) == 1  # unstated ceiling still caps
     assert capped_difficulty(3, False) == 3  # no flag, no cap
     assert capped_difficulty(None, False) is None
-
-
-def test_catalogue_view_mixed_reaches_the_catalogue_as_no_preference():
-    view = catalogue_view(TrailSearchIntent(activity="mixed", max_distance_m=9000))
-    assert view is not None and view.activity is None
 
 
 # ── An activity alone earns a guiding question, not an unbounded query ──────
@@ -307,14 +259,18 @@ def test_activity_with_any_other_constraint_does_not_clarify():
     assert not plan.is_clarify
 
 
-def test_activity_beside_a_theme_or_route_does_not_clarify():
+def test_activity_beside_a_theme_or_outing_does_not_clarify():
     assert not compose(
         [TrailSearchIntent(activity="hike"), SemanticThemeIntent(text="shady forest")]
     ).is_clarify
     assert not compose(
         [
             TrailSearchIntent(activity="hike"),
-            RouteIntent(start="Lecco", end="Abbadia"),
+            OutingIntent(
+                activity="hike",
+                start={"mode": "named", "name": "Lecco"},
+                waypoints=[{"name": "Abbadia", "role": "end"}],
+            ),
         ]
     ).is_clarify
 
@@ -345,63 +301,34 @@ def test_full_range_difficulty_is_vacuous_and_dropped():
 # "actually, longer" must raise a max that tightest-wins would keep.
 
 
-def _standing_loop(**overrides):
-    base = {"activity": "hike", "min_distance_m": 8000.0, "max_distance_m": 15000.0}
-    return ComposedPlan(loop=LoopSearchIntent(**{**base, **overrides}))
+def _standing_outing(**overrides):
+    from chat.intents import OutingIntent
+
+    base = {"activity": "hike", "max_hours": 5.0, "max_distance_km": 15.0}
+    return ComposedPlan(outing=OutingIntent(**{**base, **overrides}))
 
 
 def test_delta_lowers_a_max():
+    from chat.intents import OutingIntent
+
     merged = apply_delta(
-        _standing_loop(), ComposedPlan(loop=LoopSearchIntent(max_distance_m=10000.0))
+        _standing_outing(),
+        ComposedPlan(outing=OutingIntent(activity="hike", max_distance_km=10.0)),
     )
-    assert merged.loop is not None
-    assert merged.loop.max_distance_m == 10000.0
-    assert merged.loop.min_distance_m == 8000.0  # untouched constraint survives
-    assert merged.loop.activity == "hike"
+    assert merged.outing is not None
+    assert merged.outing.max_distance_km == 10.0
+    assert merged.outing.max_hours == 5.0  # untouched constraint survives
 
 
 def test_delta_raises_a_max_where_tightest_wins_would_refuse():
+    from chat.intents import OutingIntent
+
     merged = apply_delta(
-        _standing_loop(max_distance_m=10000.0),
-        ComposedPlan(loop=LoopSearchIntent(max_distance_m=20000.0)),
+        _standing_outing(),
+        ComposedPlan(outing=OutingIntent(activity="hike", max_distance_km=20.0)),
     )
-    assert merged.loop is not None
-    assert merged.loop.max_distance_m == 20000.0
-
-
-def test_delta_adds_a_poi_without_disturbing_the_rest():
-    merged = apply_delta(
-        _standing_loop(), ComposedPlan(loop=LoopSearchIntent(poi_types=["lake"]))
-    )
-    assert merged.loop is not None
-    assert merged.loop.poi_types == ["lake"]
-    assert merged.loop.max_distance_m == 15000.0
-
-
-def test_cross_kind_delta_lands_on_the_standing_loop():
-    # "shorter" against a loop often arrives as a trail_search; the shared
-    # constraint carries over and the plan STAYS a loop plan, so the same
-    # catalogue answers.
-    merged = apply_delta(
-        _standing_loop(),
-        ComposedPlan(search=TrailSearchIntent(max_distance_m=10000.0)),
-    )
-    assert merged.search is None
-    assert merged.loop is not None
-    assert merged.loop.max_distance_m == 10000.0
-    assert merged.loop.activity == "hike"
-
-
-def test_cross_kind_delta_never_moves_activity():
-    # The two intents spell activity differently; a cross-carry could flip
-    # which catalogue is searched.
-    merged = apply_delta(
-        _standing_loop(),
-        ComposedPlan(search=TrailSearchIntent(activity="mtb", max_distance_m=9000.0)),
-    )
-    assert merged.loop is not None
-    assert merged.loop.activity == "hike"
-    assert merged.loop.max_distance_m == 9000.0
+    assert merged.outing is not None
+    assert merged.outing.max_distance_km == 20.0
 
 
 def test_theme_delta_replaces_the_theme_and_keeps_the_search():
@@ -414,39 +341,42 @@ def test_theme_delta_replaces_the_theme_and_keeps_the_search():
     assert merged.search.max_distance_m == 12000.0
 
 
-def test_standing_routes_are_never_carried_into_a_refinement():
-    # A route is a one-shot answer, not a constraint in force: carrying it
-    # re-ran "Lecco to Bergamo" under every later ask (owner session,
-    # 2026-08-26, via dump_conversation).
-    standing = ComposedPlan(
-        search=TrailSearchIntent(max_distance_m=15000.0),
-        routes=[RouteIntent(start="Lecco", end="Bergamo")],
+def test_a_standing_plan_from_before_routes_were_retired_still_loads():
+    # jsonb written while RouteIntent existed carries a "routes" key; it is
+    # ignored, and a row that held ONLY routes is no standing plan at all.
+    loaded = standing_load(
+        {
+            "search": {"kind": "trail_search", "max_distance_m": 15000.0},
+            "outing": None,
+            "theme": None,
+            "routes": [{"kind": "route", "start": "Lecco", "end": "Bergamo"}],
+        }
     )
-    merged = apply_delta(
-        standing, ComposedPlan(search=TrailSearchIntent(max_distance_m=10000.0))
+    assert loaded is not None
+    assert loaded.search is not None and loaded.search.max_distance_m == 15000.0
+    assert (
+        standing_load(
+            {
+                "search": None,
+                "outing": None,
+                "theme": None,
+                "routes": [{"kind": "route", "start": "a", "end": "b"}],
+            }
+        )
+        is None
     )
-    assert merged.routes == []
-    assert merged.search is not None
-    assert merged.search.max_distance_m == 10000.0
-
-
-def test_a_route_only_delta_is_a_change_of_subject():
-    merged = apply_delta(
-        _standing_loop(),
-        ComposedPlan(routes=[RouteIntent(start="Abbadia", end="Lecco")]),
-    )
-    assert merged.loop is None
-    assert len(merged.routes) == 1
 
 
 def test_standing_dump_and_load_round_trip():
+    from chat.intents import OutingIntent
+
     plan = ComposedPlan(
-        loop=LoopSearchIntent(activity="hike", max_distance_m=15000.0),
+        outing=OutingIntent(activity="hike", max_distance_km=15.0),
         theme="lakeside",
     )
     loaded = standing_load(standing_dump(plan))
     assert loaded is not None
-    assert loaded.loop == plan.loop
+    assert loaded.outing == plan.outing
     assert loaded.theme == "lakeside"
 
 
@@ -458,7 +388,7 @@ def test_standing_dump_of_a_clarify_is_none():
 def test_standing_load_degrades_malformed_history_to_none():
     assert standing_load(None) is None
     assert standing_load({"search": {"max_distance_m": "not a number"}}) is None
-    assert standing_load({"search": None, "loop": None, "theme": None}) is None
+    assert standing_load({"search": None, "outing": None, "theme": None}) is None
 
 
 # ── OutingIntent (Phase 12 R3) ───────────────────────────────────────────────
@@ -470,7 +400,7 @@ def _outing(**kwargs):
     return OutingIntent(activity=kwargs.pop("activity", "bike"), **kwargs)
 
 
-def test_outing_composes_with_an_interim_catalogue_view():
+def test_outing_composes_verbatim():
     from chat.intents import StartSpec, Waypoint
 
     plan = compose(
@@ -485,18 +415,10 @@ def test_outing_composes_with_an_interim_catalogue_view():
     )
     assert not plan.is_clarify
     assert plan.outing is not None and plan.outing.party == "kids"
-    # the degradation until R4: the same ask posed to the catalogue
-    assert plan.loop is not None
-    assert plan.loop.activity == "mtb"
-    assert plan.loop.max_duration_min == 180
-    assert plan.loop.max_difficulty_level == 1
-    assert plan.loop.poi_types == ["lake"]
-    assert plan.loop.near == "Lecco"
-
-
-def test_multi_day_outing_has_no_one_day_stand_in():
-    plan = compose([_outing(days=3, sleep="hut")])
-    assert plan.outing is not None and plan.loop is None
+    # The planner reads the ask itself; nothing is derived from it here.
+    assert plan.outing.max_hours == 3
+    assert plan.outing.waypoint_kinds == ["lake"]
+    assert plan.outing.start.name == "Lecco"
 
 
 def test_outing_with_clarify_is_poisoned():
@@ -514,10 +436,153 @@ def test_outing_survives_the_standing_roundtrip():
     assert reloaded.outing.max_hours == 3
 
 
-def test_outing_delta_overlays_and_refreshes_the_view():
+def test_outing_delta_overlays_the_standing_ask():
     standing = compose([_outing(party="kids", max_hours=3)])
     delta = compose([_outing(max_hours=2)])
     merged = apply_delta(standing, delta)
     assert merged.outing.max_hours == 2
     assert merged.outing.party == "kids"  # unchanged constraint survives
-    assert merged.loop is not None and merged.loop.max_duration_min == 120
+
+
+# ── places the message never said (drop_unsaid_places) ──────────────────────
+
+
+def test_a_region_the_message_never_named_is_dropped():
+    """g32: after "... near Bergamo", "a bike route of less than 20 km" names
+    no place — a carried region is the model's, not the walker's."""
+    from chat.composer import drop_unsaid_places
+
+    [s] = drop_unsaid_places(
+        [TrailSearchIntent(activity="mtb", region="Bergamo")],
+        "a bike route of less than 20 km",
+    )
+    assert s.region is None and s.activity == "mtb"
+
+
+def test_carried_outing_places_are_dropped_said_ones_kept():
+    from chat.composer import drop_unsaid_places
+
+    carried = OutingIntent(
+        activity="hike",
+        shape="loop",
+        area="Lecco",
+        start={"mode": "named", "name": "Lecco"},
+        waypoints=[
+            {"name": "Abbadia", "role": "end"},
+            {"kind": "lake", "name": "lake or river", "role": "bathe"},
+        ],
+    )
+    [s] = drop_unsaid_places([carried], "a 10 km loop")
+    assert s.area is None
+    assert s.start.name is None and s.start.mode == "any"
+    assert s.waypoint_names == []
+    assert s.waypoint_kinds == ["lake"]  # the kind stays; only the name goes
+
+    said = OutingIntent(
+        activity="hike",
+        start={"mode": "named", "name": "Lecco"},
+        waypoints=[{"name": "Mandello del Lario", "role": "end"}],
+    )
+    [s] = drop_unsaid_places([said], "how do I get from lecco to Mandello?")
+    assert s.start.name == "Lecco"
+    assert s.waypoint_names == ["Mandello del Lario"]
+
+
+def test_place_words_match_loosely_but_filler_does_not():
+    from chat.composer import _said
+
+    assert _said("the Orobie", "three days in the orobie")
+    assert _said("Lecco station", "from lecco by train")
+    assert not _said("Lago di Como", "a lake walk di sera")
+
+
+def test_refining_to_a_loop_drops_the_standing_end():
+    """g34: "how do I get from Lecco to Abbadia?" then "a 10 km loop" — a
+    loop ends where it starts, so Abbadia cannot stay its end."""
+    standing = ComposedPlan(
+        outing=OutingIntent(
+            activity="hike",
+            start={"mode": "named", "name": "Lecco"},
+            waypoints=[
+                {"name": "Abbadia", "role": "end"},
+                {"kind": "lake", "role": "pass"},
+            ],
+        )
+    )
+    merged = apply_delta(
+        standing,
+        ComposedPlan(
+            outing=OutingIntent(activity="hike", shape="loop", max_distance_km=10)
+        ),
+    )
+    assert merged.outing is not None
+    assert merged.outing.waypoint_names == []
+    assert merged.outing.waypoint_kinds == ["lake"]  # a pass-by stays
+
+
+def test_a_new_end_on_a_standing_loop_makes_it_there_and_back():
+    standing = ComposedPlan(
+        outing=OutingIntent(activity="hike", shape="loop", area="Lecco")
+    )
+    merged = apply_delta(
+        standing,
+        ComposedPlan(
+            outing=OutingIntent(
+                activity="hike",
+                start={"mode": "named", "name": "Abbadia"},
+                waypoints=[
+                    {"name": "Abbadia", "role": "end"},
+                    {"name": "Mandello", "role": "end"},
+                ],
+            )
+        ),
+    )
+    assert merged.outing is not None
+    assert merged.outing.shape is None
+    assert merged.outing.start.name == "Abbadia"
+    assert merged.outing.waypoint_names == ["Mandello"]
+
+
+def test_a_waypoint_repeating_the_start_never_reaches_the_plan():
+    plan = compose(
+        [
+            OutingIntent(
+                activity="hike",
+                start={"mode": "named", "name": "Lecco"},
+                waypoints=[
+                    {"name": "lecco", "role": "pass"},
+                    {"name": "Abbadia", "role": "end"},
+                ],
+            )
+        ]
+    )
+    assert plan.outing is not None
+    assert plan.outing.waypoint_names == ["Abbadia"]
+
+
+def test_a_route_is_drawn_as_an_outing_never_walked_in_the_graph():
+    plan = compose([RouteIntent(start="Ponteranica", end="Canto Alto")])
+    assert plan.outing is not None
+    assert plan.outing.start.mode == "named"
+    assert plan.outing.start.name == "Ponteranica"
+    assert plan.outing.waypoint_names == ["Canto Alto"]
+    assert plan.outing.shape is None  # there and back, the planner's default
+
+
+def test_a_route_with_one_end_missing():
+    to = compose([RouteIntent(end="Canto Alto")]).outing
+    assert to is not None and to.start.mode == "any"
+    assert to.waypoint_names == ["Canto Alto"]
+    frm = compose([RouteIntent(start="Bergamo", end="")]).outing
+    assert frm is not None and frm.start.name == "Bergamo"
+    assert frm.waypoints == [] and frm.shape == "loop"
+
+
+def test_a_stated_outing_wins_over_a_route_in_the_same_turn():
+    plan = compose(
+        [
+            OutingIntent(activity="mtb", shape="loop"),
+            RouteIntent(start="Lecco", end="Abbadia"),
+        ]
+    )
+    assert plan.outing is not None and plan.outing.activity == "mtb"

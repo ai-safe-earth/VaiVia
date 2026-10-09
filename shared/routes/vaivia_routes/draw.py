@@ -1,4 +1,4 @@
-"""Drawing shapes over the pack — the same semantics as pipeline/draw/generate.py.
+"""Drawing shapes over the pack — the semantics of the retired draw/generate.py.
 
 These are the pgRouting draw functions re-said over the CSR: the same via
 rings, the same soft penalty for walked legs, the same strict-return

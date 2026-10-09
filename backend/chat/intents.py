@@ -39,36 +39,6 @@ class TrailSearchIntent(BaseModel):
     family_friendly: bool = False
 
 
-class LoopSearchIntent(BaseModel):
-    """A circular outing: start somewhere you can reach, come back to it.
-
-    Distinct from TrailSearchIntent (a named trail with properties) and from
-    RouteIntent (getting from one named place to another). It selects from the
-    precomputed catalogue the pipeline exports, so no field here names
-    a template, an id, or anything the model could steer the query with -- only
-    what a walker would say out loud.
-    """
-
-    kind: Literal["loop_search"] = "loop_search"
-    #: Catalogues are generated per activity, so this selects which one is
-    #: searched rather than filtering one shared set.
-    activity: Literal["hike", "mtb"] | None = None
-    min_distance_m: Annotated[float, Field(ge=0)] | None = None
-    max_distance_m: Annotated[float, Field(ge=0)] | None = None
-    #: "a two hour loop". Durations are estimates from a cautious model, so
-    #: this filters on our figure, not on a promise.
-    max_duration_min: Annotated[int, Field(ge=0)] | None = None
-    #: "nothing too steep", "under 800 m of climbing".
-    max_ascent_m: Annotated[float, Field(ge=0)] | None = None
-    #: 1 easy .. 4 hardest, mapped to sac_scale / mtb:scale by the orchestrator.
-    max_difficulty_level: Annotated[int, Field(ge=1, le=4)] | None = None
-    poi_types: list[PoiType] = Field(default_factory=list)
-    #: A place to start near, by name. Resolved server-side against known POIs.
-    near: str | None = None
-    #: "on trails", "keep off the roads". Maps to a floor on off-road share.
-    avoid_roads: bool = False
-
-
 class Waypoint(BaseModel):
     """Somewhere the outing should pass, end at, or use — with the ROLE the
     walker gave it ("ending at a lake to bathe"). No coordinates, no ids:
@@ -130,13 +100,21 @@ class OutingIntent(BaseModel):
     def waypoint_roles(self) -> list[str]:
         return [w.role for w in self.waypoints]
 
+    @property
+    def waypoint_names(self) -> list[str]:
+        return [w.name for w in self.waypoints if w.name]
+
 
 class RouteIntent(BaseModel):
-    """Route between two named places. Maps to the routing template chain."""
+    """An A-to-B ask as the MODEL states it: two place names, either one
+    absent. It is a shape of extraction, not a path to run — the composer
+    turns it into an OutingIntent with a named start and a named end, drawn
+    over the pack like every other route (docs/route-design.md decision 4).
+    Nothing walks the graph for it any more."""
 
     kind: Literal["route"] = "route"
-    start: str
-    end: str
+    start: str | None = None
+    end: str | None = None
     max_distance_m: Annotated[float, Field(gt=0)] | None = None
 
 
@@ -161,7 +139,6 @@ class ClarifyIntent(BaseModel):
 
 Intent = Annotated[
     TrailSearchIntent
-    | LoopSearchIntent
     | OutingIntent
     | RouteIntent
     | SemanticThemeIntent

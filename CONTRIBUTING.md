@@ -65,9 +65,9 @@ out of `NEO4J_PLUGINS` is what makes the volume trustworthy: the entrypoint's
 installer runs unconditionally, never checks whether the jar is already present,
 and never checks `wget`'s exit status — and `wget --output-document` truncates
 its destination *before* the transfer. One 64 MB download dying halfway would
-overwrite a working jar with a corrupt one. Losing GDS is not loud: routing falls
-back to hop-count `shortestPath` inside a `Neo4jError` catch, so the app keeps
-answering, with worse routes.
+overwrite a working jar with a corrupt one. Losing GDS is not loud: nothing on a
+serving path calls it since R7, so the app keeps answering and only
+`scripts.check_graph_connectivity` fails.
 
 **Seeding the volume**, once per machine — `RETURN gds.version()` coming back
 unknown means it has not been done, or the local copy is gone:
@@ -97,7 +97,8 @@ docker restart vaivia-neo4j
 
 `infra/neo4j/plugins/` is gitignored: it is a local pin, not a repo artefact.
 Keep the copy — it is what makes the next recreate safe. See
-`docs/fragilities.md` #16 for why a silent GDS fallback matters.
+`docs/fragilities.md` #16 for why a projection that silently covers less than the
+graph matters.
 
 ### 4. Start Supabase (auth, chat history, quotas)
 
@@ -233,8 +234,9 @@ See [`docs/architecture.md`](docs/architecture.md) and
   expression.
 - **Trail identity lives only on `(:Trail)`** — never filter by trail name on a
   segment.
-- **Always bound traversals** (`*..100`) and pre-filter spatially. Use GDS
-  Dijkstra for real routing.
+- **Always bound traversals** (`*..100`) and pre-filter spatially. Route drawing
+  is not the graph's job — the pack engine draws every route, A-to-B included
+  (`docs/route-design.md`).
 - **Ingestion must be idempotent** — `MERGE` on `osm_way_id` / `osm_node_id` /
   Trailforks IDs. Re-running must leave counts identical.
 - Distance-along-trail must use `COMPOSED_OF.seq`; an unordered
@@ -245,9 +247,6 @@ See [`docs/architecture.md`](docs/architecture.md) and
   `seasonal_hazards` as the union for display. A source record with no season
   puts the union in every season — a hazard we cannot place in time is always
   possible.
-
-The `graph-model` skill in `.claude/skills/` carries the same rules for AI
-assistants.
 
 ---
 
@@ -295,7 +294,7 @@ assistants.
 ```
 feat: add elevation backfill from SRTM
 fix: handle null surface tag in OSM segments
-docs: add query examples for multi-day routes
+docs: add query examples for routes past a hut
 refactor: extract spatial matching into its own module
 test: cover the proximity threshold edge cases
 ```
@@ -359,10 +358,8 @@ A change is not finished until the docs match it:
 - `docs/architecture.md` — data model changes.
 - `docs/query-examples.md` — new query patterns.
 - `docs/fragilities.md` — a new failure mode, or a mitigation for an old one.
-- `docs/plan.md` — tick the phase checkboxes.
-- `handoff.md` — the root handoff, updated at the end of every working session.
-  There is exactly one; never start a second. Append to `decisions` and
-  `sessions` in the machine block, never rewrite past entries.
+- `docs/plans/<plan>.md` — update `status` and `next` in its frontmatter; `/roadmap`
+  refreshes the status table in `docs/ROADMAP.md`.
 
 ---
 

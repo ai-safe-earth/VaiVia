@@ -23,8 +23,9 @@ export interface Trail {
   pois: PoiRef[];
 }
 
-/** One circular route from the precomputed catalogue. Note the field names
- *  differ from Trail: a Route is generated, not curated. */
+/** One route DRAWN for this ask by the pack engine. Note the field names
+ *  differ from Trail: a Route is generated, not curated. The name is
+ *  historical — it carries every drawn shape now, not only loops. */
 export interface Loop {
   id: string;
   activity: string;
@@ -42,8 +43,8 @@ export interface Loop {
   destination_name: string | null;
   distance_m: number;
   ascent_m: number | null;
-  /** The expanded card's figures — already on the catalogue node, so they
-   *  travel with every row rather than needing a second fetch. */
+  /** The expanded card's figures — measured when the route was drawn, so
+   *  they travel with every row rather than needing a second fetch. */
   descent_m: number | null;
   lowest_m: number | null;
   highest_m: number | null;
@@ -74,12 +75,25 @@ export interface Loop {
   start_lon: number | null;
   pois: PoiRef[];
   /** DRAWN routes only (Phase 12): the ask's ordinal in this conversation,
-   *  the destination's kind, the surface distribution, and the line itself —
-   *  inline, because a drawn route is in no catalogue to fetch from. */
+   *  the destination's kind, the surface distribution, the line itself, the
+   *  altitude profile and the surface along the way — all inline, because a
+   *  drawn route is in no store to fetch from until it is kept. */
   ordinal?: number;
   destination_kind?: string | null;
   surface?: Record<string, number>;
   geometry?: GeoJSON.LineString;
+  profile?: RouteProfile | null;
+  spans?: RouteSpan[];
+}
+
+/** One stretch of a drawn route in walking order: everything up to `to_m`
+ *  metres from the start is this surface, this highway and this grade. The
+ *  profile's cumulative `distance_m` indexes the same metres. */
+export interface RouteSpan {
+  to_m: number;
+  surface: string | null;
+  highway: string | null;
+  sac: string | null;
 }
 
 /** The altitude profile as the route document carries it: two parallel
@@ -160,11 +174,11 @@ export interface ChatResults {
    *  when nothing was searched (a clarify turn). */
   reading?: { key: string; value: string }[];
   trails?: Trail[];
-  /** Circular routes selected from the catalogue. Render on presence, not
-   *  on `kind`: a loops+theme turn is still labelled trail_search. */
+  /** Routes drawn for this ask. Render on presence, not on `kind`: a
+   *  routes+theme turn is still labelled trail_search. */
   loops?: Loop[];
-  /** True population behind the capped loops page ("I found N routes"),
-   *  from estimate_loops. Absent when the estimate returned nothing. */
+  /** How many routes were drawn ("I found N routes"). Absent when the
+   *  turn drew none. */
   total_loops?: number;
   /** Trails counterpart — today the page length, not an estimate (the trail
    *  graph is small); see orchestrator._execute. */

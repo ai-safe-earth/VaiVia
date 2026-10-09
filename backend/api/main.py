@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         else:
             app.state.planner = None
-            logger.warning("PACK_DIR unset — outing asks answer from the catalogue")
+            logger.warning("PACK_DIR unset — outing asks are refused (dev only)")
 
     # Feedback rides the same pool for the same reason.
     if getattr(app.state, "feedback", None) is None:

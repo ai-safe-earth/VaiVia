@@ -3,8 +3,7 @@
 from scripts.dump_conversation import render_conversation, render_message
 
 STANDING = {
-    "search": None,
-    "loop": {"kind": "loop_search", "activity": "hike", "max_distance_m": 10000.0},
+    "search": {"kind": "trail_search", "activity": "hike", "max_distance_m": 10000.0},
     "theme": None,
     "routes": [],
 }
@@ -22,11 +21,11 @@ def test_a_plain_user_turn_is_not_flagged():
 
 
 def test_an_assistant_turn_carries_plan_and_results():
-    intent = {"subqueries": [{"kind": "loop_search"}], "standing": STANDING}
+    intent = {"subqueries": [{"kind": "outing"}], "standing": STANDING}
     refs = {"loop_ids": ["vv2-aaaa", "vv2-bbbb"]}
     lines = render_message("assistant", "Two loops.", intent, refs)
     assert lines[0] == "**assistant:** Two loops."
-    assert any("intents: loop_search" in line for line in lines)
+    assert any("intents: outing" in line for line in lines)
     # The standing plan re-spoken through readback: composer decisions on record.
     assert any("10" in line and "km" in line for line in lines)
     assert any("vv2-aaaa, vv2-bbbb" in line for line in lines)

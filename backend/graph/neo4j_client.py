@@ -72,7 +72,7 @@ class Neo4jClient:
         reached it: run_named delegated to run(), which is WRITE-routed, so the
         API, the chat orchestrator and the catalogue all ran under write mode
         while the docs described a read-only query service. Writers (ingestion,
-        the schema and catalogue builders) call run() directly and are
+        the schema builder and chat/save_route.py) call run() directly and are
         unaffected.
 
         Measured before switching, because the two GDS catalogue templates are

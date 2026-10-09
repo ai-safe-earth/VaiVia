@@ -84,59 +84,48 @@ beforeEach(() => {
 afterEach(cleanup);
 
 function renderView() {
-  const onGeometry = vi.fn();
-  const onPick = vi.fn();
   const view = render(
     <FavoritesView
       initial={SAVED}
-      onGeometry={onGeometry}
-      onPick={onPick}
       favorites={new Set(['f1'])}
       onToggleFavorite={() => undefined}
     />,
   );
   const card = view.container.querySelector<HTMLElement>('[data-route-id="f1"]')!;
-  return { onGeometry, onPick, view, card };
+  const mapLine = () =>
+    card.querySelector<HTMLElement>('[data-testid="card-map"]')?.dataset.line;
+  return { view, card, mapLine };
 }
 
-describe('a saved card draws its own verified line, or says it cannot', () => {
-  it('draws the route marked selected', async () => {
-    const { onGeometry, card } = renderView();
+describe('a saved card opens in place with its own verified line, or says it cannot', () => {
+  it('opens with its own line on its map', async () => {
+    const { card, mapLine } = renderView();
     fireEvent.click(card);
-    await waitFor(() => expect(onGeometry).toHaveBeenCalled());
-    const drawn = onGeometry.mock.calls.at(-1)?.[0] as GeoJSON.Feature;
-    expect(drawn.properties).toMatchObject({ route_id: 'f1', selected: true });
+    expect(card.hasAttribute('data-open')).toBe(true);
+    await waitFor(() => expect(mapLine()).toBe('ok:f1'));
   });
 
-  it('picks the route, so the map layer comes up over the saved list', () => {
-    const { onPick, card } = renderView();
-    fireEvent.click(card);
-    expect(onPick.mock.calls[0]![0]).toMatchObject({ id: 'f1' });
-  });
-
-  it('a failed line clears the map, says so on the card, and a re-select retries', async () => {
+  it('a failed line says so on the card, and reopening retries', async () => {
     api.fetchRouteGeoJson.mockRejectedValue(new Error('route geometry failed: 503'));
-    const { onGeometry, card } = renderView();
+    const { card, view, mapLine } = renderView();
 
     fireEvent.click(card);
-    await waitFor(() => expect(onGeometry).toHaveBeenLastCalledWith(null));
-    await waitFor(() => expect(card.textContent).toContain('Map line unavailable'));
+    await waitFor(() => expect(mapLine()).toBe('error'));
+    expect(card.textContent).toContain('Map line unavailable');
 
-    // The store comes back; selecting again asks again and draws.
+    // The store comes back; reopening asks again and draws.
     api.fetchRouteGeoJson.mockImplementation(async (id) => line(id));
+    fireEvent.click(view.getByLabelText('Close'));
     fireEvent.click(card);
-    await waitFor(() => {
-      const drawn = onGeometry.mock.calls.at(-1)?.[0] as GeoJSON.Feature | null;
-      expect(drawn?.properties).toMatchObject({ route_id: 'f1', selected: true });
-    });
+    await waitFor(() => expect(mapLine()).toBe('ok:f1'));
   });
 
   it('a payload for some other route is refused, not drawn under this card', async () => {
     api.fetchRouteGeoJson.mockImplementation(async () => line('zzz'));
-    const { onGeometry, card } = renderView();
+    const { card, mapLine } = renderView();
     fireEvent.click(card);
-    await waitFor(() => expect(onGeometry).toHaveBeenLastCalledWith(null));
-    await waitFor(() => expect(card.textContent).toContain('Map line unavailable'));
+    await waitFor(() => expect(mapLine()).toBe('error'));
+    expect(card.textContent).toContain('Map line unavailable');
   });
 });
 
@@ -147,7 +136,6 @@ describe('a save still in flight when the view opened', () => {
     return (
       <FavoritesView
         initial={initial}
-        onGeometry={vi.fn()}
         favorites={new Set(['f1'])}
         onToggleFavorite={() => undefined}
       />
@@ -182,7 +170,6 @@ describe('a save still in flight when the view opened', () => {
     view.rerender(
       <FavoritesView
         initial={undefined}
-        onGeometry={vi.fn()}
         favorites={new Set(['f1'])}
         onToggleFavorite={() => undefined}
       />,

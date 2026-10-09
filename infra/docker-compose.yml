@@ -32,14 +32,14 @@ services:
       #   db.index.fulltext.queryNodes   POI name resolution
       #   db.index.vector.queryNodes     semantic search
       #   db.create.setNodeVectorProperty  embedding write (ingestion)
-      #   gds.*                          routing (Dijkstra) and its projection lifecycle
+      #   gds.*                          WCC for scripts.check_graph_connectivity
       # dbms.* stays for driver routing; narrowing it further is a later tightening.
       NEO4J_dbms_security_procedures_allowlist: "db.*,dbms.*,gds.*"
       # Allowlisted is not enough for GDS. gds.util.asNode reaches outside the
-      # procedure sandbox, so route_gds_dijkstra died with
-      # ProcedureRegistrationFailed ("unavailable because it is sandboxed") and
-      # routing fell back to hop-count shortestPath -- silently, because the
-      # fallback is a Neo4jError catch. Measured 2026-08-21. The base image
+      # procedure sandbox, so a GDS call died with ProcedureRegistrationFailed
+      # ("unavailable because it is sandboxed"). Measured 2026-08-21, when
+      # routing still used GDS; since R7 the connectivity check is the only
+      # caller, but it fails the same way without this. The base image
       # ships this as apoc.*, which un-restricts the one namespace the
       # allowlist above exists to deny, so it is replaced rather than extended.
       NEO4J_dbms_security_procedures_unrestricted: "gds.*"
@@ -54,8 +54,8 @@ services:
       NEO4J_server_memory_heap_initial__size: "512m"
       # 1g, not 2g: routing left the graph (docs/route-design.md, decision 6,
       # 2026-09-02). The store is 176 MB and the full GDS projection was
-      # 92 MiB; the heap was sized for GDS, which is being retired. The other
-      # gigabyte is the planner's, in the backend process.
+      # 92 MiB; the heap was sized for GDS, which R7 took off every serving
+      # path. The other gigabyte is the planner's, in the backend process.
       NEO4J_server_memory_heap_max__size: "1g"
       NEO4J_server_memory_pagecache_size: "1g"
       # The transaction log had grown to 1.1 GB against a 176 MB store
@@ -83,9 +83,9 @@ services:
       # transfer, and the only check afterwards is is_readable -- stat
       # permission arithmetic, which passes on a 0-byte file. A 64 MB download
       # dying halfway would therefore replace a working jar with a corrupt one
-      # and Neo4j would boot without GDS, i.e. routing silently back on
-      # hop-count shortestPath: the exact fragility this volume exists to
-      # prevent (docs/fragilities.md #16).
+      # and Neo4j would boot without GDS, i.e. the connectivity check silently
+      # unable to run: the exact fragility this volume exists to prevent
+      # (docs/fragilities.md #16).
       #
       # So the volume is the single copy. Seeding a fresh one is a one-time
       # step in CONTRIBUTING.md, "Start Neo4j".
@@ -103,7 +103,7 @@ services:
     # curated route map, QA layers. Deliberately NOT the Supabase Postgres —
     # bulk geometry and raster tiles do not belong in the database production
     # auth depends on. The pgrouting image is postgis/postgis plus pgRouting,
-    # which Phase 4's route enumeration (pgr_ksp) needs.
+    # which the network build and the drive matrix (curate/drive.py) need.
     image: pgrouting/pgrouting:17-3.5-3.8
     container_name: vaivia-postgis
     ports:
@@ -122,8 +122,10 @@ services:
       timeout: 5s
       retries: 10
 
-  # backend and gateway services are added when their Dockerfiles land
-  # (Phases 2 and 3 in docs/plan.md).
+  # The app services (backend, gateway, jobs) run here only in production:
+  # their images build from backend/, gateway/ and pipeline/Dockerfile, and
+  # infra/compose.prod.yml adds them (docs/plan.md, Phase 9 D2). In
+  # development they run on the host (`uv run uvicorn`, `npm run dev`).
 
 networks:
   internal:
@@ -133,5 +135,3 @@ volumes:
   neo4j_data:
   neo4j_logs:
   neo4j_plugins:
-  graphhopper_cache:
-  graphhopper_srtm:

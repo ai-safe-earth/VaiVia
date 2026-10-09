@@ -2,18 +2,18 @@
 
 The model decomposes a message into atomic subqueries (chat/intents.py). This
 module — plain Python, no model in the loop — merges them into at most one
-structured search, one semantic theme, and a bounded list of routes, each of
-which the orchestrator maps onto a named parameterized template. When the plan
+structured search, one semantic theme and one outing to draw; the
+orchestrator maps the search onto a named parameterized template and hands
+the outing to the planner. When the plan
 carries too little to search well, composition yields a clarification with
 concrete suggestions instead of guessing. Nothing here ever builds query text.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from chat.intents import (
     ClarifyIntent,
     Intent,
-    LoopSearchIntent,
     OutingIntent,
     RouteIntent,
     SemanticThemeIntent,
@@ -21,12 +21,9 @@ from chat.intents import (
 )
 
 MAX_SUBQUERIES = 4
-MAX_ROUTES = 2
 
 # A stated loop distance narrower than this fraction of itself is treated as a
 # point estimate rather than a real interval, and widened.
-NARROW_BAND_RATIO = 0.15
-DISTANCE_TOLERANCE = 0.20
 
 # Offered when the user gives us nothing actionable — each one is a complete
 # question they can answer in a word or two, chosen to map onto an indexed
@@ -63,6 +60,80 @@ _MIN_OF_MAX = (
 )
 _MAX_OF_MIN = ("min_difficulty_level", "min_distance_m", "min_elevation_gain_m")
 _FIRST_WINS = ("activity", "season", "region")
+
+
+#: Words too common to prove a place was said ("Lago di Como" is said by
+#: "como", never by "di").
+_PLACE_FILLER = frozenset({"lago", "lake", "monte", "the", "del", "della", "di"})
+
+
+def _said(place: str, message: str) -> bool:
+    """Did the user's own words name this place? Whole value, or any
+    distinctive word of it: "Mandello" says "Mandello del Lario", "the
+    Orobie" says "Orobie", "Lecco station" says "Lecco"."""
+    text = message.lower()
+    value = place.strip().lower()
+    if not value:
+        return True
+    if value in text:
+        return True
+    return any(
+        len(word) >= 4 and word not in _PLACE_FILLER and word in text
+        for word in value.replace("'", " ").split()
+    )
+
+
+def drop_unsaid_places(subqueries: list[Intent], message: str) -> list[Intent]:
+    """A place the message never names is dropped, in Python.
+
+    The prompt forbids carrying a place from an earlier turn into this one
+    ("a bike route of less than 20 km" after "... near Bergamo" has NO
+    region), and the model still does it — measured on golden g32/g34 when
+    the named-place examples moved. A refinement is no exception: its delta
+    carries only what changed, and a place that changed was said. The
+    standing plan keeps its places through apply_delta, never through the
+    model. Named start, named end, area and region all obey it.
+    """
+    out: list[Intent] = []
+    for s in subqueries:
+        if (
+            isinstance(s, TrailSearchIntent)
+            and s.region
+            and not _said(s.region, message)
+        ):
+            s = s.model_copy(update={"region": None})
+        elif isinstance(s, RouteIntent):
+            update = {
+                end: None
+                for end in ("start", "end")
+                if getattr(s, end) and not _said(getattr(s, end), message)
+            }
+            if update:
+                s = s.model_copy(update=update)
+        elif isinstance(s, OutingIntent):
+            update: dict = {}
+            if s.area and not _said(s.area, message):
+                update["area"] = None
+            if s.start.name and not _said(s.start.name, message):
+                start = s.start.model_copy(update={"name": None})
+                if start.mode == "named":
+                    start.mode = "any"
+                update["start"] = start
+            kept = []
+            for w in s.waypoints:
+                if w.name and not _said(w.name, message):
+                    if w.kind is None and w.role in ("end", "pass"):
+                        continue  # a nameless, kindless waypoint says nothing
+                    w = w.model_copy(update={"name": None})
+                kept.append(w)
+            if len(kept) != len(s.waypoints) or any(
+                a is not b for a, b in zip(kept, s.waypoints, strict=True)
+            ):
+                update["waypoints"] = kept
+            if update:
+                s = s.model_copy(update=update)
+        out.append(s)
+    return out
 
 
 def sanitize(intent: TrailSearchIntent) -> TrailSearchIntent:
@@ -112,14 +183,8 @@ class ComposedPlan:
     clarify: ClarifyIntent | None = None
     search: TrailSearchIntent | None = None
     theme: str | None = None
-    routes: list[RouteIntent] = field(default_factory=list)
-    loop: LoopSearchIntent | None = None
-    #: The on-demand ask, verbatim. The planner consumes it when a pack is
-    #: mounted; `outing_view` degrades it to a catalogue ask otherwise.
+    #: The on-demand ask, verbatim, drawn by the planner over the pack.
     outing: OutingIntent | None = None
-    #: True when `loop` is the derived stand-in for `outing`, not an ask of
-    #: its own — the planner suppresses it rather than answering twice.
-    loop_from_outing: bool = False
     #: The typed, coverage-validated "from here" point, attached by the
     #: orchestrator AFTER extraction. Never dumped, never shown to a model.
     near: tuple[float, float] | None = None
@@ -160,121 +225,11 @@ def capped_difficulty(max_level: int | None, family_friendly: bool) -> int | Non
     """The difficulty ceiling that actually runs.
 
     "with the kids" caps at 1 whatever else was said. That is a promise about
-    children, and it was written out at both call sites that make it — the
-    trail search and the catalogue view — where one of them could be changed
-    alone.
+    children, kept in one place so no call site can drop it.
     """
     if not family_friendly:
         return max_level
     return min(max_level or 1, 1)
-
-
-def catalogue_view(search: TrailSearchIntent) -> LoopSearchIntent | None:
-    """The same ask, posed to the route catalogue — or None when it cannot be.
-
-    Owner rule (2026-08-21): a trail ask answers with BOTH kinds — named
-    trails and complete outings from the catalogue — so a walker compares a
-    loop against a sentiero without asking twice. The two stay distinguishable
-    all the way to the screen; this only widens where the one ask is posed.
-
-    The view exists only when every stated constraint can be honoured there.
-    A constraint the catalogue cannot express — a season, a hazard, a surface,
-    a difficulty floor or a climb floor (the template carries ceilings only) —
-    must not silently return routes that ignore it: that is a lie shaped like
-    a result. Those asks answer from the trail graph alone.
-
-    Duration is the ratified exception (2026-08-21): the catalogue carries
-    none until DIN 33466 is calibrated, and the explicit loop path already
-    DROPS the duration filter rather than refusing to answer. The view does
-    the same, so "a two hour hike" still sees the catalogue — described by
-    its measured distance and climb, never by a figure nobody trusts.
-    """
-    if search.season is not None:
-        return None
-    if search.exclude_hazards or search.surface_exclusions:
-        return None
-    if search.min_difficulty_level is not None:
-        return None
-    if search.min_elevation_gain_m is not None:
-        return None
-
-    view = LoopSearchIntent(
-        # sanitize() has already turned "mixed" into None; the guard is for
-        # any caller that has not been through it.
-        activity=search.activity if search.activity in ("hike", "mtb") else None,
-        min_distance_m=search.min_distance_m,
-        max_distance_m=search.max_distance_m,
-        # A cap on climbing is a cap on ascent; the catalogue's word for it.
-        max_ascent_m=search.max_elevation_gain_m,
-        max_difficulty_level=search.max_difficulty_level,
-        poi_types=list(search.poi_types),
-        # A region name resolves the same way a start place does; a failed
-        # resolution degrades to no geo filter rather than to zero results.
-        near=search.region,
-    )
-    view.max_difficulty_level = capped_difficulty(
-        view.max_difficulty_level, search.family_friendly
-    )
-    # The same widening merge_loops applies. "a 15 km hike" arrives as
-    # min = max = 15000, which is an exact-equality filter over a catalogue
-    # whose routes are 15,328 m long: without this the implicit block matches
-    # nothing and silently vanishes, while "a 15 km loop" gets a band and
-    # results. One ask, two phrasings, must reach the catalogue the same way.
-    return widen_narrow_band(view)
-
-
-#: OutingIntent waypoint kinds that trail search's PoiType also knows —
-#: what the interim catalogue view can carry over.
-_CATALOGUE_POI_KINDS = frozenset(
-    {
-        "lake",
-        "hut",
-        "campsite",
-        "station",
-        "bathing_water",
-        "viewpoint",
-        "peak",
-        "saddle",
-        "beach",
-        "spring",
-        "cave",
-        "waterfall",
-        "chapel",
-        "castle",
-        "ruins",
-        "picnic_site",
-    }
-)
-
-
-def outing_view(outing: OutingIntent) -> LoopSearchIntent | None:
-    """The outing posed to the catalogue — the interim until R4's planner.
-
-    Until the pack planner is wired into /chat, an outing must still answer
-    with something honest: the closest catalogue ask, described by measured
-    facts like every catalogue result. A multi-day ask has no one-day stand-in,
-    so it degrades to None and the turn says nothing matched rather than
-    offering day loops as a trek.
-    """
-    if outing.days > 1:
-        return None
-    view = LoopSearchIntent(
-        activity="mtb" if outing.activity in ("mtb", "bike") else "hike",
-        max_distance_m=(
-            outing.max_distance_km * 1000
-            if outing.max_distance_km is not None
-            else None
-        ),
-        max_duration_min=(
-            round(outing.max_hours * 60) if outing.max_hours is not None else None
-        ),
-        max_ascent_m=float(outing.max_ascent_m) if outing.max_ascent_m else None,
-        poi_types=[k for k in outing.waypoint_kinds if k in _CATALOGUE_POI_KINDS],
-        near=outing.start.name or outing.area,
-    )
-    if outing.party in ("kids", "small_kids"):
-        view.max_difficulty_level = 1
-    return widen_narrow_band(view)
 
 
 def merge_searches(intents: list[TrailSearchIntent]) -> TrailSearchIntent:
@@ -307,65 +262,6 @@ def merge_searches(intents: list[TrailSearchIntent]) -> TrailSearchIntent:
     return merged
 
 
-def merge_loops(loops: list[LoopSearchIntent]) -> LoopSearchIntent:
-    """Tightest-wins merge, mirroring merge_searches."""
-    merged = LoopSearchIntent()
-    for loop in loops:
-        for name in (
-            "max_distance_m",
-            "max_ascent_m",
-            "max_difficulty_level",
-            "max_duration_min",
-        ):
-            values = [
-                v for v in (getattr(merged, name), getattr(loop, name)) if v is not None
-            ]
-            setattr(merged, name, min(values) if values else None)
-        for name in ("min_distance_m",):
-            values = [
-                v for v in (getattr(merged, name), getattr(loop, name)) if v is not None
-            ]
-            setattr(merged, name, max(values) if values else None)
-        for poi_type in loop.poi_types:
-            if poi_type not in merged.poi_types:
-                merged.poi_types.append(poi_type)
-        merged.near = merged.near or loop.near
-        merged.activity = merged.activity or loop.activity
-        merged.avoid_roads = merged.avoid_roads or loop.avoid_roads
-    # Same trap as the searches: a 0-metre max silently matches nothing.
-    if merged.max_distance_m is not None and merged.max_distance_m <= 0:
-        merged.max_distance_m = None
-    if merged.min_distance_m is not None and merged.min_distance_m <= 0:
-        merged.min_distance_m = None
-    if merged.max_ascent_m is not None and merged.max_ascent_m <= 0:
-        merged.max_ascent_m = None
-    if merged.max_duration_min is not None and merged.max_duration_min <= 0:
-        merged.max_duration_min = None
-    return widen_narrow_band(merged)
-
-
-def widen_narrow_band(loop: LoopSearchIntent) -> LoopSearchIntent:
-    """A single stated distance is an approximation, so treat it as one.
-
-    "a 15 km loop" comes back from the model as min=max=15000, which is an
-    exact-equality filter. Real routes are 15,328 m, so that matches nothing
-    and the user is told no such loop exists when 500 of them do. The model
-    is not wrong about the number; it is the interval that needs saying, and
-    saying it here keeps it deterministic rather than another prompt rule the
-    model may or may not follow.
-    """
-    low, high = loop.min_distance_m, loop.max_distance_m
-    if low is None or high is None or high < low:
-        return loop
-    midpoint = (low + high) / 2
-    if midpoint <= 0:
-        return loop
-    if (high - low) / midpoint < NARROW_BAND_RATIO:
-        loop.min_distance_m = midpoint * (1 - DISTANCE_TOLERANCE)
-        loop.max_distance_m = midpoint * (1 + DISTANCE_TOLERANCE)
-    return loop
-
-
 def compose(subqueries: list[Intent]) -> ComposedPlan:
     """Merge atomic subqueries into one executable plan.
 
@@ -373,8 +269,9 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
       * an empty plan, or any clarify subquery, makes the whole turn a
         clarification (a partially-adversarial plan must not half-run);
       * structured searches merge tightest-wins; semantic themes join;
-      * routes are kept in order, capped at MAX_ROUTES;
-      * a search with no constraints and no theme and no routes is
+      * one outing per turn — an A-to-B ask is an outing with a named end
+        (docs/route-design.md decision 4), drawn over the pack;
+      * a search with no constraints and no theme and no outing is
         under-specified -> clarify with suggestions that drive a good search.
     """
     # The clarify scan reads the WHOLE plan, before the cap. A clarify poisons
@@ -399,28 +296,21 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     searches = [sanitize(s) for s in subqueries if isinstance(s, TrailSearchIntent)]
     themes = [s.text.strip() for s in subqueries if isinstance(s, SemanticThemeIntent)]
     themes = [t for t in themes if t]
-    routes = [s for s in subqueries if isinstance(s, RouteIntent)][:MAX_ROUTES]
-    loops = [s for s in subqueries if isinstance(s, LoopSearchIntent)]
-    # Tightest-wins like the searches: two loop asks in one message are one
-    # outing with both constraints, not two outings.
-    loop = merge_loops(loops) if loops else None
     # One outing per turn: a message describes one outing, and two outing
     # subqueries are the model splitting what it should not — the first
     # speaks. (compile.py owns everything downstream of this.)
     outings = [s for s in subqueries if isinstance(s, OutingIntent)]
-    outing = outings[0] if outings else None
-    loop_from_outing = False
-    if outing is not None and loop is None:
-        loop = outing_view(outing)
-        loop_from_outing = True
+    if not outings:
+        # An A-to-B ask arrives as a route and is drawn as an outing: the
+        # model keeps the kind it reads best, Python decides what runs.
+        outings = [route_as_outing(s) for s in subqueries if isinstance(s, RouteIntent)]
+    outing = _without_start_waypoint(outings[0]) if outings else None
 
     search = merge_searches(searches) if searches else None
     theme = "; ".join(themes) if themes else None
 
     actionable = (
         bool(theme)
-        or bool(routes)
-        or loop is not None
         or outing is not None
         or (search is not None and has_constraints(search))
     )
@@ -445,8 +335,6 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
         search is not None
         and only_activity(search)
         and theme is None
-        and not routes
-        and loop is None
         and outing is None
     ):
         return ComposedPlan(
@@ -466,10 +354,7 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
     return ComposedPlan(
         search=search,
         theme=theme,
-        routes=routes,
-        loop=loop,
         outing=outing,
-        loop_from_outing=loop_from_outing,
     )
 
 
@@ -481,20 +366,8 @@ def compose(subqueries: list[Intent]) -> ComposedPlan:
 # only says WHICH constraints changed (PlanEnvelope.refine + the delta
 # subqueries); what they change is decided here.
 
-#: Field names shared by TrailSearchIntent and LoopSearchIntent that a
-#: cross-kind delta may carry over. `activity` is excluded: the two intents
-#: spell it in different vocabularies, and a wrong guess there flips which
-#: catalogue is searched.
-_CROSS_FIELDS = (
-    "min_distance_m",
-    "max_distance_m",
-    "max_duration_min",
-    "max_difficulty_level",
-    "poi_types",
-)
 
-
-def _is_set(intent: TrailSearchIntent | LoopSearchIntent, name: str) -> bool:
+def _is_set(intent: TrailSearchIntent | OutingIntent, name: str) -> bool:
     """Did the model actually emit this field? Strict outputs force every
     field to appear, so "set" means "differs from the default" — the same
     reading has_constraints uses. The known ceiling: a delta cannot RESET a
@@ -515,38 +388,82 @@ def _overlay(base, delta):
     return merged
 
 
-def _cross_overlay(base, delta):
-    """Cross-kind merge: "shorter" against a standing loop often arrives as a
-    trail_search (or vice versa). The shared constraint names carry over; the
-    base keeps its kind, so the same catalogue answers."""
-    merged = base.model_copy()
-    for name in _CROSS_FIELDS:
-        if name in type(delta).model_fields and _is_set(delta, name):
-            setattr(merged, name, getattr(delta, name))
-    return merged
+#: What the model writes into a route end when the user named none.
+_NO_PLACE = frozenset({"", "named", "here", "any", "unknown", "none", "start"})
+
+
+def route_as_outing(route: RouteIntent) -> OutingIntent:
+    """The A-to-B ask as the outing the pack draws: the start named (or
+    "here"), the end a named waypoint, there and back. No end is a loop from
+    the start; no start lets the planner pick trailheads near the end."""
+    start = (route.start or "").strip()
+    end = (route.end or "").strip()
+    if start.lower() in ("here", "my location", "current location"):
+        spec = {"mode": "here"}
+    elif start.lower() in _NO_PLACE:
+        spec = {"mode": "any"}
+    else:
+        spec = {"mode": "named", "name": start}
+    waypoints = [] if end.lower() in _NO_PLACE else [{"name": end, "role": "end"}]
+    return OutingIntent(
+        activity="hike",
+        start=spec,
+        waypoints=waypoints,
+        shape=None if waypoints else "loop",
+        max_distance_km=(
+            route.max_distance_m / 1000 if route.max_distance_m is not None else None
+        ),
+    )
+
+
+def _without_start_waypoint(outing: OutingIntent) -> OutingIntent:
+    """The named start is never also a waypoint. The model repeats it ("from
+    Lecco to Abbadia" -> a waypoint Lecco beside start Lecco), and a later
+    turn that replaces the start would otherwise keep Lecco as a place to
+    pass (g34)."""
+    start = " ".join((outing.start.name or "").lower().split())
+    if not start:
+        return outing
+    kept = [
+        w
+        for w in outing.waypoints
+        if not (w.name and " ".join(w.name.lower().split()) == start)
+    ]
+    if len(kept) == len(outing.waypoints):
+        return outing
+    return outing.model_copy(update={"waypoints": kept})
+
+
+def _settle_ends(merged: OutingIntent, delta: OutingIntent) -> OutingIntent:
+    """Where a refined outing ends, decided in Python.
+
+    A loop ends where it starts, so a turn that SAYS loop drops the standing
+    end ("to Abbadia", then "a 10 km loop" — g34). A turn that names a new
+    end on a standing loop makes it a there-and-back instead.
+    """
+    waypoints = list(merged.waypoints)
+    shape = merged.shape
+    if delta.shape == "loop":
+        waypoints = [w for w in waypoints if w.role != "end"]
+    elif shape == "loop" and any(w.role == "end" and w.name for w in delta.waypoints):
+        shape = None
+    return _without_start_waypoint(
+        merged.model_copy(update={"waypoints": waypoints, "shape": shape})
+    )
 
 
 def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
     """Merge a refinement turn's delta onto the conversation's standing plan.
 
     Only called when the model set `refine` and this turn is not a clarify
-    (a clarify poisons the turn before it gets here). A route ask with nothing
-    else is a change of subject — "now route me from A to B" — and starts
-    fresh even under a stray refine flag.
-
-    Standing ROUTES are never carried: a route is a one-shot answer, not a
-    constraint in force, and carrying it re-ran "Lecco to Bergamo" under
-    every later ask of the conversation (owner session, 2026-08-26).
+    (a clarify poisons the turn before it gets here).
     """
     if standing.is_clarify:
-        return delta
-    if delta.routes and not (delta.search or delta.loop or delta.theme):
         return delta
 
     merged = ComposedPlan(
         search=standing.search,
         theme=standing.theme,
-        loop=standing.loop,
         outing=standing.outing,
     )
     if delta.outing is not None:
@@ -555,29 +472,15 @@ def apply_delta(standing: ComposedPlan, delta: ComposedPlan) -> ComposedPlan:
             if merged.outing is not None
             else delta.outing
         )
-        # The interim catalogue view tracks the outing it was derived from;
-        # an explicit loop delta below still wins.
-        if delta.loop is None:
-            merged.loop = outing_view(merged.outing)
-            merged.loop_from_outing = True
+        merged.outing = _settle_ends(merged.outing, delta.outing)
     if delta.search is not None:
-        if merged.search is not None:
-            merged.search = _overlay(merged.search, delta.search)
-        elif merged.loop is not None and delta.loop is None:
-            merged.loop = _cross_overlay(merged.loop, delta.search)
-        else:
-            merged.search = delta.search
-    if delta.loop is not None:
-        if merged.loop is not None:
-            merged.loop = _overlay(merged.loop, delta.loop)
-        elif merged.search is not None and delta.search is None:
-            merged.search = _cross_overlay(merged.search, delta.loop)
-        else:
-            merged.loop = delta.loop
+        merged.search = (
+            _overlay(merged.search, delta.search)
+            if merged.search is not None
+            else delta.search
+        )
     if delta.theme:
         merged.theme = delta.theme
-    if delta.routes:
-        merged.routes = list(delta.routes)
     return merged
 
 
@@ -588,16 +491,16 @@ def standing_dump(plan: ComposedPlan) -> dict | None:
         return None
     return {
         "search": plan.search.model_dump() if plan.search else None,
-        "loop": plan.loop.model_dump() if plan.loop else None,
         "outing": plan.outing.model_dump() if plan.outing else None,
         "theme": plan.theme,
-        "routes": [r.model_dump() for r in plan.routes],
     }
 
 
 def standing_load(data: dict | None) -> ComposedPlan | None:
     """The inverse, defensive: jsonb written by an older build, or by nothing,
-    must degrade to "no standing plan", never to a crash mid-turn."""
+    must degrade to "no standing plan", never to a crash mid-turn. A "routes"
+    key from before RouteIntent was retired is ignored — a route was never a
+    constraint in force."""
     if not isinstance(data, dict):
         return None
     try:
@@ -607,21 +510,15 @@ def standing_load(data: dict | None) -> ComposedPlan | None:
                 if data.get("search")
                 else None
             ),
-            loop=(
-                LoopSearchIntent.model_validate(data["loop"])
-                if data.get("loop")
-                else None
-            ),
             outing=(
                 OutingIntent.model_validate(data["outing"])
                 if data.get("outing")
                 else None
             ),
             theme=data.get("theme") or None,
-            routes=[RouteIntent.model_validate(r) for r in data.get("routes") or []],
         )
     except Exception:  # noqa: BLE001 — malformed history is "no standing plan"
         return None
-    if not (plan.search or plan.loop or plan.theme or plan.routes or plan.outing):
+    if not (plan.search or plan.theme or plan.outing):
         return None
     return plan

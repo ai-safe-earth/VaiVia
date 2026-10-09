@@ -2,33 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import {
-  AuthRequiredError,
-  fetchRouteGeoJson,
-  fetchTrailGeoJson,
-  sendChat,
-} from '@/lib/api';
-import {
-  drawableFeatures,
-  isStillSelected,
-  mayDraw,
-  needsFetch,
-  planReveal,
-  planSelect,
-  recordLine,
-  type LineEntry,
-  type LineStatus,
-  inlineLine,
-} from '@/lib/mapTurn';
+import { AuthRequiredError, sendChat } from '@/lib/api';
+import { cardKey, closeCard, openCard } from '@/lib/openCards';
 import { isAuthConfigured } from '@/lib/supabaseClient';
-import type {
-  ChatMessage,
-  FeedbackTurn,
-  Loop,
-  RouteDetail,
-  Trail,
-} from '@/lib/types';
+import type { ChatMessage, Loop } from '@/lib/types';
 import { useRouteDetails } from '@/lib/useRouteDetails';
+import { useRouteLines } from '@/lib/useRouteLines';
 
 
 import { Feedback } from './Feedback';
@@ -37,10 +16,13 @@ import { LoopCard } from './LoopCard';
 import { QueryReading } from './QueryReading';
 import { TrailCard } from './TrailCard';
 
+/** Three asks that DRAW on the parity pack (checked 2026-09-25; golden g64,
+ *  g65, g61). A starter that decomposes to a trail search is a dead starter:
+ *  "a two hour mountain bike ride" did, and answered nothing. */
 const SUGGESTIONS = [
-  'easy walk with my kids near a lake',
-  'a two hour mountain bike ride',
-  'hike with a hut at the halfway point',
+  'an easy half-day walk around Bergamo, starting from the station',
+  'a hike loop of about two hours from Lecco, no asphalt',
+  'an easy mountain bike loop from Bergamo, about two hours',
 ];
 
 /** Where the card list folds when the results event carries no
@@ -67,12 +49,6 @@ function chipsFor(loops: Loop[]): { label: string; chip: Record<string, unknown>
 const DEFAULT_FOLD = 5;
 
 interface Props {
-  onGeometry: (
-    geometry: GeoJSON.Feature | GeoJSON.FeatureCollection | GeoJSON.Geometry | null,
-  ) => void;
-  /** The selected route's document detail (or null), so the map column's
-   *  elevation panel can draw the profile of whatever the chat selected. */
-  onDetail?: (detail: RouteDetail | null) => void;
   /** Resume this stored conversation; null starts fresh. The page remounts the
    *  panel (via key) on explicit navigation, so state never leaks across
    *  switches — but not when this panel's own first turn is assigned an id. */
@@ -87,21 +63,9 @@ interface Props {
    *  in the favorites view are the same state. Absent when signed out. */
   favorites?: Set<string>;
   onToggleFavorite?: (loop: Loop, on: boolean) => void;
-  /** A card's body was tapped: the map layer comes up over the conversation
-   *  with this route's data under it. Null when a fresh answer takes the map
-   *  over — the panel empties, the layer stays where it is.
-   *
-   *  `turn` is the stored message the card came from, so the panel card can
-   *  ask whether the route was right. Absent from the saved-routes view: a
-   *  saved route answers no question. */
-  onPick?: (picked: Loop | Trail | null, turn?: FeedbackTurn) => void;
-  /** A question was asked. The page brings the map down: an answer is read on
-   *  the conversation, which is where it was asked for. */
+  /** A question was asked. The page puts Saved routes away: an answer is
+   *  read on the conversation, which is where it was asked for. */
   onAsk?: () => void;
-  /** The map layer is over the transcript. The transcript keeps its scroll and
-   *  its selection but leaves the tab order — reaching a card under the map
-   *  with Tab and "clicking" it is a gesture with no visible effect. */
-  covered?: boolean;
   /** Out of sight, still mounted. The Saved-routes view takes over the column
    *  but must not DESTROY the conversation underneath it: this panel owns the
    *  visible transcript, and unmounting it threw the transcript away and
@@ -112,17 +76,13 @@ interface Props {
 }
 
 export function ChatPanel({
-  onGeometry,
-  onDetail,
   initialConversationId = null,
   initialMessages = [],
   onConversationCreated,
   onClear,
   favorites,
   onToggleFavorite,
-  onPick,
   onAsk,
-  covered = false,
   hidden = false,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -131,20 +91,9 @@ export function ChatPanel({
   const [conversationId, setConversationId] = useState<string | null>(
     initialConversationId,
   );
-  // One selection slot shared with trails: route ids cannot collide with
-  // trail ids, and picking a loop should clear a trail anyway.
-  const [selectedTrail, setSelectedTrail] = useState<string | null>(null);
-  // Loop geometries are fetched once per results event and kept, so
-  // clicking between loops restyles what is already drawn instead of
-  // refetching and making the map flicker. Each entry keeps its fetch
-  // OUTCOME too: a failed line must read as "unavailable" on the card, not
-  // as an id silently absent from the map.
-  const loopFeatures = useRef<Map<string, LineEntry>>(new Map());
-  // Difficulty band per route id, for the map's line colour. Never cleared:
-  // ids are content-derived, so a stale entry is the same route.
-  // The same statuses as React state, so the cards re-render when a line
-  // arrives or fails - the ref alone repaints nothing.
-  const [lineStatus, setLineStatus] = useState<Record<string, LineStatus>>({});
+  // Cards open in place, oldest first, at most three (lib/openCards.ts).
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
+  const lines = useRouteLines();
 
   // The user's location, for "from here" asks. Read ONLY when the browser
   // has already granted geolocation — this never prompts; an explicit "use
@@ -167,208 +116,28 @@ export function ChatPanel({
       })
       .catch(() => {});
   }, []);
-  // Which ANSWER those features belong to. The drawn set is one answer's, and
-  // "show more" under an older one used to merge its routes into the current
-  // answer's map — a picture belonging to neither turn.
-  const drawnTurn = useRef<number | null>(null);
-  // How far each answer's fold has been revealed. FoldedCards keeps the
-  // count as its own state; this mirror is what lets a click-takeover
-  // restore every card the user can SEE, not just the fold — without it,
-  // cards revealed before another answer took the map over came back
-  // line-less, and no later "show more" could heal them.
-  const revealed = useRef<Map<number, number>>(new Map());
-  // Route lines currently being fetched, so a click during the initial
-  // batch does not dispatch the same GET twice.
-  const linesInFlight = useRef<Set<string>>(new Set());
-  // Route documents' detail (profile, measures), fetched once per route on
-  // first expand or selection — asked once, null on failure, and only painted
-  // if its card is still the selected one. Shared with the saved-routes view,
-  // which is where those three rules were dropped when they were copied.
-  // Hidden means the Saved-routes view owns the column AND the map. A stream
-  // that finishes back here must not repaint under it, so every emission goes
-  // through these -- and through a REF, because a continuation that started
-  // while visible would otherwise close over the old value.
-  const hiddenRef = useRef(hidden);
-  hiddenRef.current = hidden;
-  const emitGeometry: Props['onGeometry'] = (geometry) => {
-    if (!hiddenRef.current) onGeometry(geometry);
-  };
-  const emitDetail = (detail: RouteDetail | null) => {
-    if (!hiddenRef.current) onDetail?.(detail);
-  };
-  const emitPick = (picked: Loop | Trail | null, turn?: FeedbackTurn) => {
-    if (!hiddenRef.current) onPick?.(picked, turn);
-  };
-
-  const routes = useRouteDetails(emitDetail);
+  // Route documents' detail (profile, measures) for a SAVED route, fetched
+  // once on first open. A drawn route carries its own profile.
+  const routes = useRouteDetails();
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    // Back in view: the map is this panel's again, so redraw what this answer
-    // had on it. Nothing was emitted while hidden, so without this the
-    // favorites view's last route would stay under the transcript.
-    if (!hidden && loopFeatures.current.size) drawLoops(routes.current());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hidden]);
-
-  async function selectTrail(trail: Trail) {
-    setSelectedTrail(trail.id);
-    routes.select(trail.id);
-    // Trails carry no document detail; the elevation panel goes quiet rather
-    // than showing the previous route's profile under a trail's name.
-    emitDetail(null);
-    loopFeatures.current.clear();
-    setLineStatus({});
-    // No answer owns the map now. Leaving the old turn here made a later
-    // same-turn "show more" append into a cache this clear just emptied -
-    // a partial answer drawn as if it were whole.
-    drawnTurn.current = null;
-    // A trail whose geometry will not come (gone, or the session expired) is
-    // a blank map, not an unhandled rejection out of a void-ed handler.
-    const geometry = await fetchTrailGeoJson(trail.id).catch(() => null);
-    // A slow trail A must not repaint the map after trail B was picked.
-    if (!isStillSelected(routes.current(), trail.id)) return;
-    // Stamp the feature the way FavoritesView does: without `selected` a
-    // lone trail rendered at the dimmed unselected style by omission.
-    emitGeometry(
-      geometry && {
-        ...geometry,
-        properties: {
-          ...(geometry.properties ?? {}),
-          // The id rides with the feature: the map layer compares what is
-          // drawn against what was picked, and a trail's own GeoJSON carries
-          // trail_id, which is not a name focusedRouteId knows.
-          id: trail.id,
-          selected: true,
-        },
-      },
-    );
-  }
-
-  /** Every loop drawn at once, with `selected` marking the one to highlight.
-   *  MapView styles and fits on that property, so switching selection is a
-   *  restyle rather than a refetch. The rule for WHAT may draw - including
-   *  "a selection whose line is unavailable clears the map rather than
-   *  framing its siblings" - lives in lib/mapTurn.ts, tested. */
-  function drawLoops(selectedId: string | null) {
-    const features = drawableFeatures(loopFeatures.current, selectedId);
-    emitGeometry(features ? { type: 'FeatureCollection', features } : null);
-  }
-
-  /** A card click. The one entry point that had no turn guard: older
-   *  answers' cards stay clickable in the transcript, and clicking one drew
-   *  whatever answer owned the cache. Now it is planReveal's rule applied to
-   *  clicks - same answer restyles (retrying a failed line), any other
-   *  answer takes the map over, drawn through to the clicked card. */
-  async function selectLoop(loop: Loop, turn: number, loops: Loop[], fold: number) {
-    setSelectedTrail(loop.id);
-    routes.select(loop.id);
-    void routes.load(loop.id);
-    const clickedIndex = loops.findIndex((candidate) => candidate.id === loop.id);
-    // A takeover restores everything this answer had on show: its revealed
-    // reach when that is known, never less than the fold or the clicked card.
-    const reach = Math.max(fold, revealed.current.get(turn) ?? 0);
-    const plan = planSelect(drawnTurn.current, turn, reach, clickedIndex);
-    drawnTurn.current = plan.drawnTurn;
-    if (plan.takeover) {
-      await loadLoopGeometry(loops.slice(...plan.slice), turn);
-      return;
-    }
-    if (needsFetch(loopFeatures.current.get(loop.id))) {
-      await appendLoopGeometry([loop], turn);
-      return;
-    }
-    drawLoops(loop.id);
-  }
-
-  async function loadLoopGeometry(loops: Loop[], turn: number) {
-    loopFeatures.current.clear();
-    setLineStatus({});
-    await appendLoopGeometry(loops, turn);
-  }
-
-  /** "Show more" under one answer's loops.
-   *
-   *  Revealing cards of the answer already on the map ADDS them to it. From
-   *  any other answer it is a change of subject: that turn takes the map
-   *  over, drawn from its first card so what is shown is one answer whole,
-   *  never a mix of two.
-   */
-  async function revealLoops(turn: number, loops: Loop[], from: number, to: number) {
-    const plan = planReveal(drawnTurn.current, turn, from, to);
-    drawnTurn.current = plan.drawnTurn;
-    const [start, end] = plan.slice;
-    if (!plan.clear) {
-      await appendLoopGeometry(loops.slice(start, end), turn);
-      return;
-    }
-    routes.select(null);
-    setSelectedTrail(null);
-    await loadLoopGeometry(loops.slice(start, end), turn);
-  }
-
-  /** Fetch geometry for these loops and merge it into the drawn set — used
-   *  both for the visible fold of a fresh answer and for cards a "show more"
-   *  just revealed. Settled, not all: one route missing its geometry must not
-   *  stop the others being drawn. */
-  async function appendLoopGeometry(loops: Loop[], turn: number) {
-    // Drawn routes carry their line inline — seed those first; only what
-    // remains unfetchable goes to the wire.
-    loops.forEach((loop) => {
-      if (needsFetch(loopFeatures.current.get(loop.id))) {
-        const inline = inlineLine(loop);
-        if (inline) loopFeatures.current.set(loop.id, inline);
-      }
-    });
-    // Errors are retried on the next ask; ok and missing (404) are settled;
-    // a line already on the wire is not asked for again.
-    const wanted = loops.filter(
-      (loop) =>
-        needsFetch(loopFeatures.current.get(loop.id)) &&
-        !linesInFlight.current.has(loop.id),
-    );
-    // Everything asked for is already on the wire: drawing NOW would run
-    // against a cache the in-flight batch has not filled yet — with a
-    // selection set, drawableFeatures returns null and the whole map blanks
-    // until the batch lands. That batch's own continuation draws, selection
-    // included, so there is nothing to do here.
-    if (wanted.length === 0 && loops.some((l) => linesInFlight.current.has(l.id))) {
-      return;
-    }
-    wanted.forEach((loop) => linesInFlight.current.add(loop.id));
-    const results = await Promise.allSettled(
-      wanted.map((loop) => fetchRouteGeoJson(loop.id)),
-    ).finally(() => wanted.forEach((loop) => linesInFlight.current.delete(loop.id)));
-    // The drawn set belongs to ONE answer, and this fetch was slow enough that
-    // another answer may own it now. Guarding only the dispatch left the
-    // continuation free to merge an older turn's routes into the new set.
-    if (!mayDraw(drawnTurn.current, turn)) return;
-    results.forEach((result, index) => {
-      const id = wanted[index].id;
-      // recordLine also verifies the payload IS this route: a response whose
-      // own route_id disagrees is recorded as an error, never drawn.
-      loopFeatures.current.set(
-        id,
-        result.status === 'fulfilled' ? recordLine(result.value, id) : { status: 'error' },
-      );
-    });
-    setLineStatus(
-      Object.fromEntries(
-        [...loopFeatures.current.entries()].map(([id, entry]) => [id, entry.status]),
-      ),
-    );
-    drawLoops(routes.current());
+  /** Open a card in place: its line, and its detail when it has no profile
+   *  of its own (/detail answers 404 for a drawn route). */
+  function open(loop: Loop, key: string) {
+    setOpenKeys((current) => openCard(current, key));
+    void lines.ensure(loop);
+    if (loop.profile === undefined) void routes.load(loop.id);
   }
 
   async function submit(text: string, chip?: Record<string, unknown>) {
     const message = text.trim();
     if (!message || busy) return;
 
-    // The answer is read on the conversation, so asking brings the map down.
+    // The answer is read on the conversation.
     onAsk?.();
     setInput('');
     setBusy(true);
@@ -387,11 +156,6 @@ export function ChatPanel({
         return next;
       });
 
-    // Which assistant turn this submit is writing: the user turn is appended
-    // first, so it is the one after it. A later "show more" compares against
-    // this to tell whose geometry is on the map.
-    const turnIndex = messages.length + 1;
-
     let streamed = '';
     try {
       for await (const event of sendChat(message, conversationId, {
@@ -405,54 +169,6 @@ export function ChatPanel({
             break;
           case 'results': {
             updateLast({ results: event.results });
-            // Loops arrive without geometry — it is fetched per route so the
-            // answer model is not handed thousands of coordinates. Only the
-            // visible fold is fetched; "show more" fetches what it reveals.
-            if (event.results.loops?.length) {
-              const fold = event.results.answered_count ?? DEFAULT_FOLD;
-              drawnTurn.current = turnIndex;
-              // The new answer owns the SELECTION as well as the map —
-              // revealLoops' takeover resets both, and this path must too:
-              // a selected id from the previous answer is never in the
-              // fresh cache, and drawableFeatures rightly draws nothing for
-              // a selection it cannot show. Without the reset, every answer
-              // after a card click arrived to a blank map.
-              routes.select(null);
-              setSelectedTrail(null);
-              emitDetail(null);
-              emitPick(null);
-              void loadLoopGeometry(event.results.loops.slice(0, fold), turnIndex);
-              break;
-            }
-            // A composed plan can resolve several routes; draw them all.
-            const lines = (event.results.routes ?? [])
-              .map((block) => block.geometry)
-              .filter((g): g is GeoJSON.LineString => Boolean(g));
-            if (lines.length > 1) {
-              emitGeometry({
-                type: 'FeatureCollection',
-                features: lines.map((geometry) => ({
-                  type: 'Feature',
-                  properties: {},
-                  geometry,
-                })),
-              });
-            } else if (event.results.geometry) {
-              emitGeometry(event.results.geometry);
-            } else if (event.results.kind !== 'clarify') {
-              // A search that came back with nothing drawable: the new answer
-              // owns the map, so the previous answer's picture must leave —
-              // keeping it is what made an emptied follow-up read as "nothing
-              // happened". A clarify keeps the map: the question is about it.
-              drawnTurn.current = null;
-              loopFeatures.current.clear();
-              setLineStatus({});
-              routes.select(null);
-              setSelectedTrail(null);
-              emitGeometry(null);
-              emitDetail(null);
-              emitPick(null);
-            }
             break;
           }
           case 'token':
@@ -502,7 +218,6 @@ export function ChatPanel({
 
       <div
         className="messages"
-        inert={covered}
         style={hidden ? { display: 'none' } : undefined}
       >
         {messages.length === 0 && (
@@ -572,58 +287,28 @@ export function ChatPanel({
             {message.results?.loops && message.results.loops.length > 0 && (
               <FoldedCards
                 fold={message.results.answered_count ?? DEFAULT_FOLD}
-                onReveal={(from, to) => {
-                  revealed.current.set(index, to);
-                  void revealLoops(index, message.results?.loops ?? [], from, to);
-                }}
               >
-                {message.results.loops.map((loop) => (
-                  <LoopCard
-                    key={loop.id}
-                    loop={loop}
-                    selected={selectedTrail === loop.id}
-                    // The turn this card answers: the open card asks whether
-                    // the route was right, and the vote is stored against
-                    // (this message, this route).
-                    messageId={message.messageId}
-                    conversationId={conversationId ?? undefined}
-                    onSelect={(picked) => {
-                      // The body tap is the gesture that raises the map. "See
-                      // more" below draws the same line but stays in the
-                      // transcript: one gesture, one meaning.
-                      // No turn while the answer is still streaming — the id
-                      // arrives with `done`. The panel card then shows no
-                      // thumbs for that pick; the transcript card grows them
-                      // in place, and a second tap gives the panel its own.
-                      // Re-emitting the pick on `done` would reopen the map
-                      // and refetch the detail, which is worse than waiting.
-                      emitPick(
-                        picked,
-                        message.messageId && conversationId
-                          ? { messageId: message.messageId, conversationId }
-                          : undefined,
-                      );
-                      void selectLoop(
-                        picked,
-                        index,
-                        message.results?.loops ?? [],
-                        message.results?.answered_count ?? DEFAULT_FOLD,
-                      );
-                    }}
-                    onExpand={(picked) =>
-                      void selectLoop(
-                        picked,
-                        index,
-                        message.results?.loops ?? [],
-                        message.results?.answered_count ?? DEFAULT_FOLD,
-                      )
-                    }
-                    line={lineStatus[loop.id]}
-                    detail={routes.details[loop.id]}
-                    favorited={favorites?.has(loop.id) ?? false}
-                    onToggleFavorite={onToggleFavorite}
-                  />
-                ))}
+                {message.results.loops.map((loop) => {
+                  const key = cardKey(index, loop.id);
+                  return (
+                    <LoopCard
+                      key={loop.id}
+                      loop={loop}
+                      // The turn this card answers: the open card asks whether
+                      // the route was right, and the vote is stored against
+                      // (this message, this route).
+                      messageId={message.messageId}
+                      conversationId={conversationId ?? undefined}
+                      expanded={openKeys.includes(key)}
+                      onOpen={(picked) => open(picked, key)}
+                      onClose={() => setOpenKeys((current) => closeCard(current, key))}
+                      line={lines.lines[loop.id]}
+                      detail={routes.details[loop.id]}
+                      favorited={favorites?.has(loop.id) ?? false}
+                      onToggleFavorite={onToggleFavorite}
+                    />
+                  );
+                })}
               </FoldedCards>
             )}
 
@@ -655,11 +340,6 @@ export function ChatPanel({
                   <TrailCard
                     key={trail.id}
                     trail={trail}
-                    selected={selectedTrail === trail.id}
-                    onSelect={(selected) => {
-                      emitPick(selected);
-                      void selectTrail(selected);
-                    }}
                   />
                 ))}
               </FoldedCards>
@@ -680,8 +360,7 @@ export function ChatPanel({
                   <div className="notice-body">
                     <span className="vv-label">No matches</span>
                     <p className="vv-body">
-                      Nothing in the catalogue fits all of that — try relaxing
-                      one constraint.
+                      Nothing fits all of that — try relaxing one constraint.
                     </p>
                   </div>
                 </div>

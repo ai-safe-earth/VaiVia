@@ -1,0 +1,8 @@
+# Files that run inside Linux containers or on the server keep LF on every
+# checkout, Windows included: a CRLF after a line-continuation backslash
+# breaks a Dockerfile RUN or a shell script, and the images build from the
+# working tree.
+Dockerfile text eol=lf
+*.sh text eol=lf
+.dockerignore text eol=lf
+infra/Caddyfile text eol=lf

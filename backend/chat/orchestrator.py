@@ -7,10 +7,11 @@ The pipeline, and why it is shaped this way:
   2. Plan extraction — the model's only structured output: the message
      decomposed into atomic subqueries, schema-validated.
   3. Composition — chat/composer.py (Python, not the model) merges the atoms
-     into at most one search, one semantic theme, and a bounded route list, or
-     a clarification with suggestions when there is too little to search well.
-  4. Template dispatch — each composed piece maps to a named template. The
-     model never names a template and never sees Cypher.
+     into at most one search, one semantic theme and one outing, or a
+     clarification with suggestions when there is too little to search well.
+  4. Dispatch — a search maps to a named template, an outing (A-to-B asks
+     included: a named end) is drawn by the planner over the pack. The model
+     never names a template and never sees Cypher.
   5. Grounded answer — the model writes prose over results it is handed. Every
      trail id in the response also appears in result_refs, so the frontend can
      render exactly what the graph returned.
@@ -31,15 +32,15 @@ from chat.composer import (
     TrailSearchIntent,
     apply_delta,
     capped_difficulty,
-    catalogue_view,
     compose,
+    drop_unsaid_places,
     standing_dump,
     standing_load,
 )
-from chat.intents import ClarifyIntent, RouteIntent
+from chat.intents import ClarifyIntent
 from chat.llm import LLMClient, Usage, results_to_json
 from chat.pack_state import PlannerState
-from chat.planner import plan_outing
+from chat.planner import plan_outing, resolve_place
 from chat.readback import readback
 from chat.sanitize import strip_links_stream
 from chat.store import ConversationStore
@@ -59,11 +60,6 @@ logger = logging.getLogger(__name__)
 ANSWER_RESULT_LIMIT = 5
 CARD_RESULT_LIMIT = 20
 
-# Our 1-4 difficulty onto the OSM scales GraphHopper decodes. sac_scale: 1
-# hiking, 2 mountain_hiking, 3 demanding_mountain_hiking, 4+ alpine. mtb:scale
-# is coarser at the easy end, so level 1 still admits a 1.
-HIKE_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 3, 4: 6}
-MTB_RATING_BY_LEVEL = {1: 1, 2: 2, 3: 4, 4: 6}
 # The vector index scores this many candidates before the structured filters
 # cut them down, so a filtered semantic search still has enough to choose from.
 SEMANTIC_CANDIDATE_POOL = 25
@@ -96,11 +92,6 @@ SEMANTIC_CANDIDATE_POOL = 25
 SEMANTIC_SCORE_DROP = 0.05
 
 
-async def _nothing() -> None:
-    """A block this turn does not run. gather() wants a coroutine either way."""
-    return None
-
-
 def _strong_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The semantic rows that are close to the best one, in their own order.
 
@@ -115,6 +106,10 @@ def _strong_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [r for r in rows if r.get("score") is None or r["score"] >= floor]
 
 
+#: What a drawn card carries for the map and the profile, never for prose.
+BULK_CARD_KEYS = frozenset({"geometry", "profile", "spans"})
+
+
 def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
     """The results as the ANSWER model sees them: card lists cut to a prefix.
 
@@ -125,11 +120,12 @@ def _answer_view(results: dict[str, Any]) -> dict[str, Any]:
     view = dict(results)
     for key in ("loops", "trails"):
         if isinstance(view.get(key), list):
-            # Geometry never reaches the answer model (docs/route-design.md:
-            # it receives facts, the assumptions strip and the counts) — a
-            # coordinate list is thousands of tokens the prose cannot use.
+            # Geometry, the profile and the spans never reach the answer
+            # model (docs/route-design.md: it receives facts, the assumptions
+            # strip and the counts) — a coordinate list is thousands of
+            # tokens the prose cannot use.
             view[key] = [
-                {k: v for k, v in row.items() if k != "geometry"}
+                {k: v for k, v in row.items() if k not in BULK_CARD_KEYS}
                 for row in view[key][:ANSWER_RESULT_LIMIT]
             ]
     return view
@@ -217,26 +213,19 @@ class ChatOrchestrator:
                 plan = ComposedPlan(
                     clarify=ClarifyIntent(
                         question=(
-                            "There is no outing to refine yet — " "ask for one first."
+                            "There is no outing to refine yet — ask for one first."
                         )
                     )
                 )
             else:
-                from chat.composer import outing_view
-
-                delta = standing.outing.model_copy(update=chip)
-                plan = ComposedPlan(
-                    outing=delta,
-                    loop=outing_view(delta),
-                    loop_from_outing=True,
-                )
+                plan = ComposedPlan(outing=standing.outing.model_copy(update=chip))
                 refined = True
         else:
             plan_result = await self._llm.extract_plan(
                 message, history, standing=standing_raw
             )
             plan_usage = plan_result.usage
-            subqueries = plan_result.envelope.subqueries
+            subqueries = drop_unsaid_places(plan_result.envelope.subqueries, message)
             plan = compose(subqueries)
             # reset discards the plan in force BEFORE refine is considered: it
             # is the only way to clear a constraint (a delta can change one
@@ -259,7 +248,7 @@ class ChatOrchestrator:
                 "clarify": plan.is_clarify,
                 "refined": refined,
                 "chip": chip is not None,
-                "routes": len(plan.routes),
+                "outing": plan.outing is not None,
                 "theme": bool(plan.theme),
             },
         )
@@ -355,12 +344,12 @@ class ChatOrchestrator:
     def _result_kind(plan: ComposedPlan) -> str:
         if plan.is_clarify:
             return "clarify"
-        if plan.routes and not (plan.search or plan.theme or plan.loop):
-            return "route"
-        # A loops-only turn is a loop_search, not a trail_search. The label is
-        # client-facing: mislabelling it makes the frontend render catalogue
-        # loops as if they were trails, which they are not.
-        if plan.loop is not None and not (plan.search or plan.theme):
+        # A drawn-outing turn is a loop_search, not a trail_search. The label is
+        # client-facing: mislabelling it makes the frontend render drawn routes
+        # as if they were named trails, which they are not. The wire value keeps
+        # its name now the catalogue is gone — the frontend contract is the
+        # shape of the cards, not where they came from.
+        if plan.outing is not None and not (plan.search or plan.theme):
             return "loop_search"
         return "trail_search"
 
@@ -382,8 +371,21 @@ class ChatOrchestrator:
         # searched. compile owns the numbers; the planner draws and counts;
         # a Python clarify (coverage, infeasibility) poisons the turn like a
         # model clarify would — no other block runs beside it.
-        outing_handled = False
-        if plan.outing is not None and self._planner is not None:
+        if plan.outing is not None and self._planner is None:
+            # No pack, no drawing — and with the catalogue retired (R7) there
+            # is nothing behind it to fall back to. Say so rather than
+            # streaming an empty result list, which reads as "nothing exists".
+            # Production cannot reach this: REQUIRE_PACK refuses to boot.
+            return {
+                "clarification": (
+                    "I cannot draw routes right now — the route data is not "
+                    "loaded. Ask about a named trail instead, or try again "
+                    "shortly."
+                ),
+                "suggestions": [],
+            }, {}
+
+        if plan.outing is not None:
             # Coverage speaks with the pack's own gazetteer (R5): the areas
             # this network actually holds, not a name list in code.
             compiled = compile_outing(
@@ -394,7 +396,17 @@ class ChatOrchestrator:
                     "clarification": compiled.question,
                     "suggestions": compiled.suggestions,
                 }, {}
-            anchor = await self._outing_anchor(plan, compiled)
+            anchor, unknown = await self._outing_anchor(plan, compiled)
+            if unknown is not None:
+                # A start nobody can place must be said: drawing from some
+                # other start would answer a question that was not asked.
+                return {
+                    "clarification": (
+                        f"I do not know a place called {unknown!r} in the area "
+                        "VaiVia covers. Try a nearby town or trailhead?"
+                    ),
+                    "suggestions": ["a loop from Lecco", "a hike from Bergamo"],
+                }, {}
             drawn = await asyncio.to_thread(
                 plan_outing, self._planner, compiled, anchor
             )
@@ -418,37 +430,12 @@ class ChatOrchestrator:
             if drawn.relaxed:
                 results["relaxed"] = drawn.relaxed
             refs["loop_ids"] = [card["id"] for card in cards]
-            outing_handled = True
 
-        # Which catalogue ask, if any, runs beside the trails. An implicit one
-        # is the trail ask posed to the catalogue as well (owner rule
-        # 2026-08-21): a walker compares a loop against a sentiero without
-        # asking twice. catalogue_view returns None when a stated constraint
-        # cannot be honoured there — and a theme cannot be, the catalogue has
-        # no embeddings, which is why a semantic turn stays trails-only.
-        loop_intent: Any = plan.loop
-        if outing_handled and plan.loop_from_outing:
-            # The derived stand-in exists for the no-pack posture; with the
-            # planner answering, running it too would answer twice.
-            loop_intent = None
-        implicit_loops = False
-        if loop_intent is None and plan.search is not None and plan.theme is None:
-            loop_intent = catalogue_view(plan.search)
-            implicit_loops = loop_intent is not None
-
-        # The blocks are independent reads over the same driver, so they go out
-        # together. Sequentially, a both-kinds turn paid for the trail search,
-        # then the place lookup, then the catalogue, one after another — three
-        # round trips of latency for work that shares no state.
         wants_trails = plan.search is not None or plan.theme is not None
-        trail_result, loop_result, route_result = await asyncio.gather(
-            (
-                self._search(plan.search or TrailSearchIntent(), plan.theme)
-                if wants_trails
-                else _nothing()
-            ),
-            self._loops(loop_intent) if loop_intent is not None else _nothing(),
-            self._routes(plan.routes) if plan.routes else _nothing(),
+        trail_result = (
+            await self._search(plan.search or TrailSearchIntent(), plan.theme)
+            if wants_trails
+            else None
         )
 
         if trail_result is not None:
@@ -460,46 +447,6 @@ class ChatOrchestrator:
             if semantic_unavailable:
                 results["semantic_unavailable"] = True
             refs["trail_ids"] = [r["id"] for r in trails]
-
-        if loop_result is not None:
-            loops, near_resolved, total_loops = loop_result
-            if not near_resolved:
-                # A region we cannot place is a constraint the catalogue cannot
-                # honour, which is exactly when catalogue_view declines to pose
-                # the ask — it just cannot know that until resolution has run.
-                # An implicit block stays silent about it; an explicit ask must
-                # not: silence would be the wrong answer, so name the place we
-                # could not find rather than presenting routes from anywhere as
-                # routes from there — the rule the routing path already applies
-                # with unknown_place.
-                if not implicit_loops:
-                    results["loops"] = []
-                    results["loops_unknown_place"] = loop_intent.near
-                    refs["loop_ids"] = []
-            elif (loops or not implicit_loops) and "loops" not in results:
-                # One publish site for both the implicit and the explicit turn.
-                # An implicit block that came back empty is omitted rather than
-                # making the answer apologise for a list nobody asked for.
-                results["loops"] = loops
-                refs["loop_ids"] = [r["id"] for r in loops]
-                if total_loops is not None:
-                    results["total_loops"] = total_loops
-
-        if route_result is not None:
-            routes, route_refs = route_result
-            results["routes"] = routes
-            refs.update(route_refs)
-            # Legacy single-route shape: the first resolved route also appears
-            # as `route` + `geometry`, so existing clients keep working.
-            resolved = next((r for r in routes if r.get("route")), None)
-            if resolved:
-                results.setdefault("route", resolved["route"])
-                results.setdefault("geometry", resolved["geometry"])
-            elif routes:
-                results.setdefault("route", None)
-                for key in ("unknown_place", "off_network", "no_path"):
-                    if key in routes[0]:
-                        results.setdefault(key, routes[0][key])
 
         return results, refs
 
@@ -522,126 +469,30 @@ class ChatOrchestrator:
 
     async def _outing_anchor(
         self, plan: ComposedPlan, compiled: Constraints
-    ) -> tuple[float, float] | None:
-        """Where the ask is anchored: the validated `near` for "here", a
-        geocoded name otherwise. Resolution is the one I/O an ask needs, so
-        it happens here rather than inside the CPU-bound planner."""
+    ) -> tuple[tuple[float, float] | None, str | None]:
+        """Where the ask is anchored, and a named START nothing could place.
+
+        The validated `near` for "here"; otherwise the name, looked up in the
+        pack's own places first (they are what the network reaches — the
+        graph's POI list lacks most villages and peaks) and the graph's POIs
+        second. An area name that places nowhere is not an error: coverage
+        already answered for it, and its polygon bounds the starts."""
         if compiled.start_mode == "here" and plan.near is not None:
-            return plan.near
-        name = compiled.start_name or (plan.outing.area if plan.outing else None)
-        if name:
+            return plan.near, None
+        area = plan.outing.area if plan.outing else None
+        for name in (compiled.start_name, area):
+            if not name:
+                continue
+            if self._planner is not None:
+                point = resolve_place(self._planner.pack, name)
+                if point is not None:
+                    return point, None
             rows = await self._find_poi(name)
             if rows:
-                return rows[0]["lat"], rows[0]["lon"]
-        return plan.near
-
-    async def _loops(
-        self, intent: Any
-    ) -> tuple[list[dict[str, Any]], bool, int | None]:
-        """Select from the catalogue; returns (rows, near_resolved, total).
-
-        Everything costly ran offline in the pipeline's generator, so this is a
-        filter over (:Route) ordered by the score computed there.
-
-        near_resolved is False only when the user named a place and the
-        catalogue could not find it. It matters because the fallback is to run
-        with no geo filter at all: the caller must not present routes from the
-        whole region as if they were near a place we never located — the
-        readback would say "near: Bergamo" over a list from Lecco.
-        """
-        near_lat = near_lon = None
-        near_resolved = True
-        if intent.near:
-            near_resolved = False
-            # Same resolution path as point-to-point routing: escaped full-text
-            # first, CONTAINS as fallback. User text never reaches Cypher as
-            # anything but a parameter.
-            query = lucene_escape(intent.near).strip()
-            rows = (
-                await self._db.run_named("poi_by_name_fulltext", query=query, limit=1)
-                if query
-                else []
-            )
-            if not rows:
-                rows = await self._db.run_named(
-                    "poi_by_name", name=intent.near, limit=1
-                )
-            if rows:
-                near_lat, near_lon = rows[0]["lat"], rows[0]["lon"]
-                near_resolved = True
-
-        # Our 1-4 difficulty maps onto two different OSM scales. sac_scale runs
-        # T1-T6 and mtb:scale 0-6, so the same "moderate" is a different number
-        # on each; only the one matching the activity is applied, or a hiking
-        # ceiling would silently constrain a bike search.
-        hike_ceiling = mtb_ceiling = None
-        if intent.max_difficulty_level is not None:
-            hike_ceiling = HIKE_RATING_BY_LEVEL.get(intent.max_difficulty_level)
-            mtb_ceiling = MTB_RATING_BY_LEVEL.get(intent.max_difficulty_level)
-            if intent.activity == "mtb":
-                hike_ceiling = None
-            elif intent.activity == "hike":
-                mtb_ceiling = None
-
-        # The user's activity, in the catalogue's vocabulary. 'hike' covers the
-        # hiking and foot relation families; 'mtb' does not pre-filter on
-        # activity alone — a generated mtb loop AND a rideable OSM relation
-        # both answer a bike question, and mtb_rideable is the conjunction that
-        # decides (one forbidding segment forbids, metadata-rules.md).
-        activities = mtb_only = None
-        if intent.activity == "hike":
-            activities = ["hiking", "foot"]
-        elif intent.activity == "mtb":
-            mtb_only = True
-
-        # Duration is deliberately NOT filtered. The pipeline catalogue carries
-        # no duration until DIN 33466 is calibrated against local guidebook
-        # times (docs/route-document.md: the uncalibrated figure reads 10 h for
-        # a 6-8 h classic) — a wrong figure would exclude the wrong routes
-        # silently. The answer presents distance and climb, which are measured.
-
-        settings = get_settings()
-        params: dict[str, Any] = dict(
-            activities=activities,
-            mtb_only=mtb_only,
-            # Ceilings compare against sac_max — the EXIGENT grade, the hardest
-            # metre walked (owner rule 2026-08-20): a ceiling is a safety
-            # promise, and the character grade would let a T2 walk with a T4
-            # move through a T2 ceiling.
-            max_sac_rank=hike_ceiling,
-            max_mtb_rank=mtb_ceiling,
-            max_ascent_m=intent.max_ascent_m,
-            min_distance_m=intent.min_distance_m,
-            max_distance_m=intent.max_distance_m,
-            # "on trails, off the roads" as a floor rather than a hard filter:
-            # a high bar would exclude good routes for a few hundred metres of
-            # lane, and OSM relations carry no share at all (null passes).
-            min_off_road=0.7 if intent.avoid_roads else None,
-            poi_types=list(intent.poi_types),
-            near_lat=near_lat,
-            near_lon=near_lon,
-            near_radius_m=settings.loop_near_radius_m,
-            # The factory's parameter surface, present in the template and
-            # deliberately unstated here: no intent field maps to them yet
-            # (regions/arrival-class/urban land with the standing plan and
-            # the card work), and an unstated filter filters nothing.
-            regions=None,
-            start_classes=None,
-            max_urban_share=None,
-        )
-        rows = await self._db.run_named(
-            "search_loops", **params, limit=CARD_RESULT_LIMIT
-        )
-        # The true population behind the capped page, for "I found N routes".
-        # A short page IS its population — estimate_loops shares search_loops'
-        # filter fragments byte-for-byte (pinned in test_query_loader), so the
-        # extra round-trip only adds information when LIMIT may have
-        # truncated. facet_cap=0: only the count is wanted.
-        total: int | None = len(rows)
-        if len(rows) >= CARD_RESULT_LIMIT:
-            est = await self._db.run_named("estimate_loops", **params, facet_cap=0)
-            total = est[0].get("total") if est else None
-        return rows, near_resolved, total
+                return (rows[0]["lat"], rows[0]["lon"]), None
+            if name == compiled.start_name:
+                return None, name
+        return plan.near, None
 
     async def _search(
         self, intent: TrailSearchIntent, theme: str | None
@@ -706,18 +557,6 @@ class ChatOrchestrator:
 
         return rows, semantic_unavailable
 
-    async def _routes(
-        self, intents: list[RouteIntent]
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        routes: list[dict[str, Any]] = []
-        refs: dict[str, Any] = {}
-        for index, intent in enumerate(intents):
-            result, route_refs = await self._route(intent)
-            routes.append(result)
-            for key, value in route_refs.items():
-                refs[f"{key}_{index}" if len(intents) > 1 else key] = value
-        return routes, refs
-
     async def _find_poi(self, name: str) -> list[dict[str, Any]]:
         """Relevance-ranked full-text lookup, CONTAINS as the fallback."""
         query = lucene_escape(name).strip()
@@ -728,51 +567,3 @@ class ChatOrchestrator:
             if rows:
                 return rows
         return await self._db.run_named("poi_by_name", name=name, limit=1)
-
-    async def _route(
-        self, intent: RouteIntent
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        settings = get_settings()
-        start = await self._find_poi(intent.start)
-        end = await self._find_poi(intent.end)
-        if not start or not end:
-            missing = intent.start if not start else intent.end
-            return {"route": None, "unknown_place": missing}, {}
-
-        snapped = []
-        for poi in (start[0], end[0]):
-            hit = await self._db.run_named(
-                "nearest_intersection",
-                lat=poi["lat"],
-                lon=poi["lon"],
-                radius_m=settings.snap_radius_m,
-            )
-            if not hit:
-                return {"route": None, "off_network": poi["name"]}, {}
-            snapped.append(hit[0]["osm_node_id"])
-
-        rows = await self._db.run_named(
-            "route_between_intersections",
-            start_node=snapped[0],
-            end_node=snapped[1],
-            max_distance_m=min(
-                intent.max_distance_m or settings.max_route_distance_m,
-                settings.max_route_distance_m,
-            ),
-        )
-        if not rows:
-            return {"route": None, "no_path": True}, {}
-
-        row = rows[0]
-        return (
-            {
-                "route": {
-                    "total_distance_m": row["total_m"],
-                    "elevation_gain_m": row.get("gain_m"),
-                    "start": start[0]["name"],
-                    "end": end[0]["name"],
-                },
-                "geometry": {"type": "LineString", "coordinates": row["coordinates"]},
-            },
-            {"start_poi": start[0]["osm_id"], "end_poi": end[0]["osm_id"]},
-        )

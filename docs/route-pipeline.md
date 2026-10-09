@@ -1,5 +1,11 @@
 # Route pipeline: build geometry offline, serve meaning at runtime
 
+> **SUPERSEDED (R7, chore/retire-catalogue, 2026-09-16).** The pre-generated catalogue
+> this document designed shipped, served, and was retired: routes are now DRAWN at ask
+> time over the exported pack (`docs/route-design.md`), `catalogue.route` stays only as
+> the pack engine's parity oracle, and the `search_loops` / `catalogue_view` runtime
+> described below is gone. Kept as the record of the design and its measurements.
+
 Proposed 2026-08-18. **Built 2026-08-20 in `pipeline/draw/`** — over the curated
 PostGIS network with pgRouting, not over the backend graph this document originally
 assumed (the backend catalogue built 2026-08-18 was the proof of shape; the pipeline
