@@ -1,0 +1,183 @@
+# Production overlay (docs/plan.md, Deploy strategy; runbook: docs/deploy.md).
+# Always together with the dev file, which owns neo4j and postgis:
+#
+#   docker compose -f infra/docker-compose.yml -f infra/compose.prod.yml \
+#     --env-file <the prod env file> --profile <front door> up -d
+#
+# Front door — pick exactly one profile:
+#   caddy         Caddy on 80/443 for $SITE_ADDRESS (a server with a domain,
+#                 or `localhost` for a laptop check)
+#   tunnel-quick  Cloudflare quick tunnel: a random https://*.trycloudflare.com
+#                 address, no account, no open ports — the laptop beta
+#   tunnel        a named Cloudflare Tunnel ($CLOUDFLARE_TUNNEL_TOKEN), for
+#                 when the domain exists
+# Plus `jobs` for one-shot pipeline runs: `... --profile jobs run --rm jobs <cmd>`.
+#
+# Every compose-network address is set in `environment:` below, never left to
+# the env file: compose `environment` beats `env_file`, so a .env copied from
+# .env.example cannot point a service at localhost or switch production off.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  neo4j:
+    # Pinned: the GDS jar on neo4j_plugins is seeded by hand for this exact
+    # version (CONTRIBUTING.md, "Start Neo4j"); a floating minor strands it.
+    image: neo4j:5.26.29-community
+    restart: unless-stopped
+    logging: *logging
+
+  postgis:
+    restart: unless-stopped
+    logging: *logging
+
+  backend:
+    image: ${IMAGE_REGISTRY:-ghcr.io/ai-safe-earth}/vaivia-backend:${IMAGE_TAG:-main}
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file: ${VAIVIA_ENV_FILE:-/srv/vaivia/.env}
+    environment:
+      VAIVIA_ENV: production
+      NEO4J_URI: bolt://neo4j:7687
+      PACK_DIR: /data/packs/current
+      REQUIRE_PACK: "true"
+      ROUTE_DOCUMENTS_DIR: /data/documents
+    volumes:
+      # The pack is read at startup; a publish flips `current` and restarts
+      # this service (infra/publish-pack.sh, D4).
+      - ${PACK_HOST_DIR:-/srv/vaivia/data/packs/current}:/data/packs/current:ro
+      # Saved routes' documents: written here (chat/save_route.py), never pruned.
+      - ${DOCUMENTS_HOST_DIR:-/srv/vaivia/data/documents}:/data/documents
+      # Where scripts.apply_migrations looks (parents[2]/infra/supabase/migrations).
+      - ${MIGRATIONS_HOST_DIR:-./supabase/migrations}:/app/infra/supabase/migrations:ro
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      # Match the BODY: /healthz answers 200 with "database":"down" when Neo4j
+      # is unreachable, and a backend without its pack is down, not degraded.
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json, urllib.request as u;
+          h = json.load(u.urlopen('http://127.0.0.1:8000/healthz', timeout=5));
+          raise SystemExit(0 if h.get('database') == 'up' and h.get('pack') else 1)
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging: *logging
+
+  gateway:
+    image: ${IMAGE_REGISTRY:-ghcr.io/ai-safe-earth}/vaivia-gateway:${IMAGE_TAG:-main}
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
+    restart: unless-stopped
+    env_file: ${VAIVIA_ENV_FILE:-/srv/vaivia/.env}
+    environment:
+      NODE_ENV: production
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: "3001"
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  # ── Front doors (one profile) ─────────────────────────────────────────────
+
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["caddy"]
+    restart: unless-stopped
+    environment:
+      # Checked by infra/deploy.sh: compose interpolates every service, even
+      # those whose profile is off, so `:?` here would break the other doors.
+      SITE_ADDRESS: ${SITE_ADDRESS:-}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *logging
+
+  tunnel-quick:
+    image: cloudflare/cloudflared:2025.9.1
+    profiles: ["tunnel-quick"]
+    restart: unless-stopped
+    # The address is random and printed in this service's log; it changes on
+    # every restart of this container (infra/laptop-publish.sh reads it).
+    command: tunnel --no-autoupdate --url http://gateway:3001
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *logging
+
+  tunnel:
+    image: cloudflare/cloudflared:2025.9.1
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}  # checked by infra/deploy.sh
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *logging
+
+  # ── One-shot jobs ─────────────────────────────────────────────────────────
+
+  jobs:
+    image: ${IMAGE_REGISTRY:-ghcr.io/ai-safe-earth}/vaivia-jobs:${IMAGE_TAG:-main}
+    build:
+      context: ..
+      dockerfile: pipeline/Dockerfile
+    profiles: ["jobs"]
+    env_file: ${VAIVIA_ENV_FILE:-/srv/vaivia/.env}
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      # pipeline/core.py reads this first; derived from the same variables
+      # the postgis service is created with, on the compose network.
+      PIPELINE_DATABASE_URL: postgresql://${POSTGIS_USER:-vaivia}:${POSTGIS_PASSWORD:-}@postgis:5432/${POSTGIS_DB:-vaivia_geo}
+    volumes:
+      - ${PACKS_HOST_DIR:-/srv/vaivia/data/packs}:/data/packs
+      - ${DOCUMENTS_HOST_DIR:-/srv/vaivia/data/documents}:/data/documents
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:
