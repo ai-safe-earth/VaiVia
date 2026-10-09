@@ -41,7 +41,7 @@
 
 | file | status | next |
 |---|---|---|
-| `plans/deploy.md` | active | L0, the named tunnel and the gateway secret; then merge chore/cleanup and D1+D2 so Pages can build main |
+| `plans/deploy.md` | active | L2, local Supabase on auth.vaivia.dev (keys checked, admin API blocked) and the stack on supabase_network_vaivia |
 
 ### evals
 

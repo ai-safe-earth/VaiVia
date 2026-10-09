@@ -20,6 +20,23 @@ def test_local_stack_does_not() -> None:
         assert asyncpg_ssl(url) is False
 
 
+def test_a_docker_container_name_does_not() -> None:
+    # The laptop stage reaches local Supabase by its container name.
+    for host in ("supabase_db_vaivia", "Supabase_DB_Vaivia", "postgres"):
+        assert should_use_tls(f"postgresql://postgres:pw@{host}:5432/postgres") is False
+
+
+def test_any_dotted_or_ip_host_still_encrypts() -> None:
+    for host in (
+        "db.example.com",
+        "10.0.0.5",
+        "192.168.1.20",
+        "[2001:db8::1]",
+        "host.docker.internal",
+    ):
+        assert should_use_tls(f"postgresql://postgres:pw@{host}:5432/postgres") is True
+
+
 def test_sslmode_in_the_url_does_not_decide() -> None:
     # The whole point: a hand-edited string cannot downgrade a remote link...
     assert should_use_tls(HOSTED + "?sslmode=disable") is True
