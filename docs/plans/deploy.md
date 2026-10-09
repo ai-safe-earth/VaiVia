@@ -1,7 +1,7 @@
 ---
 status: active
 step: deploy
-next: L0, secrets and Cloudflare setup for vaivia.dev; then open PRs for D1+D2 (built on feat/prod-compose)
+next: L0, the named tunnel and the gateway secret; then merge chore/cleanup and D1+D2 so Pages can build main
 ---
 
 # Phase 9 — Deploy (ratified 2026-08-28)
@@ -22,12 +22,22 @@ gateway stays Fastify in Docker, not a Worker (a Worker would need the backend
 public); Supabase is the LOCAL stack, so accounts live on the laptop and
 backups are not optional.
 
-- [ ] L0 (no branch) — change the supabase.com login password and turn on
-  two-step login; delete the paused hosted projects; mint a production
-  `GATEWAY_SHARED_SECRET`; create the Pages project and the named tunnel
+- [ ] L0 (no branch) — *Done 2026-10-09:* supabase.com login is GitHub with
+  two-step login; the paused hosted projects are deleted; the Pages project
+  `vaivia` exists, connected to GitHub. *Left:* the named tunnel
   (`CLOUDFLARE_TUNNEL_TOKEN`) in the Cloudflare account that holds vaivia.dev;
-  pick an email-sending service (SMTP — Resend or Brevo free tier) and verify
-  vaivia.dev as its sender domain.
+  a production `GATEWAY_SHARED_SECRET` (`openssl rand -hex 32`, kept in the env
+  file outside the repo). Email: none for now — **closed beta**, accounts
+  created by hand (L2); a real sender is L4.
+- [ ] L0b (no branch) — Pages `vaivia` settings: production branch `main`,
+  preview builds off, root `frontend`, build `npm run build`, output `out`,
+  build variables `NEXT_PUBLIC_GATEWAY_URL=https://api.vaivia.dev`,
+  `NEXT_PUBLIC_SUPABASE_URL=https://auth.vaivia.dev`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the local stack's public key); custom
+  domains `vaivia.dev` and `www.vaivia.dev` (redirected to the apex). The
+  static build (`output: 'export'`) exists only on `feat/prod-compose` until
+  D1 reaches `main`, so the first good build follows `chore/cleanup` →
+  `develop`, D1+D2 → `develop`, release `develop` → `main`.
 - [ ] L1 `feat/db-tls-opt-out` — `backend/core/pg.py:22` and
   `gateway/src/quotaStore.ts:16` accept an explicit `sslmode=disable` in the
   connection string; everything else still encrypts by default (fail secure
@@ -36,20 +46,32 @@ backups are not optional.
 - [ ] L2 `feat/laptop-on-domain` — local Supabase public config in
   `infra/supabase/config.toml`: public URL and token issuer
   `https://auth.vaivia.dev`, `site_url` and redirect URLs `https://vaivia.dev`,
-  real SMTP instead of the local test inbox, signups on with email confirmation.
-  Tunnel ingress for the two hostnames, auth limited to `/auth/v1/*`. Env:
+  public signups OFF (`enable_signup = false` in `[auth]` and `[auth.email]`):
+  the owner creates each tester in local Studio (`127.0.0.1:54323`,
+  Authentication → Add user, auto-confirm) and sends the password by hand;
+  resets are manual too. Tunnel ingress for the two hostnames, auth limited to
+  `/auth/v1/*`, and a Cloudflare rule BLOCKING `/auth/v1/admin/*` (the admin
+  API sits under the same path and answers anyone holding the service key);
+  confirm the local keys are not the stack's shared defaults. Env:
   `ALLOWED_ORIGINS=https://vaivia.dev`, `SUPABASE_URL=https://auth.vaivia.dev`,
   the gateway fetching its key list (JWKS) over the Docker network. Front end
   built with `NEXT_PUBLIC_GATEWAY_URL=https://api.vaivia.dev`,
   `NEXT_PUBLIC_SUPABASE_URL=https://auth.vaivia.dev`. `docs/deploy.md` gains
   this as the laptop section (it replaces the quick-tunnel and hosted-Supabase
-  "laptop beta"). Done when a stranger's browser signs up with a real email,
-  confirms it, and gets a streamed `/chat` answer token by token on vaivia.dev.
+  "laptop beta"). Done when a tester account created in Studio signs in from
+  another network, gets a streamed `/chat` answer token by token on
+  vaivia.dev, and `https://auth.vaivia.dev/auth/v1/admin/users` is refused.
 - [ ] L3 `chore/laptop-backups` — `backup.sh` nightly while the laptop is on
   (`pg_dump` of `public` AND `auth`: here the accounts are ours, unlike hosted),
   plus the Neo4j dump; a copy off the laptop; one restore rehearsed.
   Go-live checks: `GATEWAY_DEV_NO_AUTH` absent, `/rest/v1` and Studio NOT
   reachable from outside, a sign-in rate limit seen to trigger.
+- [ ] L4 `feat/auth-email` (when signup opens) — an email-sending service
+  (SMTP; Resend or Brevo free tier) with vaivia.dev verified as sender
+  (its DNS records in Cloudflare); `[auth.email.smtp]` in `config.toml`, the
+  password from the env file; signups on with email confirmation; the
+  confirm and reset links land on `https://vaivia.dev`. Done when a stranger
+  signs up with a real address, confirms it, and resets a password.
 
 ## The D-steps (ratified 2026-08-28; D1 and D2 serve both stages, D0 and D3–D5 are Stage 2, the VPS)
 
@@ -63,7 +85,7 @@ backups are not optional.
 ## Blockers (carried over from handoff.md, 2026-10-08)
 
 - ~~**high** — the OpenAI API key was shared in plaintext.~~ Rotated 2026-10-09.
-- **high** — the Supabase account password was shared in plaintext and is also in the git history of the deleted `handoff.md`; change it before any deployment (L0).
+- ~~**high** — the Supabase account password was shared in plaintext.~~ Closed 2026-10-09: the hosted projects it belonged to are deleted, and the account signs in through GitHub with two-step login. The old text stays in the git history of `handoff.md`, harmless now.
 - v0.1.0 is tagged on `a8ddd98` and pushed, so production has a release to roll back to.
 
 ## Not bugs

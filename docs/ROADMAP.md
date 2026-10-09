@@ -41,7 +41,7 @@
 
 | file | status | next |
 |---|---|---|
-| `plans/deploy.md` | active | L0, secrets and Cloudflare setup for vaivia.dev; then open PRs for D1+D2 (built on feat/prod-compose) |
+| `plans/deploy.md` | active | L0, the named tunnel and the gateway secret; then merge chore/cleanup and D1+D2 so Pages can build main |
 
 ### evals
 
