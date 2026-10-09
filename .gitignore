@@ -94,5 +94,8 @@ infra/neo4j/plugins/
 # Browser-automation debris (playwright MCP)
 .playwright-mcp/
 
+# MapLibre's worker, copied from node_modules before dev/build
+# (frontend/scripts/copy-maplibre-worker.mjs).
+frontend/public/maplibre/
 # The frontend's static export (next build with output: 'export').
 frontend/out/
