@@ -103,7 +103,7 @@ shares them copy-on-write, and validation touches every one anyway), +250 MB res
 the backend once CSRs are built. The
 potential fields and both matrices are slice 5; slices 1–4 ship without them and answer
 "end at a lake" by search and "an hour from here" by crow-fly with the substitution said
-out loud (the posture `handoff.md` already records for travel time).
+out loud (the posture already recorded for travel time).
 
 ## Ask time
 

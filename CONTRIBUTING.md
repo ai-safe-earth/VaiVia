@@ -248,9 +248,6 @@ See [`docs/architecture.md`](docs/architecture.md) and
   puts the union in every season — a hazard we cannot place in time is always
   possible.
 
-The `graph-model` skill in `.claude/skills/` carries the same rules for AI
-assistants.
-
 ---
 
 ## Testing expectations
@@ -361,10 +358,8 @@ A change is not finished until the docs match it:
 - `docs/architecture.md` — data model changes.
 - `docs/query-examples.md` — new query patterns.
 - `docs/fragilities.md` — a new failure mode, or a mitigation for an old one.
-- `docs/plan.md` — tick the phase checkboxes.
-- `handoff.md` — the root handoff, updated at the end of every working session.
-  There is exactly one; never start a second. Append to `decisions` and
-  `sessions` in the machine block, never rewrite past entries.
+- `docs/plans/<plan>.md` — update `status` and `next` in its frontmatter; `/roadmap`
+  refreshes the status table in `docs/ROADMAP.md`.
 
 ---
 

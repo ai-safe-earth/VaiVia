@@ -238,7 +238,7 @@ async def run_turns(
 
 
 def log_run(summary: dict[str, Any]) -> None:
-    """One JSON line per run, appended: the trend the handoff prose cannot hold."""
+    """One JSON line per run, appended: the trend prose notes cannot hold."""
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
