@@ -1,0 +1,35 @@
+# Every image builds from the repo root (shared/routes is a path dependency of
+# both Python projects). .gitignore guards git, not a build context: a laptop
+# .env baked into a public image is a leak, so secrets are excluded here too.
+.git
+.github
+**/.env
+**/.env.*
+**/*.env
+!**/.env.example
+
+# Local environments and build output
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+**/.next
+**/out
+**/dist
+**/coverage
+**/test-results
+**/playwright-report
+
+# Data that is never part of an image: it is mounted, or it is the owner's
+review/
+review.zip
+pipeline/packs/
+pipeline/data/
+pipeline/cache/
+infra/neo4j/plugins/
+infra/supabase/.branches
+infra/supabase/.temp
+infra/supabase/signing_keys.json
+assets/
+docs/
