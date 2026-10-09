@@ -41,7 +41,7 @@
 
 | file | status | next |
 |---|---|---|
-| `plans/deploy.md` | active | D0 rotate the OpenAI key and Supabase passwords; D1+D2 are built on feat/prod-compose (f487814, eb561b3), PRs to develop pending |
+| `plans/deploy.md` | active | L0, secrets and Cloudflare setup for vaivia.dev; then open PRs for D1+D2 (built on feat/prod-compose) |
 
 ### evals
 
