@@ -22,10 +22,18 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
  * URL connects in plaintext over the public internet — it works, which is what
  * makes it dangerous. Deciding here rather than via `sslmode` in the URL means
  * a hand-edited connection string cannot silently downgrade the link.
+ *
+ * "Local" is loopback or a single-label name such as `supabase_db_vaivia`: a
+ * container on a shared Docker network (the laptop stage). Public DNS names
+ * always carry a dot and IPv6 addresses a colon, so a single label never
+ * leaves the machine's own networks. Mirrors `backend/core/pg.py`.
  */
 export function shouldUseTls(connectionString: string): boolean {
   try {
-    return !LOCAL_HOSTS.has(new URL(connectionString).hostname);
+    const hostname = new URL(connectionString).hostname.toLowerCase();
+    if (LOCAL_HOSTS.has(hostname)) return false;
+    const singleLabel = hostname !== '' && !hostname.includes('.') && !hostname.includes(':');
+    return !singleLabel;
   } catch {
     return true; // Unparseable: fail secure rather than fall back to plaintext.
   }

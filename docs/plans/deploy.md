@@ -1,7 +1,7 @@
 ---
 status: active
 step: deploy
-next: L0, the named tunnel and the gateway secret; then merge chore/cleanup and D1+D2 so Pages can build main
+next: L2, local Supabase on auth.vaivia.dev (keys checked, admin API blocked) and the stack on supabase_network_vaivia
 ---
 
 # Phase 9 — Deploy (ratified 2026-08-28)
@@ -22,27 +22,25 @@ gateway stays Fastify in Docker, not a Worker (a Worker would need the backend
 public); Supabase is the LOCAL stack, so accounts live on the laptop and
 backups are not optional.
 
-- [ ] L0 (no branch) — *Done 2026-10-09:* supabase.com login is GitHub with
+- [x] L0 (no branch) — done 2026-10-09: supabase.com login is GitHub with
   two-step login; the paused hosted projects are deleted; the Pages project
-  `vaivia` exists, connected to GitHub. *Left:* the named tunnel
-  (`CLOUDFLARE_TUNNEL_TOKEN`) in the Cloudflare account that holds vaivia.dev;
-  a production `GATEWAY_SHARED_SECRET` (`openssl rand -hex 32`, kept in the env
-  file outside the repo). Email: none for now — **closed beta**, accounts
-  created by hand (L2); a real sender is L4.
-- [ ] L0b (no branch) — Pages `vaivia` settings: production branch `main`,
-  preview builds off, root `frontend`, build `npm run build`, output `out`,
-  build variables `NEXT_PUBLIC_GATEWAY_URL=https://api.vaivia.dev`,
-  `NEXT_PUBLIC_SUPABASE_URL=https://auth.vaivia.dev`,
-  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the local stack's public key); custom
-  domains `vaivia.dev` and `www.vaivia.dev` (redirected to the apex). The
-  static build (`output: 'export'`) exists only on `feat/prod-compose` until
-  D1 reaches `main`, so the first good build follows `chore/cleanup` →
-  `develop`, D1+D2 → `develop`, release `develop` → `main`.
-- [ ] L1 `feat/db-tls-opt-out` — `backend/core/pg.py:22` and
-  `gateway/src/quotaStore.ts:16` accept an explicit `sslmode=disable` in the
-  connection string; everything else still encrypts by default (fail secure
-  stays the rule). Tests for both: loopback → plain, `sslmode=disable` → plain,
-  any other host → TLS, unparseable → TLS.
+  `vaivia` builds `main`; the named tunnel `vaivia-laptop` exists with one
+  public hostname, `api.vaivia.dev` → `http://gateway:3001` (`auth.vaivia.dev`
+  waits for L2); the tunnel token and a production `GATEWAY_SHARED_SECRET` are
+  in `~/.vaivia/prod.env` (outside the repo, never committed). Email: none for
+  now — **closed beta**, accounts created by hand (L2); a real sender is L4.
+- [x] L0b (no branch) — done 2026-10-09: Pages `vaivia` builds `main` (root
+  `frontend`, `npm run build`, output `out`, previews off); release v0.2.0
+  (`b9ff264`) deployed; custom domains `vaivia.dev` and `www.vaivia.dev`
+  added. `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the local stack's public key) is
+  still to set before L2's first sign-in build.
+- [x] L1 `feat/db-tls-opt-out` — decided 2026-10-09: NOT an `sslmode=disable`
+  opt-out (the existing test that a hand-edited URL cannot downgrade a remote
+  link stays). Instead `backend/core/pg.py` and `gateway/src/quotaStore.ts`
+  count a single-label hostname (no dot, no colon, e.g. `supabase_db_vaivia`)
+  as local, like loopback: public DNS names always carry a dot, so it never
+  leaves the machine's Docker networks. Dotted names, IPv4/IPv6 addresses and
+  `host.docker.internal` still encrypt; unparseable still encrypts.
 - [ ] L2 `feat/laptop-on-domain` — local Supabase public config in
   `infra/supabase/config.toml`: public URL and token issuer
   `https://auth.vaivia.dev`, `site_url` and redirect URLs `https://vaivia.dev`,
@@ -56,7 +54,10 @@ backups are not optional.
   `ALLOWED_ORIGINS=https://vaivia.dev`, `SUPABASE_URL=https://auth.vaivia.dev`,
   the gateway fetching its key list (JWKS) over the Docker network. Front end
   built with `NEXT_PUBLIC_GATEWAY_URL=https://api.vaivia.dev`,
-  `NEXT_PUBLIC_SUPABASE_URL=https://auth.vaivia.dev`. `docs/deploy.md` gains
+  `NEXT_PUBLIC_SUPABASE_URL=https://auth.vaivia.dev`. The backend and gateway
+  join the external network `supabase_network_vaivia` and use
+  `DATABASE_URL=postgresql://postgres:<pw>@supabase_db_vaivia:5432/postgres`
+  (L1's single-label rule). `docs/deploy.md` gains
   this as the laptop section (it replaces the quick-tunnel and hosted-Supabase
   "laptop beta"). Done when a tester account created in Studio signs in from
   another network, gets a streamed `/chat` answer token by token on
